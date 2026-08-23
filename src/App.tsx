@@ -158,8 +158,11 @@ function AppRoutes() {
     if (newSettings.theme) {
       setStatusBarTheme(newSettings.theme);
     }
-    const updated = saveSettings(newSettings);
-    setSettings(updated);
+    setSettings((prev) => {
+      const updated = { ...prev, ...newSettings };
+      saveSettings(updated);
+      return updated;
+    });
   };
 
   // Open a local book file in FoliateReader

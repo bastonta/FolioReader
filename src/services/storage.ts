@@ -279,14 +279,15 @@ export function loadSettings(): ReaderSettings {
 }
 
 export function saveSettings(settings: Partial<ReaderSettings>): ReaderSettings {
-  const current = loadSettings();
-  const updated = { ...current, ...settings };
-  const toSave = { ...updated };
-  if (!toSave.sidebarPinned) {
-    toSave.sidebarOpen = false;
+  try {
+    const data = localStorage.getItem(SETTINGS_KEY);
+    const current = data ? { ...DEFAULT_SETTINGS, ...JSON.parse(data) } : DEFAULT_SETTINGS;
+    const updated = { ...current, ...settings };
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(updated));
+    return updated;
+  } catch {
+    return { ...DEFAULT_SETTINGS, ...settings };
   }
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(toSave));
-  return updated;
 }
 
 // Recent Books
