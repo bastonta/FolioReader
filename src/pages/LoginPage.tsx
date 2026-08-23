@@ -2,8 +2,14 @@ import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { BookOpen, LogIn, Lock, Mail, AlertCircle, ShieldCheck, KeyRound, ArrowLeft, Server, Loader } from 'lucide-react';
+import { ThemeToggle } from '../components/common/ThemeToggle';
 
-export const LoginPage: React.FC = () => {
+interface LoginPageProps {
+  theme?: string;
+  onToggleTheme?: () => void;
+}
+
+export const LoginPage: React.FC<LoginPageProps> = ({ theme, onToggleTheme }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -73,6 +79,9 @@ export const LoginPage: React.FC = () => {
 
   return (
     <div className="auth-page">
+      {/* Top Right Theme Toggle */}
+      <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+
       <div className="auth-card">
         {serverUrl && (
           <div className="auth-server-badge" onClick={handleChangeServer} title="Change server">
@@ -90,14 +99,14 @@ export const LoginPage: React.FC = () => {
           </h1>
           <p className="auth-subtitle">
             {twoFactorData 
-              ? (isRecovery ? 'Enter a recovery code to log in' : 'Enter the code from your authenticator app')
-              : 'Log in to your account to continue'}
+              ? (isRecovery ? 'Enter one of your recovery codes to sign in' : 'Enter the 6-digit code from your authenticator app')
+              : 'Sign in to your Folio digital library'}
           </p>
         </div>
 
         {error && (
           <div className="auth-error">
-            <AlertCircle size={20} />
+            <AlertCircle size={18} style={{ flexShrink: 0 }} />
             <span>{error}</span>
           </div>
         )}
@@ -105,10 +114,10 @@ export const LoginPage: React.FC = () => {
         {!twoFactorData ? (
           <form className="auth-form" onSubmit={handleLoginSubmit}>
             <div className="auth-field">
-              <label className="auth-label" htmlFor="email">Email</label>
+              <label className="auth-label" htmlFor="email">Email Address</label>
               <div className="auth-input-wrapper">
                 <div className="auth-input-icon">
-                  <Mail size={20} />
+                  <Mail size={18} />
                 </div>
                 <input
                   id="email"
@@ -118,6 +127,7 @@ export const LoginPage: React.FC = () => {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   disabled={loading}
+                  autoFocus
                 />
               </div>
             </div>
@@ -125,11 +135,11 @@ export const LoginPage: React.FC = () => {
             <div className="auth-field">
               <div className="auth-label-row">
                 <label className="auth-label" htmlFor="password">Password</label>
-                <Link to="/forgot-password" className="auth-link">Forgot password?</Link>
+                <Link to="/forgot-password" className="auth-link-sm">Forgot password?</Link>
               </div>
               <div className="auth-input-wrapper">
                 <div className="auth-input-icon">
-                  <Lock size={20} />
+                  <Lock size={18} />
                 </div>
                 <input
                   id="password"
@@ -144,27 +154,24 @@ export const LoginPage: React.FC = () => {
             </div>
 
             <button type="submit" className="auth-btn-primary" disabled={loading || !email || !password}>
-              {loading ? <Loader size={20} className="spinner" /> : <LogIn size={20} />}
-              <span>{loading ? 'Logging in...' : 'Log In'}</span>
+              {loading ? <Loader size={18} className="spinner" /> : <LogIn size={18} />}
+              <span>{loading ? 'Signing in...' : 'Sign In'}</span>
             </button>
-            
-            <div className="auth-divider">
-              <span>or</span>
-            </div>
 
             <div className="auth-footer-text">
-              Don't have an account? <Link to="/register" className="auth-link">Sign up</Link>
+              Don't have an account?{' '}
+              <Link to="/register" className="auth-link">Register here</Link>
             </div>
           </form>
         ) : (
           <form className="auth-form" onSubmit={handle2faSubmit}>
             <div className="auth-field">
               <label className="auth-label" htmlFor="code">
-                {isRecovery ? 'Recovery Code' : 'Authentication Code'}
+                {isRecovery ? 'Recovery Code' : '6-Digit TOTP Code'}
               </label>
               <div className="auth-input-wrapper">
                 <div className="auth-input-icon">
-                  <KeyRound size={20} />
+                  <KeyRound size={18} />
                 </div>
                 <input
                   id="code"
@@ -181,8 +188,8 @@ export const LoginPage: React.FC = () => {
             </div>
 
             <button type="submit" className="auth-btn-primary" disabled={loading || !twoFactorCode}>
-              {loading ? <Loader size={20} className="spinner" /> : <LogIn size={20} />}
-              <span>{loading ? 'Verifying...' : 'Verify & Log In'}</span>
+              {loading ? <Loader size={18} className="spinner" /> : <ShieldCheck size={18} />}
+              <span>{loading ? 'Verifying...' : 'Verify & Sign In'}</span>
             </button>
 
             <button 
@@ -195,7 +202,7 @@ export const LoginPage: React.FC = () => {
               }}
               disabled={loading}
             >
-              {isRecovery ? 'Use authenticator code' : 'Use recovery code'}
+              {isRecovery ? 'Use authenticator app code' : 'Use recovery code instead'}
             </button>
             
             <button 
@@ -204,8 +211,8 @@ export const LoginPage: React.FC = () => {
               onClick={handleBackToLogin}
               disabled={loading}
             >
-              <ArrowLeft size={20} />
-              <span>Back to Login</span>
+              <ArrowLeft size={16} />
+              <span>Back to Sign In</span>
             </button>
           </form>
         )}

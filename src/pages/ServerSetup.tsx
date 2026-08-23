@@ -9,8 +9,14 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { fetch } from "@tauri-apps/plugin-http";
 import { useAuth } from "../context/AuthContext";
+import { ThemeToggle } from "../components/common/ThemeToggle";
 
-export const ServerSetup: React.FC = () => {
+interface ServerSetupProps {
+  theme?: string;
+  onToggleTheme?: () => void;
+}
+
+export const ServerSetup: React.FC<ServerSetupProps> = ({ theme, onToggleTheme }) => {
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -61,6 +67,9 @@ export const ServerSetup: React.FC = () => {
 
   return (
     <div className="auth-page">
+      {/* Top Right Theme Toggle */}
+      <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+
       <div className="auth-card">
         <div className="auth-header">
           <div className="auth-icon-badge">
@@ -72,7 +81,7 @@ export const ServerSetup: React.FC = () => {
 
         {error && (
           <div className="auth-error">
-            <AlertCircle size={20} />
+            <AlertCircle size={18} style={{ flexShrink: 0 }} />
             <span>{error}</span>
           </div>
         )}
@@ -84,7 +93,7 @@ export const ServerSetup: React.FC = () => {
             </label>
             <div className="auth-input-wrapper">
               <div className="auth-input-icon">
-                <Server size={20} />
+                <Server size={18} />
               </div>
               <input
                 id="serverUrl"
@@ -105,9 +114,9 @@ export const ServerSetup: React.FC = () => {
             disabled={loading || !url}
           >
             {loading ? (
-              <Loader size={20} className="spinner" />
+              <Loader size={18} className="spinner" />
             ) : (
-              <ArrowRight size={20} />
+              <ArrowRight size={18} />
             )}
             <span>{loading ? "Connecting..." : "Connect"}</span>
           </button>

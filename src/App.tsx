@@ -281,16 +281,20 @@ function AppRoutes() {
     navigate('/profile');
   };
 
+  const handleToggleAuthTheme = () => {
+    handleUpdateSettings({ theme: settings.theme === 'dark' || settings.theme === 'gray' ? 'light' : 'dark' });
+  };
+
   return (
     <div className={`app-container theme-${settings.theme}`}>
       <Routes>
         {/* ── Public auth routes ─────────────────────────────── */}
-        <Route path="/server" element={<ServerSetup />} />
+        <Route path="/server" element={<ServerSetup theme={settings.theme} onToggleTheme={handleToggleAuthTheme} />} />
         <Route
           path="/login"
           element={
             <GuestOnly>
-              <LoginPage />
+              <LoginPage theme={settings.theme} onToggleTheme={handleToggleAuthTheme} />
             </GuestOnly>
           }
         />
@@ -298,19 +302,19 @@ function AppRoutes() {
           path="/register"
           element={
             <GuestOnly>
-              <RegisterPage />
+              <RegisterPage theme={settings.theme} onToggleTheme={handleToggleAuthTheme} />
             </GuestOnly>
           }
         />
         <Route
           path="/confirm-email"
-          element={<ConfirmEmailPage />}
+          element={<ConfirmEmailPage theme={settings.theme} onToggleTheme={handleToggleAuthTheme} />}
         />
         <Route
           path="/forgot-password"
           element={
             <GuestOnly>
-              <ForgotPasswordPage />
+              <ForgotPasswordPage theme={settings.theme} onToggleTheme={handleToggleAuthTheme} />
             </GuestOnly>
           }
         />

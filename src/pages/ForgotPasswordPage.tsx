@@ -2,11 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { authApi } from '../api/authApi';
 import { KeyRound, Mail, Lock, AlertCircle, CheckCircle2, ArrowLeft, RefreshCw, ShieldCheck, Loader } from 'lucide-react';
+import { ThemeToggle } from '../components/common/ThemeToggle';
 
-type Step = 'REQUEST' | 'VERIFY' | 'RESET' | 'SUCCESS';
+interface ForgotPasswordPageProps {
+  theme?: string;
+  onToggleTheme?: () => void;
+}
 
-export const ForgotPasswordPage: React.FC = () => {
-  const [step, setStep] = useState<Step>('REQUEST');
+export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, onToggleTheme }) => {
+  const [step, setStep] = useState<'REQUEST' | 'VERIFY' | 'RESET' | 'SUCCESS'>('REQUEST');
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
   const [password, setPassword] = useState('');
@@ -58,7 +62,7 @@ export const ForgotPasswordPage: React.FC = () => {
     try {
       setLoading(true);
       const res = await authApi.passwordResetValidation(email, code);
-      setToken(res.token); // assuming verify returns a token for reset
+      setToken(res.token);
       setStep('RESET');
     } catch (err) {
       setError((err as any)?.message || 'Invalid code');
@@ -107,8 +111,10 @@ export const ForgotPasswordPage: React.FC = () => {
 
   return (
     <div className="auth-page">
+      {/* Top Right Theme Toggle */}
+      <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+
       <div className="auth-card">
-        
         {step === 'REQUEST' && (
           <>
             <div className="auth-header">
@@ -121,17 +127,17 @@ export const ForgotPasswordPage: React.FC = () => {
 
             {error && (
               <div className="auth-error">
-                <AlertCircle size={20} />
+                <AlertCircle size={18} style={{ flexShrink: 0 }} />
                 <span>{error}</span>
               </div>
             )}
 
             <form className="auth-form" onSubmit={handleRequest}>
               <div className="auth-field">
-                <label className="auth-label" htmlFor="email">Email</label>
+                <label className="auth-label" htmlFor="email">Email Address</label>
                 <div className="auth-input-wrapper">
                   <div className="auth-input-icon">
-                    <Mail size={20} />
+                    <Mail size={18} />
                   </div>
                   <input
                     id="email"
@@ -147,7 +153,7 @@ export const ForgotPasswordPage: React.FC = () => {
               </div>
 
               <button type="submit" className="auth-btn-primary" disabled={loading || !email}>
-                {loading ? <Loader size={20} className="spinner" /> : <Mail size={20} />}
+                {loading ? <Loader size={18} className="spinner" /> : <Mail size={18} />}
                 <span>{loading ? 'Sending...' : 'Send Reset Code'}</span>
               </button>
             </form>
@@ -166,7 +172,7 @@ export const ForgotPasswordPage: React.FC = () => {
 
             {error && (
               <div className="auth-error">
-                <AlertCircle size={20} />
+                <AlertCircle size={18} style={{ flexShrink: 0 }} />
                 <span>{error}</span>
               </div>
             )}
@@ -176,7 +182,7 @@ export const ForgotPasswordPage: React.FC = () => {
                 <label className="auth-label" htmlFor="code">Reset Code</label>
                 <div className="auth-input-wrapper">
                   <div className="auth-input-icon">
-                    <KeyRound size={20} />
+                    <KeyRound size={18} />
                   </div>
                   <input
                     id="code"
@@ -192,7 +198,7 @@ export const ForgotPasswordPage: React.FC = () => {
               </div>
 
               <button type="submit" className="auth-btn-primary" disabled={loading || code.length !== 6}>
-                {loading ? <Loader size={20} className="spinner" /> : <ShieldCheck size={20} />}
+                {loading ? <Loader size={18} className="spinner" /> : <ShieldCheck size={18} />}
                 <span>{loading ? 'Verifying...' : 'Verify Code'}</span>
               </button>
 
@@ -223,7 +229,7 @@ export const ForgotPasswordPage: React.FC = () => {
 
             {error && (
               <div className="auth-error">
-                <AlertCircle size={20} />
+                <AlertCircle size={18} style={{ flexShrink: 0 }} />
                 <span>{error}</span>
               </div>
             )}
@@ -233,7 +239,7 @@ export const ForgotPasswordPage: React.FC = () => {
                 <label className="auth-label" htmlFor="password">New Password</label>
                 <div className="auth-input-wrapper">
                   <div className="auth-input-icon">
-                    <Lock size={20} />
+                    <Lock size={18} />
                   </div>
                   <input
                     id="password"
@@ -251,7 +257,7 @@ export const ForgotPasswordPage: React.FC = () => {
                 <label className="auth-label" htmlFor="confirmPassword">Confirm Password</label>
                 <div className="auth-input-wrapper">
                   <div className="auth-input-icon">
-                    <Lock size={20} />
+                    <Lock size={18} />
                   </div>
                   <input
                     id="confirmPassword"
@@ -266,7 +272,7 @@ export const ForgotPasswordPage: React.FC = () => {
               </div>
 
               <button type="submit" className="auth-btn-primary" disabled={loading || !password || !confirmPassword}>
-                {loading ? <Loader size={20} className="spinner" /> : <Lock size={20} />}
+                {loading ? <Loader size={18} className="spinner" /> : <Lock size={18} />}
                 <span>{loading ? 'Resetting...' : 'Reset Password'}</span>
               </button>
             </form>
@@ -275,22 +281,22 @@ export const ForgotPasswordPage: React.FC = () => {
 
         {step === 'SUCCESS' && (
           <div className="auth-header">
-            <div className="auth-icon-badge" style={{ backgroundColor: 'var(--success-bg)', color: 'var(--success-fg)' }}>
+            <div className="auth-icon-badge success">
               <CheckCircle2 size={24} />
             </div>
             <h1 className="auth-title">Password Reset</h1>
             <p className="auth-subtitle">Your password has been successfully reset.</p>
             <br />
             <Link to="/login" className="auth-btn-primary" style={{ textDecoration: 'none' }}>
-              Back to Login
+              Back to Sign In
             </Link>
           </div>
         )}
 
         {step !== 'SUCCESS' && (
-          <div className="auth-footer-text" style={{ marginTop: '24px' }}>
-            <Link to="/login" className="auth-link" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-              <ArrowLeft size={16} /> Back to Login
+          <div className="auth-footer-text">
+            <Link to="/login" className="auth-link" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              <ArrowLeft size={16} /> Back to Sign In
             </Link>
           </div>
         )}

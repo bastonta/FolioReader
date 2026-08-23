@@ -28,6 +28,16 @@
   --radius-lg: 12px;
   --radius-full: 9999px;
 
+  /* Aliases & Status Colors */
+  --text-color: var(--text-primary);
+  --bg-lighter: var(--bg-secondary);
+  --success-color: #22c55e;
+  --success-bg: rgba(34, 197, 94, 0.12);
+  --success-fg: #16a34a;
+  --warning-color: #f59e0b;
+  --warning-bg: rgba(245, 158, 11, 0.12);
+  --warning-fg: #d97706;
+
   /* Safe Area Insets (combines env() with dynamic Android Bridge CSS variables) */
   --sat: max(env(safe-area-inset-top, 0px), var(--safe-area-top, 0px));
   --sab: max(env(safe-area-inset-bottom, 0px), var(--safe-area-bottom, 0px));
@@ -50,6 +60,12 @@
   --text-muted: #9e8464;
   --accent-color: #8f6b32;
   --accent-hover: #735424;
+  --text-color: var(--text-primary);
+  --bg-lighter: var(--bg-secondary);
+  --success-bg: rgba(143, 107, 50, 0.15);
+  --success-fg: #8f6b32;
+  --warning-bg: rgba(160, 110, 30, 0.15);
+  --warning-fg: #8f6b32;
 }
 
 .theme-gray {
@@ -67,6 +83,14 @@
   --accent-color: #88c0d0;
   --accent-hover: #81a1c1;
   --accent-text: #2e3440;
+  --text-color: var(--text-primary);
+  --bg-lighter: var(--bg-secondary);
+  --success-color: #a3be8c;
+  --success-bg: rgba(163, 190, 140, 0.15);
+  --success-fg: #a3be8c;
+  --warning-color: #ebcb8b;
+  --warning-bg: rgba(235, 203, 139, 0.15);
+  --warning-fg: #ebcb8b;
 }
 
 .theme-dark {
@@ -84,6 +108,14 @@
   --accent-color: #62a0ea;
   --accent-hover: #3584e4;
   --accent-text: #ffffff;
+  --text-color: var(--text-primary);
+  --bg-lighter: var(--bg-secondary);
+  --success-color: #4ade80;
+  --success-bg: rgba(74, 222, 128, 0.15);
+  --success-fg: #4ade80;
+  --warning-color: #fbbf24;
+  --warning-bg: rgba(251, 191, 36, 0.15);
+  --warning-fg: #fbbf24;
 }
 
 .theme-solarized {
@@ -100,6 +132,14 @@
   --text-muted: #93a1a1;
   --accent-color: #268bd2;
   --accent-hover: #1e70a8;
+  --text-color: var(--text-primary);
+  --bg-lighter: var(--bg-secondary);
+  --success-color: #859900;
+  --success-bg: rgba(133, 153, 0, 0.15);
+  --success-fg: #859900;
+  --warning-color: #b58900;
+  --warning-bg: rgba(181, 137, 0, 0.15);
+  --warning-fg: #b58900;
 }
 
 /* Reset & Global */

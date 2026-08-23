@@ -3,8 +3,14 @@ import { useLocation, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { authApi } from '../api/authApi';
 import { MailCheck, KeyRound, AlertCircle, RefreshCw, ArrowLeft, CheckCircle2, Loader } from 'lucide-react';
+import { ThemeToggle } from '../components/common/ThemeToggle';
 
-export const ConfirmEmailPage: React.FC = () => {
+interface ConfirmEmailPageProps {
+  theme?: string;
+  onToggleTheme?: () => void;
+}
+
+export const ConfirmEmailPage: React.FC<ConfirmEmailPageProps> = ({ theme, onToggleTheme }) => {
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -78,7 +84,7 @@ export const ConfirmEmailPage: React.FC = () => {
         const now = Date.now();
         setCountdown(Math.max(0, Math.ceil((targetTime - now) / 1000)));
       } else {
-        setCountdown(60); // fallback
+        setCountdown(60);
       }
     } catch (err) {
       setError((err as any)?.message || 'Failed to resend code');
@@ -90,9 +96,10 @@ export const ConfirmEmailPage: React.FC = () => {
   if (success) {
     return (
       <div className="auth-page">
+        <ThemeToggle theme={theme} onToggle={onToggleTheme} />
         <div className="auth-card">
           <div className="auth-header">
-            <div className="auth-icon-badge" style={{ backgroundColor: 'var(--success-bg)', color: 'var(--success-fg)' }}>
+            <div className="auth-icon-badge success">
               <CheckCircle2 size={24} />
             </div>
             <h1 className="auth-title">Email Confirmed!</h1>
@@ -105,6 +112,9 @@ export const ConfirmEmailPage: React.FC = () => {
 
   return (
     <div className="auth-page">
+      {/* Top Right Theme Toggle */}
+      <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+
       <div className="auth-card">
         <div className="auth-header">
           <div className="auth-icon-badge">
@@ -118,7 +128,7 @@ export const ConfirmEmailPage: React.FC = () => {
 
         {error && (
           <div className="auth-error">
-            <AlertCircle size={20} />
+            <AlertCircle size={18} style={{ flexShrink: 0 }} />
             <span>{error}</span>
           </div>
         )}
@@ -128,7 +138,7 @@ export const ConfirmEmailPage: React.FC = () => {
             <label className="auth-label" htmlFor="code">Confirmation Code</label>
             <div className="auth-input-wrapper">
               <div className="auth-input-icon">
-                <KeyRound size={20} />
+                <KeyRound size={18} />
               </div>
               <input
                 id="code"
@@ -144,7 +154,7 @@ export const ConfirmEmailPage: React.FC = () => {
           </div>
 
           <button type="submit" className="auth-btn-primary" disabled={loading || code.length !== 6}>
-            {loading ? <Loader size={20} className="spinner" /> : <CheckCircle2 size={20} />}
+            {loading ? <Loader size={18} className="spinner" /> : <CheckCircle2 size={18} />}
             <span>{loading ? 'Confirming...' : 'Confirm Email'}</span>
           </button>
 
@@ -161,8 +171,8 @@ export const ConfirmEmailPage: React.FC = () => {
           </button>
 
           <div className="auth-footer-text">
-            <Link to="/login" className="auth-link" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-              <ArrowLeft size={16} /> Back to Login
+            <Link to="/login" className="auth-link" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              <ArrowLeft size={16} /> Back to Sign In
             </Link>
           </div>
         </form>

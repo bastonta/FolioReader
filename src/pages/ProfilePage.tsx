@@ -222,7 +222,7 @@ export const ProfilePage: React.FC = () => {
   const getInitial = (name: string) => name ? name.charAt(0).toUpperCase() : '?';
 
   return (
-    <div className="profile-page" style={{ height: '100%', overflowY: 'auto' }}>
+    <div className="profile-page">
       <header className="library-header">
         <button className="header-pill-btn" onClick={() => navigate(-1)}>
           <ArrowLeft size={16} />
@@ -234,40 +234,40 @@ export const ProfilePage: React.FC = () => {
         <div style={{ width: 80 }} /> {/* spacer */}
       </header>
 
-      <div className="profile-content" style={{ padding: '24px', maxWidth: 800, margin: '0 auto' }}>
+      <div className="profile-content">
         
         {error && (
-          <div className="auth-error" style={{ marginBottom: 24, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <AlertCircle size={16} />
+          <div className="auth-error">
+            <AlertCircle size={18} />
             <span>{error}</span>
           </div>
         )}
         
         {successMsg && (
-          <div className="auth-info" style={{ marginBottom: 24, display: 'flex', alignItems: 'center', gap: 8, backgroundColor: 'rgba(34, 197, 94, 0.1)', color: '#22c55e', borderColor: '#22c55e' }}>
-            <CheckCircle2 size={16} />
+          <div className="auth-success">
+            <CheckCircle2 size={18} />
             <span>{successMsg}</span>
           </div>
         )}
 
         {/* User Information */}
-        <div className="profile-card" style={{ marginBottom: 24 }}>
+        <div className="profile-card">
           <div className="profile-card-title">User Information</div>
-          <div className="profile-user-header" style={{ display: 'flex', alignItems: 'center', gap: 24, marginBottom: 24 }}>
-            <div className="profile-avatar" style={{ width: 64, height: 64, borderRadius: '50%', backgroundColor: 'var(--accent-color)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, fontWeight: 'bold' }}>
+          <div className="profile-user-header">
+            <div className="profile-avatar">
               {getInitial(user?.name || '')}
             </div>
-            <div className="profile-user-info" style={{ flex: 1 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+            <div className="profile-user-info">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 {!isEditingName ? (
                   <>
-                    <div className="profile-user-name" style={{ fontSize: 20, fontWeight: 600, color: 'var(--text-color)' }}>{user?.name}</div>
+                    <div className="profile-user-name">{user?.name}</div>
                     <button className="profile-btn profile-btn-secondary" style={{ padding: 6 }} onClick={() => setIsEditingName(true)} title="Edit Name">
                       <Pencil size={14} />
                     </button>
                   </>
                 ) : (
-                  <form onSubmit={handleUpdateName} className="profile-inline-form" style={{ display: 'flex', gap: 8, width: '100%', maxWidth: 400 }}>
+                  <form onSubmit={handleUpdateName} className="profile-inline-form" style={{ maxWidth: 400 }}>
                     <input 
                       type="text" 
                       className="auth-input" 
@@ -276,91 +276,97 @@ export const ProfilePage: React.FC = () => {
                       disabled={isLoading}
                       autoFocus
                     />
-                    <button type="submit" className="auth-btn-primary" disabled={isLoading || !newName.trim()}>Save</button>
-                    <button type="button" className="auth-btn-secondary" onClick={() => { setIsEditingName(false); setNewName(user?.name || ''); }}>Cancel</button>
+                    <button type="submit" className="auth-btn-primary" style={{ width: 'auto', padding: '0 16px' }} disabled={isLoading || !newName.trim()}>Save</button>
+                    <button type="button" className="auth-btn-secondary" style={{ width: 'auto', padding: '0 16px' }} onClick={() => { setIsEditingName(false); setNewName(user?.name || ''); }}>Cancel</button>
                   </form>
                 )}
               </div>
-              <div className="profile-user-email" style={{ color: 'var(--text-muted)' }}>{user?.email}</div>
+              <div className="profile-user-email">{user?.email}</div>
             </div>
           </div>
-          <div className="profile-field-row" style={{ display: 'flex', gap: 12 }}>
-            <span className={`profile-badge ${user?.twoFactorEnabled ? 'success' : 'warning'}`} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 12, fontSize: 12, fontWeight: 500, backgroundColor: user?.twoFactorEnabled ? 'rgba(34, 197, 94, 0.1)' : 'rgba(234, 179, 8, 0.1)', color: user?.twoFactorEnabled ? '#22c55e' : '#eab308' }}>
-              {user?.twoFactorEnabled ? <ShieldCheck size={14} /> : <ShieldAlert size={14} />}
-              2FA {user?.twoFactorEnabled ? 'Enabled' : 'Disabled'}
-            </span>
-            <span className={`profile-badge ${user?.emailConfirmed ? 'success' : 'neutral'}`} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 12, fontSize: 12, fontWeight: 500, backgroundColor: user?.emailConfirmed ? 'rgba(34, 197, 94, 0.1)' : 'rgba(100, 116, 139, 0.1)', color: user?.emailConfirmed ? '#22c55e' : 'var(--text-muted)' }}>
-              <CheckCircle2 size={14} />
-              Email {user?.emailConfirmed ? 'Confirmed' : 'Unconfirmed'}
-            </span>
+          <div className="profile-field-row" style={{ paddingTop: 8, borderBottom: 'none' }}>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <span className={`profile-badge ${user?.twoFactorEnabled ? 'success' : 'warning'}`}>
+                {user?.twoFactorEnabled ? <ShieldCheck size={14} /> : <ShieldAlert size={14} />}
+                2FA {user?.twoFactorEnabled ? 'Enabled' : 'Disabled'}
+              </span>
+              <span className={`profile-badge ${user?.emailConfirmed ? 'success' : 'neutral'}`}>
+                <CheckCircle2 size={14} />
+                Email {user?.emailConfirmed ? 'Confirmed' : 'Unconfirmed'}
+              </span>
+            </div>
           </div>
         </div>
 
         {/* Change Password */}
-        <div className="profile-card" style={{ marginBottom: 24 }}>
+        <div className="profile-card">
           <div className="profile-card-title">
-            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><KeyRound size={18} /> Change Password</span>
+            <KeyRound size={18} />
+            <span>Change Password</span>
           </div>
-          <div style={{ marginTop: 16 }}>
-            <p style={{ color: 'var(--text-muted)', fontSize: 14, marginBottom: 16 }}>
+          <div>
+            <p style={{ color: 'var(--text-secondary)', fontSize: 13.5, margin: '0 0 16px 0', lineHeight: 1.4 }}>
               Ensure your account is using a long, random password to stay secure.
             </p>
-            <button className="auth-btn-primary" onClick={() => { clearMessages(); setShowPasswordChange(true); }} disabled={isLoading}>
+            <button className="auth-btn-primary" style={{ maxWidth: 200 }} onClick={() => { clearMessages(); setShowPasswordChange(true); }} disabled={isLoading}>
               Change Password
             </button>
           </div>
         </div>
 
         {/* Change Email */}
-        <div className="profile-card" style={{ marginBottom: 24 }}>
+        <div className="profile-card">
           <div className="profile-card-title">
-            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Mail size={18} /> Change Email</span>
+            <Mail size={18} />
+            <span>Change Email</span>
           </div>
-          <div style={{ marginTop: 16 }}>
-            <p style={{ color: 'var(--text-muted)', fontSize: 14, marginBottom: 16 }}>
+          <div>
+            <p style={{ color: 'var(--text-secondary)', fontSize: 13.5, margin: '0 0 16px 0', lineHeight: 1.4 }}>
               Update the email address associated with your account. A verification code will be sent to confirm.
             </p>
-            <button className="auth-btn-primary" onClick={() => { clearMessages(); setEmailChangeStep(1); setShowEmailChange(true); }} disabled={isLoading}>
+            <button className="auth-btn-primary" style={{ maxWidth: 200 }} onClick={() => { clearMessages(); setEmailChangeStep(1); setShowEmailChange(true); }} disabled={isLoading}>
               Change Email
             </button>
           </div>
         </div>
 
         {/* Two-Factor Authentication */}
-        <div className="profile-card" style={{ marginBottom: 24 }}>
+        <div className="profile-card">
           <div className="profile-card-title">
-            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><ShieldCheck size={18} /> Two-Factor Authentication (2FA)</span>
+            <ShieldCheck size={18} />
+            <span>Two-Factor Authentication (2FA)</span>
           </div>
-          <div style={{ marginTop: 16 }}>
-            <p style={{ color: 'var(--text-muted)', fontSize: 14, marginBottom: 16 }}>
+          <div>
+            <p style={{ color: 'var(--text-secondary)', fontSize: 13.5, margin: '0 0 16px 0', lineHeight: 1.4 }}>
               Add an extra layer of security to your account by requiring a code from your authenticator app when you sign in.
             </p>
             
             {!user?.twoFactorEnabled ? (
-              <button className="auth-btn-primary" onClick={handleStartEnable2FA} disabled={isLoading}>Enable 2FA</button>
+              <button className="auth-btn-primary" style={{ maxWidth: 200 }} onClick={handleStartEnable2FA} disabled={isLoading}>Enable 2FA</button>
             ) : (
-              <div style={{ display: 'flex', gap: 12 }}>
-                <button className="auth-btn-secondary" onClick={() => { clearMessages(); setShowViewRecoveryCodes(true); }}>View Recovery Codes</button>
-                <button className="auth-btn-text" style={{ color: '#ef4444' }} onClick={() => { clearMessages(); setShowDisable2FA(true); }}>Disable 2FA</button>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                <button className="auth-btn-secondary" style={{ width: 'auto' }} onClick={() => { clearMessages(); setShowViewRecoveryCodes(true); }}>View Recovery Codes</button>
+                <button className="auth-btn-text" style={{ color: 'var(--danger-color)' }} onClick={() => { clearMessages(); setShowDisable2FA(true); }}>Disable 2FA</button>
               </div>
             )}
           </div>
         </div>
 
         {/* Server & Session */}
-        <div className="profile-card" style={{ marginBottom: 24 }}>
+        <div className="profile-card">
           <div className="profile-card-title">
-            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}><Server size={18} /> Server & Session</span>
+            <Server size={18} />
+            <span>Server & Session</span>
           </div>
-          <div style={{ marginTop: 16 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, padding: '12px 16px', backgroundColor: 'var(--bg-lighter)', borderRadius: 8 }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, padding: '12px 16px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)', borderRadius: 10 }}>
               <Server size={16} color="var(--text-muted)" />
-              <span style={{ fontSize: 14, color: 'var(--text-muted)' }}>Connected to:</span>
-              <strong style={{ fontSize: 14, color: 'var(--text-color)' }}>{serverUrl}</strong>
+              <span style={{ fontSize: 13.5, color: 'var(--text-secondary)' }}>Connected to:</span>
+              <strong style={{ fontSize: 13.5, color: 'var(--text-primary)' }}>{serverUrl}</strong>
             </div>
-            <div style={{ display: 'flex', gap: 12 }}>
-              <button className="auth-btn-secondary" onClick={() => { clearServer(); navigate('/server'); }}>Change Server</button>
-              <button className="auth-btn-secondary" onClick={() => { logout(); navigate('/login'); }} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              <button className="auth-btn-secondary" style={{ width: 'auto' }} onClick={() => { clearServer(); navigate('/server'); }}>Change Server</button>
+              <button className="auth-btn-secondary" style={{ width: 'auto', display: 'flex', alignItems: 'center', gap: 8 }} onClick={() => { logout(); navigate('/login'); }}>
                 <LogOut size={16} /> Sign Out
               </button>
             </div>
@@ -529,26 +535,26 @@ export const ProfilePage: React.FC = () => {
             <form onSubmit={handleConfirmEnable2FA}>
               <div className="modal-body">
                 {error && (
-                  <div className="auth-error" style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div className="auth-error" style={{ marginBottom: 16 }}>
                     <AlertCircle size={16} style={{ flexShrink: 0 }} />
                     <span>{error}</span>
                   </div>
                 )}
-                <ol style={{ paddingLeft: 20, margin: 0, fontSize: 14, color: 'var(--text-color)' }}>
+                <ol style={{ paddingLeft: 20, margin: 0, fontSize: 14, color: 'var(--text-primary)' }}>
                   <li style={{ marginBottom: 12 }}>Scan this QR code with your authenticator app (like Authy or Google Authenticator).</li>
                 </ol>
-                <div style={{ display: 'flex', justifyContent: 'center', margin: '16px 0', padding: 16, backgroundColor: 'white', borderRadius: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'center', margin: '16px 0', padding: 16, backgroundColor: '#ffffff', borderRadius: 10 }}>
                   <img src={twoFaSetupData.qrCodeUrl} alt="2FA QR Code" width={200} height={200} />
                 </div>
-                <div style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'center', marginBottom: 16 }}>
+                <div style={{ fontSize: 13, color: 'var(--text-secondary)', textAlign: 'center', marginBottom: 16 }}>
                   Or enter this code manually:<br/>
-                  <code style={{ fontSize: 16, fontWeight: 'bold', display: 'inline-block', marginTop: 8, padding: '4px 8px', backgroundColor: 'var(--bg-lighter)', borderRadius: 4 }}>
+                  <code style={{ fontSize: 15, fontWeight: 'bold', display: 'inline-block', marginTop: 8, padding: '6px 12px', backgroundColor: 'var(--bg-tertiary)', borderRadius: 6, letterSpacing: '0.05em' }}>
                     {twoFaSetupData.secret}
                   </code>
                 </div>
                 <div style={{ marginBottom: 8 }}>
-                  <label style={{ display: 'block', marginBottom: 4, fontSize: 13, color: 'var(--text-muted)' }}>Enter the 6-digit code from your app</label>
-                  <input type="text" required className="auth-input auth-input-code" style={{ letterSpacing: 4, textAlign: 'center', fontSize: 18 }} value={twoFaCode} onChange={e => setTwoFaCode(e.target.value)} disabled={isLoading} maxLength={6} />
+                  <label className="auth-label" style={{ display: 'block', marginBottom: 6 }}>Enter the 6-digit code from your app</label>
+                  <input type="text" required className="auth-input auth-input-code" value={twoFaCode} onChange={e => setTwoFaCode(e.target.value)} disabled={isLoading} maxLength={6} />
                 </div>
               </div>
               <div className="modal-footer">
@@ -569,22 +575,22 @@ export const ProfilePage: React.FC = () => {
               <button className="modal-close-btn" onClick={() => { setRecoveryCodes(null); setShowViewRecoveryCodes(false); }}><X size={16} /></button>
             </div>
             <div className="modal-body">
-              <div className="auth-error" style={{ backgroundColor: 'rgba(234, 179, 8, 0.1)', color: '#ca8a04', borderColor: '#ca8a04', marginBottom: 16, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+              <div className="auth-error" style={{ backgroundColor: 'var(--warning-bg)', color: 'var(--warning-fg)', borderColor: 'rgba(245, 158, 11, 0.3)', marginBottom: 16, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
                 <AlertCircle size={18} style={{ flexShrink: 0, marginTop: 2 }} />
                 <span style={{ fontSize: 13 }}>Save these recovery codes in a secure place. This is the <strong>only time</strong> they will be shown. You can use them to sign in if you lose access to your authenticator app.</span>
               </div>
-              <div className="recovery-codes-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16 }}>
+              <div className="recovery-codes-grid" style={{ marginBottom: 16 }}>
                 {recoveryCodes.map((code, i) => (
-                  <div key={i} className="recovery-code-item" style={{ fontFamily: 'monospace', fontSize: 14, padding: '8px 12px', backgroundColor: 'var(--bg-lighter)', border: '1px solid var(--border-color)', borderRadius: 4, textAlign: 'center' }}>
+                  <div key={i} className="recovery-code-item">
                     {code}
                   </div>
                 ))}
               </div>
               <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
-                <button className="auth-btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }} onClick={() => copyToClipboard(recoveryCodes.join('\n'))}>
+                <button className="auth-btn-secondary" style={{ width: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }} onClick={() => copyToClipboard(recoveryCodes.join('\n'))}>
                   <Copy size={14} /> Copy
                 </button>
-                <button className="auth-btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }} onClick={downloadRecoveryCodes}>
+                <button className="auth-btn-secondary" style={{ width: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }} onClick={downloadRecoveryCodes}>
                   <Download size={14} /> Download
                 </button>
               </div>
@@ -607,17 +613,17 @@ export const ProfilePage: React.FC = () => {
             <form onSubmit={handleViewRecoveryCodes}>
               <div className="modal-body">
                 {error && (
-                  <div className="auth-error" style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div className="auth-error" style={{ marginBottom: 16 }}>
                     <AlertCircle size={16} style={{ flexShrink: 0 }} />
                     <span>{error}</span>
                   </div>
                 )}
-                <p style={{ fontSize: 14, color: 'var(--text-color)', marginBottom: 16 }}>
+                <p style={{ fontSize: 14, color: 'var(--text-primary)', marginBottom: 16, lineHeight: 1.4 }}>
                   To view or generate new recovery codes, please enter a code from your authenticator app. Note: Generating new codes will invalidate any old ones.
                 </p>
                 <div style={{ marginBottom: 8 }}>
-                  <label style={{ display: 'block', marginBottom: 4, fontSize: 13, color: 'var(--text-muted)' }}>Authenticator Code</label>
-                  <input type="text" required className="auth-input auth-input-code" style={{ letterSpacing: 4, textAlign: 'center', fontSize: 18 }} value={viewCodesTotp} onChange={e => setViewCodesTotp(e.target.value)} disabled={isLoading} maxLength={6} autoFocus />
+                  <label className="auth-label" style={{ display: 'block', marginBottom: 6 }}>Authenticator Code</label>
+                  <input type="text" required className="auth-input auth-input-code" value={viewCodesTotp} onChange={e => setViewCodesTotp(e.target.value)} disabled={isLoading} maxLength={6} autoFocus />
                 </div>
               </div>
               <div className="modal-footer">
@@ -640,22 +646,22 @@ export const ProfilePage: React.FC = () => {
             <form onSubmit={handleDisable2FA}>
               <div className="modal-body">
                 {error && (
-                  <div className="auth-error" style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div className="auth-error" style={{ marginBottom: 16 }}>
                     <AlertCircle size={16} style={{ flexShrink: 0 }} />
                     <span>{error}</span>
                   </div>
                 )}
-                <p style={{ fontSize: 14, color: 'var(--text-color)', marginBottom: 16 }}>
+                <p style={{ fontSize: 14, color: 'var(--text-primary)', marginBottom: 16, lineHeight: 1.4 }}>
                   Are you sure you want to disable two-factor authentication? This will make your account less secure.
                 </p>
                 <div style={{ marginBottom: 8 }}>
-                  <label style={{ display: 'block', marginBottom: 4, fontSize: 13, color: 'var(--text-muted)' }}>Enter Password to Confirm</label>
+                  <label className="auth-label" style={{ display: 'block', marginBottom: 6 }}>Enter Password to Confirm</label>
                   <input type="password" required className="auth-input" style={{ paddingLeft: 12 }} value={disable2FAPassword} onChange={e => setDisable2FAPassword(e.target.value)} disabled={isLoading} autoFocus />
                 </div>
               </div>
               <div className="modal-footer">
                 <button type="button" className="auth-btn-text" onClick={() => setShowDisable2FA(false)}>Cancel</button>
-                <button type="submit" className="auth-btn-primary" style={{ backgroundColor: '#ef4444' }} disabled={isLoading || !disable2FAPassword}>Disable 2FA</button>
+                <button type="submit" className="auth-btn-danger" disabled={isLoading || !disable2FAPassword}>Disable 2FA</button>
               </div>
             </form>
           </div>
