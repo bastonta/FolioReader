@@ -26,10 +26,9 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   libraryViewMode: 'grid',
 };
 
-// IndexedDB for storing book files and covers
+// IndexedDB for storing book covers
 const DB_NAME = 'FolioBookDB';
 const DB_VERSION = 2;
-const STORE_NAME = 'books_files';
 const COVERS_STORE = 'books_covers';
 
 function openDB(): Promise<IDBDatabase> {
@@ -37,9 +36,6 @@ function openDB(): Promise<IDBDatabase> {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = () => {
       const db = request.result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME, { keyPath: 'id' });
-      }
       if (!db.objectStoreNames.contains(COVERS_STORE)) {
         db.createObjectStore(COVERS_STORE, { keyPath: 'id' });
       }
@@ -47,52 +43,6 @@ function openDB(): Promise<IDBDatabase> {
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
-}
-
-export async function storeBookBlob(id: string, file: Blob): Promise<void> {
-  try {
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, 'readwrite');
-      const store = tx.objectStore(STORE_NAME);
-      const req = store.put({ id, data: file });
-      req.onsuccess = () => resolve();
-      req.onerror = () => reject(req.error);
-    });
-  } catch (err) {
-    console.error('Failed to store book blob in IndexedDB:', err);
-  }
-}
-
-export async function loadBookBlob(id: string): Promise<Blob | null> {
-  try {
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, 'readonly');
-      const store = tx.objectStore(STORE_NAME);
-      const req = store.get(id);
-      req.onsuccess = () => resolve(req.result ? req.result.data : null);
-      req.onerror = () => reject(req.error);
-    });
-  } catch (err) {
-    console.error('Failed to load book blob from IndexedDB:', err);
-    return null;
-  }
-}
-
-export async function deleteBookBlob(id: string): Promise<void> {
-  try {
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, 'readwrite');
-      const store = tx.objectStore(STORE_NAME);
-      const req = store.delete(id);
-      req.onsuccess = () => resolve();
-      req.onerror = () => reject(req.error);
-    });
-  } catch (err) {
-    console.error('Failed to delete book blob from IndexedDB:', err);
-  }
 }
 
 export async function storeBookCover(id: string, coverBlob: Blob): Promise<void> {
@@ -284,7 +234,6 @@ export function updateRecentBookMetadata(
 export async function removeRecentBook(id: string): Promise<void> {
   const books = loadRecentBooks().filter((b) => b.id !== id);
   localStorage.setItem(RECENT_BOOKS_KEY, JSON.stringify(books));
-  await deleteBookBlob(id);
   await deleteBookCover(id);
 }
 
