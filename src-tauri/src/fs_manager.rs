@@ -2,6 +2,34 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tokio::fs;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CustomFontInfo {
+    pub id: String,
+    pub name: String,
+    pub font_family: String,
+    pub file_path: String,
+    pub file_name: String,
+    pub format: String,
+    pub file_size: u64,
+}
+
+pub fn get_fonts_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    use tauri::Manager;
+    let base_dir = app
+        .path()
+        .app_local_data_dir()
+        .or_else(|_| app.path().app_data_dir())
+        .map_err(|e| format!("Failed to resolve app data directory: {e}"))?;
+
+    let fonts_dir = base_dir.join("fonts");
+    if !fonts_dir.exists() {
+        std::fs::create_dir_all(&fonts_dir)
+            .map_err(|e| format!("Failed to create fonts directory: {e}"))?;
+    }
+    Ok(fonts_dir)
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalBookFile {
@@ -359,3 +387,158 @@ pub async fn check_book_downloaded(
 
     Ok(None)
 }
+
+#[tauri::command]
+pub async fn save_custom_font(
+    app: tauri::AppHandle,
+    file_name: String,
+    bytes: Vec<u8>,
+) -> Result<CustomFontInfo, String> {
+    let fonts_dir = get_fonts_dir(&app)?;
+    let clean_file_name = sanitize_filename_part(&file_name);
+    let target_path = fonts_dir.join(&clean_file_name);
+
+    fs::write(&target_path, &bytes)
+        .await
+        .map_err(|e| format!("Failed to save font file '{clean_file_name}': {e}"))?;
+
+    let ext = target_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("ttf")
+        .to_lowercase();
+
+    let format = match ext.as_str() {
+        "woff2" => "woff2",
+        "woff" => "woff",
+        "otf" => "opentype",
+        _ => "truetype",
+    }
+    .to_string();
+
+    let stem = target_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("font")
+        .to_string();
+
+    let name = stem.replace(['_', '-'], " ");
+    let font_family = format!("CustomFont_{}", stem.replace([' ', '-'], "_"));
+    let id = format!("font-{}", stem.replace([' ', '-'], "_"));
+
+    Ok(CustomFontInfo {
+        id,
+        name,
+        font_family,
+        file_path: target_path.to_string_lossy().to_string(),
+        file_name: clean_file_name,
+        format,
+        file_size: bytes.len() as u64,
+    })
+}
+
+#[tauri::command]
+pub async fn list_custom_fonts(app: tauri::AppHandle) -> Result<Vec<CustomFontInfo>, String> {
+    let fonts_dir = get_fonts_dir(&app)?;
+    let mut fonts = Vec::new();
+
+    let mut entries = match fs::read_dir(&fonts_dir).await {
+        Ok(e) => e,
+        Err(_) => return Ok(fonts),
+    };
+
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        if path.is_file() {
+            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                let ext_lower = ext.to_lowercase();
+                if ["ttf", "otf", "woff", "woff2"].contains(&ext_lower.as_str()) {
+                    let file_name = path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("font")
+                        .to_string();
+
+                    let stem = path
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("font")
+                        .to_string();
+
+                    let name = stem.replace(['_', '-'], " ");
+                    let font_family = format!("CustomFont_{}", stem.replace([' ', '-'], "_"));
+                    let id = format!("font-{}", stem.replace([' ', '-'], "_"));
+
+                    let format = match ext_lower.as_str() {
+                        "woff2" => "woff2",
+                        "woff" => "woff",
+                        "otf" => "opentype",
+                        _ => "truetype",
+                    }
+                    .to_string();
+
+                    let metadata = entry.metadata().await.ok();
+                    let file_size = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
+
+                    fonts.push(CustomFontInfo {
+                        id,
+                        name,
+                        font_family,
+                        file_path: path.to_string_lossy().to_string(),
+                        file_name,
+                        format,
+                        file_size,
+                    });
+                }
+            }
+        }
+    }
+
+    fonts.sort_by_key(|a| a.name.to_lowercase());
+    Ok(fonts)
+}
+
+#[tauri::command]
+pub async fn delete_custom_font(app: tauri::AppHandle, file_name: String) -> Result<bool, String> {
+    let fonts_dir = get_fonts_dir(&app)?;
+    let target_path = fonts_dir.join(&file_name);
+    if target_path.exists() && target_path.is_file() {
+        fs::remove_file(&target_path)
+            .await
+            .map_err(|e| format!("Failed to delete font '{file_name}': {e}"))?;
+        Ok(true)
+    } else {
+        let path = PathBuf::from(&file_name);
+        if path.exists() && path.is_file() {
+            fs::remove_file(&path)
+                .await
+                .map_err(|e| format!("Failed to delete font '{file_name}': {e}"))?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn read_font_file(file_path: String) -> Result<Vec<u8>, String> {
+    let path = Path::new(&file_path);
+    if !path.exists() {
+        return Err(format!("Font file not found: {file_path}"));
+    }
+
+    fs::read(path)
+        .await
+        .map_err(|e| format!("Failed to read font file '{file_path}': {e}"))
+}
+
+#[tauri::command]
+pub async fn open_fonts_folder(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let fonts_dir = get_fonts_dir(&app)?;
+    let path_str = fonts_dir.to_string_lossy().to_string();
+    app.opener()
+        .open_path(path_str, None::<&str>)
+        .map_err(|e| format!("Failed to open fonts folder: {e}"))
+}
+

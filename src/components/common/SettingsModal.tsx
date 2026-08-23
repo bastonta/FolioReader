@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ReaderSettings, ThemeName } from '../../types/reader';
 import { fileManager } from '../../services/fileManager';
+import { fontManager } from '../../services/fontManager';
+import { LoadedCustomFont } from '../../types/font';
 import { isMobileDevice } from '../../services/systemUi';
 import {
   X,
@@ -15,6 +17,9 @@ import {
   Smartphone,
   LayoutGrid,
   List as ListIcon,
+  Type,
+  Trash2,
+  Plus,
 } from 'lucide-react';
 
 interface SettingsModalProps {
@@ -32,13 +37,50 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 }) => {
   const [isPicking, setIsPicking] = useState(false);
   const [hasPermission, setHasPermission] = useState(true);
+  const [customFonts, setCustomFonts] = useState<LoadedCustomFont[]>(() => fontManager.getCachedFonts());
+  const [isUploadingFont, setIsUploadingFont] = useState(false);
+  const [fontError, setFontError] = useState<string | null>(null);
+  const fontInputRef = useRef<HTMLInputElement>(null);
   const isMobile = isMobileDevice();
 
   useEffect(() => {
     if (isOpen) {
       fileManager.hasStoragePermission().then(setHasPermission);
+      fontManager.loadAllFonts().then(setCustomFonts);
+      const unsubscribe = fontManager.subscribe(setCustomFonts);
+      return () => unsubscribe();
     }
   }, [isOpen]);
+
+  const handleFontUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setIsUploadingFont(true);
+    setFontError(null);
+    try {
+      for (let i = 0; i < files.length; i++) {
+        await fontManager.addFontFile(files[i]);
+      }
+    } catch (err: any) {
+      console.error('Failed to add custom font:', err);
+      setFontError(typeof err === 'string' ? err : 'Failed to save font file');
+    } finally {
+      setIsUploadingFont(false);
+      if (fontInputRef.current) {
+        fontInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleDeleteFont = async (fileName: string) => {
+    if (window.confirm(`Delete font "${fileName}"?`)) {
+      await fontManager.deleteFont(fileName);
+    }
+  };
+
+  const handleOpenFontsFolder = async () => {
+    await fontManager.openFontsFolder();
+  };
 
   if (!isOpen) return null;
 
@@ -439,6 +481,164 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             </div>
           )}
+
+          {/* Custom Reader Fonts Section */}
+          <div className="settings-block" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  fontSize: 14,
+                  fontWeight: 600,
+                  color: 'var(--text-primary)',
+                  margin: 0,
+                }}
+              >
+                <Type size={18} style={{ color: 'var(--accent-color)' }} />
+                <span>Custom Reader Fonts</span>
+              </label>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {!isMobile && (
+                  <button
+                    type="button"
+                    className="auth-btn-secondary"
+                    style={{ padding: '5px 10px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                    onClick={handleOpenFontsFolder}
+                    title="Open local fonts folder in file explorer"
+                  >
+                    <FolderOpen size={14} />
+                    <span>Open Folder</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="auth-btn-primary"
+                  style={{ padding: '5px 12px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                  onClick={() => fontInputRef.current?.click()}
+                  disabled={isUploadingFont}
+                >
+                  <Plus size={14} />
+                  <span>{isUploadingFont ? 'Adding...' : 'Add Font'}</span>
+                </button>
+              </div>
+            </div>
+
+            <input
+              ref={fontInputRef}
+              type="file"
+              accept=".ttf,.otf,.woff,.woff2"
+              multiple
+              style={{ display: 'none' }}
+              onChange={handleFontUpload}
+            />
+
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
+              Add font files (.ttf, .otf, .woff, .woff2) to use in the reader. Fonts are stored permanently on your device.
+            </p>
+
+            {fontError && (
+              <div style={{ color: '#ef4444', fontSize: 12, marginBottom: 8 }}>
+                {fontError}
+              </div>
+            )}
+
+            {customFonts.length === 0 ? (
+              <div
+                style={{
+                  padding: '16px',
+                  backgroundColor: 'var(--bg-secondary)',
+                  border: '1px dashed var(--border-color)',
+                  borderRadius: 'var(--radius-md)',
+                  textAlign: 'center',
+                  color: 'var(--text-muted)',
+                  fontSize: 12,
+                }}
+              >
+                No custom fonts added yet. Click &quot;Add Font&quot; to load your favorite fonts.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {customFonts.map((font) => (
+                  <div
+                    key={font.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '10px 12px',
+                      backgroundColor: 'var(--bg-secondary)',
+                      border: '1px solid var(--border-color)',
+                      borderRadius: 'var(--radius-md)',
+                      gap: 12,
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                        <span
+                          style={{
+                            fontSize: 14,
+                            fontWeight: 600,
+                            color: 'var(--text-primary)',
+                            fontFamily: `'${font.fontFamily}', sans-serif`,
+                          }}
+                        >
+                          {font.name}
+                        </span>
+                        <span
+                          style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            textTransform: 'uppercase',
+                            padding: '1px 5px',
+                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                            color: 'var(--accent-color)',
+                            borderRadius: 4,
+                          }}
+                        >
+                          {font.format}
+                        </span>
+                        <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                          {(font.fileSize / 1024).toFixed(0)} KB
+                        </span>
+                      </div>
+                      <div
+                        style={{
+                          fontSize: 12,
+                          color: 'var(--text-secondary)',
+                          fontFamily: `'${font.fontFamily}', sans-serif`,
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                      >
+                        The quick brown fox jumps over the lazy dog • 1234567890
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      className="btn-icon"
+                      onClick={() => handleDeleteFont(font.fileName)}
+                      title={`Delete font ${font.name}`}
+                      style={{
+                        padding: 6,
+                        borderRadius: 'var(--radius-sm)',
+                        color: '#ef4444',
+                        backgroundColor: 'transparent',
+                        border: 'none',
+                        cursor: 'pointer',
+                        flexShrink: 0,
+                      }}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
         </div>
 

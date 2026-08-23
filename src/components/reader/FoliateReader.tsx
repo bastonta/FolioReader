@@ -40,6 +40,8 @@ import {
   syncBookData,
   pullBookProgress,
 } from '../../services/readerDb';
+import { fontManager } from '../../services/fontManager';
+import { LoadedCustomFont } from '../../types/font';
 
 interface FoliateReaderProps {
   bookId: string;
@@ -176,7 +178,7 @@ export const extractFootnoteData = async (
   }
 };
 
-const getReaderCSS = (settings: ReaderSettings) => {
+const getReaderCSS = (settings: ReaderSettings, customFontsCss: string = '') => {
   const themeColors: Record<string, { bg: string; text: string; link: string }> = {
     light: { bg: '#ffffff', text: '#2e3436', link: '#1a5fb4' },
     sepia: { bg: '#fbf0d9', text: '#5f4b32', link: '#8f6b32' },
@@ -188,6 +190,7 @@ const getReaderCSS = (settings: ReaderSettings) => {
   const colors = themeColors[settings.theme] || themeColors.light;
 
   return `
+    ${customFontsCss}
     @namespace epub "http://www.idpf.org/2007/ops";
     html {
       color-scheme: ${settings.theme === 'dark' || settings.theme === 'gray' ? 'dark' : 'light'};
@@ -344,8 +347,16 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncToast, setSyncToast] = useState<{ message: string; type?: 'info' | 'success' | 'error' } | null>(null);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [customFonts, setCustomFonts] = useState<LoadedCustomFont[]>(() => fontManager.getCachedFonts());
   const isInitialLoadRef = useRef(true);
   const settingsBtnRef = useRef<HTMLButtonElement>(null);
+
+  // Subscribe to custom fonts updates
+  useEffect(() => {
+    fontManager.loadAllFonts().then(setCustomFonts);
+    const unsubscribe = fontManager.subscribe(setCustomFonts);
+    return () => unsubscribe();
+  }, []);
 
   // Back button handling within the reader (highest to lowest priority)
   useBackHandler(() => { setFootnote(null); return true; }, Boolean(footnote), 120);
@@ -518,7 +529,8 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   // Update styling in foliate-view
   const applyStyles = useCallback(() => {
     if (viewRef.current?.renderer) {
-      viewRef.current.renderer.setStyles?.(getReaderCSS(settings));
+      const customFontsCss = fontManager.generateFontsCss(customFonts);
+      viewRef.current.renderer.setStyles?.(getReaderCSS(settings, customFontsCss));
       viewRef.current.renderer.setAttribute?.('flow', settings.flow);
       
       const isMobile = isMobileDevice();
@@ -539,7 +551,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
       viewRef.current.renderer.setAttribute?.('margin', `${settings.margin}px`);
       viewRef.current.renderer.setAttribute?.('gap', '6%');
     }
-  }, [settings]);
+  }, [settings, customFonts]);
 
   useEffect(() => {
     applyStyles();

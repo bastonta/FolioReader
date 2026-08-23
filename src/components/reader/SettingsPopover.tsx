@@ -1,6 +1,8 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { ReaderSettings, ThemeName } from '../../types/reader';
 import { isMobileDevice } from '../../services/systemUi';
+import { fontManager } from '../../services/fontManager';
+import { LoadedCustomFont } from '../../types/font';
 import {
   BookOpen,
   Scroll,
@@ -25,7 +27,38 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
   triggerRef,
 }) => {
   const popoverRef = useRef<HTMLDivElement>(null);
+  const fontInputRef = useRef<HTMLInputElement>(null);
   const isMobile = isMobileDevice();
+  const [customFonts, setCustomFonts] = useState<LoadedCustomFont[]>(() => fontManager.getCachedFonts());
+  const [isUploadingFont, setIsUploadingFont] = useState(false);
+
+  useEffect(() => {
+    fontManager.loadAllFonts().then(setCustomFonts);
+    const unsubscribe = fontManager.subscribe(setCustomFonts);
+    return () => unsubscribe();
+  }, []);
+
+  const handleFontUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setIsUploadingFont(true);
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const loaded = await fontManager.addFontFile(file);
+        if (i === 0) {
+          onUpdateSettings({ fontFamily: `'${loaded.fontFamily}', sans-serif` });
+        }
+      }
+    } catch (err) {
+      console.error('Failed to upload custom font:', err);
+    } finally {
+      setIsUploadingFont(false);
+      if (fontInputRef.current) {
+        fontInputRef.current.value = '';
+      }
+    }
+  };
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -231,17 +264,63 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
 
         {/* Font Family */}
         <div className="settings-section">
-          <label className="settings-label">Font Family</label>
+          <div className="settings-row-between" style={{ marginBottom: 6 }}>
+            <label className="settings-label" style={{ marginBottom: 0 }}>Font Family</label>
+            <button
+              type="button"
+              className="settings-font-add-btn"
+              onClick={() => fontInputRef.current?.click()}
+              disabled={isUploadingFont}
+              title="Add custom font (.ttf, .otf, .woff, .woff2)"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                padding: '3px 8px',
+                fontSize: 11,
+                fontWeight: 600,
+                color: 'var(--accent-color)',
+                backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                border: '1px solid rgba(59, 130, 246, 0.25)',
+                borderRadius: 'var(--radius-sm)',
+                cursor: 'pointer',
+              }}
+            >
+              <Plus size={12} />
+              <span>{isUploadingFont ? 'Adding...' : 'Add Font'}</span>
+            </button>
+          </div>
+
+          <input
+            ref={fontInputRef}
+            type="file"
+            accept=".ttf,.otf,.woff,.woff2"
+            multiple
+            style={{ display: 'none' }}
+            onChange={handleFontUpload}
+          />
+
           <select
             className="settings-select"
             value={settings.fontFamily}
             onChange={(e) => onUpdateSettings({ fontFamily: e.target.value })}
           >
-            {fontOptions.map((f) => (
-              <option key={f.value} value={f.value}>
-                {f.label}
-              </option>
-            ))}
+            <optgroup label="Standard Fonts">
+              {fontOptions.map((f) => (
+                <option key={f.value} value={f.value}>
+                  {f.label}
+                </option>
+              ))}
+            </optgroup>
+            {customFonts.length > 0 && (
+              <optgroup label="Custom Fonts">
+                {customFonts.map((f) => (
+                  <option key={f.id} value={`'${f.fontFamily}', sans-serif`}>
+                    {f.name}
+                  </option>
+                ))}
+              </optgroup>
+            )}
           </select>
         </div>
 
