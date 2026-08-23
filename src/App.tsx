@@ -18,7 +18,7 @@ import {
 } from './services/storage';
 import { saveDbBookMapping, loadDbLastLocation } from './services/readerDb';
 import { fileManager } from './services/fileManager';
-import { setStatusBarVisible, setStatusBarTheme } from './services/systemUi';
+import { setStatusBarVisible, setStatusBarTheme, isMobileDevice } from './services/systemUi';
 import { useBackHandler } from './services/backHandler';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
@@ -176,6 +176,9 @@ function AppRoutes() {
     cachedMeta?: { title?: string; author?: string; coverUrl?: string; extracted?: boolean }
   ) => {
     try {
+      if (!settings.sidebarPinned || isMobileDevice()) {
+        handleUpdateSettings({ sidebarOpen: false });
+      }
       const filePath = book.filePath;
       const fileName = book.fileName;
       const file = await fileManager.readBookFile(filePath);
@@ -246,6 +249,9 @@ function AppRoutes() {
     serverBookId?: string
   ) => {
     try {
+      if (!settings.sidebarPinned || isMobileDevice()) {
+        handleUpdateSettings({ sidebarOpen: false });
+      }
       const file = await fileManager.readBookFile(filePath);
       const fileName = filePath.split(/[\\/]/).pop() || 'book.epub';
       const bookId = `local-${filePath.replace(/[^a-zA-Z0-9]/g, '_')}`;
@@ -281,6 +287,9 @@ function AppRoutes() {
   const handleBackToLibrary = () => {
     setStatusBarVisible(true);
     setStatusBarTheme(settings.theme);
+    if (!settings.sidebarPinned || isMobileDevice()) {
+      handleUpdateSettings({ sidebarOpen: false });
+    }
     setActiveBook(null);
     document.title = 'Folio — E-Book Reader';
   };

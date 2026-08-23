@@ -267,7 +267,11 @@ export function loadSettings(): ReaderSettings {
   try {
     const data = localStorage.getItem(SETTINGS_KEY);
     if (!data) return DEFAULT_SETTINGS;
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(data) };
+    const parsed: ReaderSettings = { ...DEFAULT_SETTINGS, ...JSON.parse(data) };
+    if (!parsed.sidebarPinned) {
+      parsed.sidebarOpen = false;
+    }
+    return parsed;
   } catch {
     return DEFAULT_SETTINGS;
   }
@@ -276,7 +280,11 @@ export function loadSettings(): ReaderSettings {
 export function saveSettings(settings: Partial<ReaderSettings>): ReaderSettings {
   const current = loadSettings();
   const updated = { ...current, ...settings };
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify(updated));
+  const toSave = { ...updated };
+  if (!toSave.sidebarPinned) {
+    toSave.sidebarOpen = false;
+  }
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(toSave));
   return updated;
 }
 

@@ -281,12 +281,31 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   useEffect(() => {
     setStatusBarVisible(false);
     setDisableSystemActionMode(true);
+    // If sidebar is not pinned (on mobile or unpinned on desktop), ensure it starts closed on open
+    const isMobileDeviceCheck = isMobileDevice();
+    const isPinnedInitial = !isMobileDeviceCheck && settingsRef.current.sidebarPinned;
+    if (!isPinnedInitial && settingsRef.current.sidebarOpen) {
+      onUpdateSettings({ sidebarOpen: false });
+    }
     return () => {
       setStatusBarVisible(true);
       setStatusBarTheme(settingsRef.current.theme);
       setDisableSystemActionMode(false);
+      const isMobileDeviceCheck = isMobileDevice();
+      const isPinnedExit = !isMobileDeviceCheck && settingsRef.current.sidebarPinned;
+      if (!isPinnedExit) {
+        onUpdateSettings({ sidebarOpen: false });
+      }
     };
   }, []);
+
+  useEffect(() => {
+    const isMobileDeviceCheck = isMobileDevice();
+    const isPinnedCurrent = !isMobileDeviceCheck && settingsRef.current.sidebarPinned;
+    if (!isPinnedCurrent && settingsRef.current.sidebarOpen) {
+      onUpdateSettings({ sidebarOpen: false });
+    }
+  }, [bookId]);
 
   useEffect(() => {
     settingsRef.current = settings;
@@ -1432,6 +1451,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
               : () =>
                   onUpdateSettings({
                     sidebarPinned: !settings.sidebarPinned,
+                    sidebarOpen: true,
                   })
           }
           activeTab={settings.activeTab}

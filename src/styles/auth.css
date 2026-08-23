@@ -503,8 +503,9 @@
    Profile Page Layout & Elements
    ========================================================================== */
 .profile-page {
-  min-height: 100vh;
-  overflow-y: auto;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
   background-color: var(--bg-secondary);
   display: flex;
   flex-direction: column;
@@ -524,6 +525,12 @@
 }
 
 .profile-content {
+  flex: 1 1 0%;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
   width: 100%;
   max-width: 760px;
   margin: 0 auto;

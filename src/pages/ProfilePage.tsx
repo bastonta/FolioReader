@@ -222,19 +222,30 @@ export const ProfilePage: React.FC = () => {
   const getInitial = (name: string) => name ? name.charAt(0).toUpperCase() : '?';
 
   return (
-    <div className="profile-page">
+    <div className="profile-page library-view-container" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden' }}>
       <header className="library-header">
-        <button className="header-pill-btn" onClick={() => navigate(-1)}>
-          <ArrowLeft size={16} />
-          <span>Back</span>
-        </button>
-        <div className="library-brand">
-          <h1 className="library-title">Account & Profile</h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
+          <button
+            type="button"
+            className="header-pill-btn"
+            onClick={() => navigate(-1)}
+            style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}
+          >
+            <ArrowLeft size={16} />
+            <span>Back</span>
+          </button>
+          <div className="library-brand" style={{ minWidth: 0 }}>
+            <div>
+              <h1 className="library-title" style={{ fontSize: 16, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                Account & Profile
+              </h1>
+              <p className="library-subtitle">User Settings & Security</p>
+            </div>
+          </div>
         </div>
-        <div style={{ width: 80 }} /> {/* spacer */}
       </header>
 
-      <div className="profile-content">
+      <main className="profile-content" style={{ flex: '1 1 0%', minHeight: 0, overflowY: 'auto' }}>
         
         {error && (
           <div className="auth-error">
@@ -373,7 +384,7 @@ export const ProfilePage: React.FC = () => {
           </div>
         </div>
 
-      </div>
+      </main>
 
       {/* Change Password Modal */}
       {showPasswordChange && (
