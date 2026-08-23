@@ -229,3 +229,10 @@ pub async fn sync_all_pending(
 
     Ok(results)
 }
+
+#[tauri::command]
+pub async fn db_clear_all_data(db: State<'_, DbPool>) -> Result<(), String> {
+    db::clear_all_data(&db)
+        .await
+        .map_err(|e| e.to_string())
+}

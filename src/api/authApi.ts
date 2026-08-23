@@ -4,7 +4,8 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { apiPost, type ApiError } from './client';
-import { clearTokens, getServerUrl, setAccessToken } from './tokenManager';
+import { getServerUrl, setAccessToken } from './tokenManager';
+import { clearAllUserData } from '../services/storage';
 import type {
   LoginResponse,
   Login2faResponse,
@@ -166,7 +167,7 @@ export const authApi = {
         // Ignore revoke errors — we clear locally regardless
       }
     }
-    clearTokens();
+    await clearAllUserData({ preserveServerUrl: true });
   },
 };
 

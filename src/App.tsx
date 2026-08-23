@@ -94,12 +94,21 @@ function GuestOnly({ children }: { children: React.ReactNode }) {
 // ─── Main app with routes ────────────────────────────────────────────────
 
 function AppRoutes() {
+  const { isAuthenticated } = useAuth();
   const [settings, setSettings] = useState<ReaderSettings>(() => loadSettings());
   const [activeBook, setActiveBook] = useState<ActiveBookState | null>(null);
   const [currentView, setCurrentView] = useState<'library' | 'browse'>('library');
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
+
+  // Reset active book and reload settings when auth state changes (e.g. login/logout)
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setActiveBook(null);
+      setSettings(loadSettings());
+    }
+  }, [isAuthenticated]);
 
   // Handle back button for Settings Modal
   useBackHandler(

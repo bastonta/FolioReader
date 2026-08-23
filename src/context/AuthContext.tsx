@@ -9,10 +9,10 @@ import {
   setServerUrl as persistServerUrl,
   getCachedUser,
   setCachedUser,
-  clearTokens,
   isNetworkError,
 } from '../api/tokenManager';
 import { syncAllPending } from '../services/readerDb';
+import { clearAllUserData } from '../services/storage';
 
 // ─── Context shape ───────────────────────────────────────────────────────
 
@@ -88,7 +88,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       } else if (err?.status === 401) {
         // Genuine 401: session is permanently expired or invalidated
         setUser(null);
-        clearTokens();
+        clearAllUserData({ preserveServerUrl: true }).catch(console.error);
       } else {
         // Other errors (e.g. 500), keep cached session
         const cached = getCachedUser();
@@ -125,7 +125,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     } catch (err: any) {
       if (err?.status === 401) {
         setUser(null);
-        clearTokens();
+        clearAllUserData({ preserveServerUrl: true }).catch(console.error);
         return false;
       }
       if (isNetworkError(err) || err?.status === 0) {
@@ -176,7 +176,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       } catch (err: any) {
         if (err?.status === 401) {
           setUser(null);
-          clearTokens();
+          clearAllUserData({ preserveServerUrl: true }).catch(console.error);
         }
       }
     }, 5000);
@@ -240,6 +240,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   useEffect(() => {
     const handleExpired = () => {
       setUser(null);
+      clearAllUserData({ preserveServerUrl: true }).catch(console.error);
     };
     window.addEventListener('folio:session-expired', handleExpired);
     return () =>
@@ -252,6 +253,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     async (email: string, password: string): Promise<LoginResponse> => {
       const res = await authApi.login(email, password);
       if (!res.need2fa) {
+        await clearAllUserData({ preserveServerUrl: true });
         setAccessToken(res.token);
         await fetchProfile();
       }
@@ -268,6 +270,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       type: Login2faType = 'code',
     ): Promise<void> => {
       const res = await authApi.login2fa(userId, token, code, type);
+      await clearAllUserData({ preserveServerUrl: true });
       setAccessToken(res.token);
       await fetchProfile();
     },
@@ -284,6 +287,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const emailConfirm = useCallback(
     async (userId: string, code: string): Promise<void> => {
       const res = await authApi.emailConfirm(userId, code);
+      await clearAllUserData({ preserveServerUrl: true });
       setAccessToken(res.token);
       await fetchProfile();
     },
@@ -291,7 +295,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 
   const logout = useCallback(async () => {
-    await authApi.logout();
+    try {
+      await authApi.logout();
+    } catch {
+      // ignore
+    }
+    await clearAllUserData({ preserveServerUrl: true });
     setUser(null);
   }, []);
 
@@ -308,7 +317,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const clearServer = useCallback(() => {
     persistServerUrl(null);
-    clearTokens();
+    clearAllUserData({ preserveServerUrl: false }).catch(console.error);
     setServerUrlState(null);
     setUser(null);
   }, []);

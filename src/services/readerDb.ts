@@ -345,3 +345,14 @@ export async function syncAllPending(): Promise<SyncResult[]> {
     return [];
   }
 }
+
+export async function clearDbAllData(): Promise<void> {
+  if (!isTauri()) return;
+
+  try {
+    await invoke('db_clear_all_data');
+  } catch (err) {
+    console.error('Failed to clear SQLite database:', err);
+  }
+}
+

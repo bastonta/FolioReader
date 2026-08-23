@@ -559,6 +559,22 @@ pub async fn delete_annotation(pool: &DbPool, id_or_value: &str) -> Result<(), s
     Ok(())
 }
 
+pub async fn clear_all_data(pool: &DbPool) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        DELETE FROM bookmarks;
+        DELETE FROM annotations;
+        DELETE FROM book_progress;
+        DELETE FROM book_mappings;
+        VACUUM;
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -671,5 +687,14 @@ mod tests {
             .expect("get local book id")
             .expect("must exist");
         assert_eq!(resolved_local_id, local_id);
+
+        // 5. Clear all data
+        clear_all_data(&pool).await.expect("clear all data");
+
+        let prog_after_clear = get_progress(&pool, book_id).await.expect("get progress after clear");
+        assert!(prog_after_clear.is_none());
+
+        let mapping_after_clear = get_server_book_id(&pool, local_id).await.expect("get mapping after clear");
+        assert!(mapping_after_clear.is_none());
     }
 }

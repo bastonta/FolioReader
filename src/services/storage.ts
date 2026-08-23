@@ -1,4 +1,6 @@
 import { ReaderSettings, RecentBook } from '../types/reader';
+import { clearDbAllData } from './readerDb';
+import { clearTokens, getServerUrl } from '../api/tokenManager';
 
 const SETTINGS_KEY = 'foliate_reader_settings';
 const RECENT_BOOKS_KEY = 'foliate_recent_books';
@@ -28,7 +30,12 @@ const DB_NAME = 'FolioBookDB';
 const DB_VERSION = 2;
 const COVERS_STORE = 'books_covers';
 
+let dbInstance: IDBDatabase | null = null;
+
 function openDB(): Promise<IDBDatabase> {
+  if (dbInstance) {
+    return Promise.resolve(dbInstance);
+  }
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = () => {
@@ -37,9 +44,97 @@ function openDB(): Promise<IDBDatabase> {
         db.createObjectStore(COVERS_STORE, { keyPath: 'id' });
       }
     };
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      dbInstance = request.result;
+      dbInstance.onversionchange = () => {
+        dbInstance?.close();
+        dbInstance = null;
+      };
+      resolve(dbInstance);
+    };
     request.onerror = () => reject(request.error);
   });
+}
+
+export async function clearIndexedDb(): Promise<void> {
+  if (typeof indexedDB === 'undefined') return;
+
+  if (dbInstance) {
+    try {
+      dbInstance.close();
+    } catch {
+      // ignore
+    }
+    dbInstance = null;
+  }
+
+  if (typeof (indexedDB as any).databases === 'function') {
+    try {
+      const dbs = await (indexedDB as any).databases();
+      if (Array.isArray(dbs) && dbs.length > 0) {
+        await Promise.all(
+          dbs.map((dbInfo: any) => {
+            if (dbInfo && dbInfo.name) {
+              return new Promise<void>((resolve) => {
+                const req = indexedDB.deleteDatabase(dbInfo.name);
+                req.onsuccess = () => resolve();
+                req.onerror = () => resolve();
+                req.onblocked = () => resolve();
+              });
+            }
+            return Promise.resolve();
+          })
+        );
+      }
+    } catch (e) {
+      console.warn('Error deleting databases via indexedDB.databases():', e);
+    }
+  }
+
+  return new Promise<void>((resolve) => {
+    const req = indexedDB.deleteDatabase(DB_NAME);
+    req.onsuccess = () => resolve();
+    req.onerror = () => resolve();
+    req.onblocked = () => resolve();
+  });
+}
+
+export async function clearAllUserData(
+  options: { preserveServerUrl?: boolean } = {}
+): Promise<void> {
+  const { preserveServerUrl = true } = options;
+  const currentServerUrl = preserveServerUrl
+    ? (typeof localStorage !== 'undefined' ? localStorage.getItem('folio_server_url') : null) || getServerUrl()
+    : null;
+
+  // 1. Clear SQLite database
+  try {
+    await clearDbAllData();
+  } catch (err) {
+    console.error('Failed to clear SQLite DB:', err);
+  }
+
+  // 2. Clear IndexedDB
+  try {
+    await clearIndexedDb();
+  } catch (err) {
+    console.error('Failed to clear IndexedDB:', err);
+  }
+
+  // 3. Clear localStorage
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.clear();
+      if (preserveServerUrl && currentServerUrl) {
+        localStorage.setItem('folio_server_url', currentServerUrl);
+      }
+    }
+  } catch (err) {
+    console.error('Failed to clear localStorage:', err);
+  }
+
+  // 4. Clear memory tokens & cookies
+  clearTokens();
 }
 
 export async function storeBookCover(id: string, coverBlob: Blob): Promise<void> {

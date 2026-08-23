@@ -59,6 +59,7 @@ pub fn run() {
             reader_commands::sync_book_data,
             reader_commands::pull_book_progress,
             reader_commands::sync_all_pending,
+            reader_commands::db_clear_all_data,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
