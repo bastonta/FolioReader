@@ -15,8 +15,8 @@ import {
   blobToThumbnailDataUrl,
   saveLocalBookCache,
   saveRecentBook,
-  loadLastLocation,
 } from './services/storage';
+import { saveDbBookMapping, loadDbLastLocation } from './services/readerDb';
 import { fileManager } from './services/fileManager';
 import { setStatusBarVisible, setStatusBarTheme } from './services/systemUi';
 import { useBackHandler } from './services/backHandler';
@@ -202,11 +202,9 @@ function AppRoutes() {
         }
       }
 
-      import('./services/readerDb').then(({ saveDbBookMapping }) => {
-        saveDbBookMapping(book.id, '', filePath).catch(console.warn);
-      });
+      saveDbBookMapping(book.id, '', filePath).catch(console.warn);
 
-      const lastLoc = loadLastLocation(book.id);
+      const lastLoc = await loadDbLastLocation(book.id);
       saveRecentBook({
         id: book.id,
         title,
@@ -244,12 +242,10 @@ function AppRoutes() {
       const bookId = `local-${filePath.replace(/[^a-zA-Z0-9]/g, '_')}`;
 
       if (serverBookId) {
-        import('./services/readerDb').then(({ saveDbBookMapping }) => {
-          saveDbBookMapping(bookId, serverBookId, filePath).catch(console.warn);
-        });
+        saveDbBookMapping(bookId, serverBookId, filePath).catch(console.warn);
       }
 
-      const lastLoc = loadLastLocation(bookId);
+      const lastLoc = await loadDbLastLocation(bookId);
       saveRecentBook({
         id: bookId,
         title: title || fileName.replace(/\.[^/.]+$/, ''),

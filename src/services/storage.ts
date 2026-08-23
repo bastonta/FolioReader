@@ -1,10 +1,7 @@
-import { Annotation, Bookmark, ReaderSettings, RecentBook } from '../types/reader';
+import { ReaderSettings, RecentBook } from '../types/reader';
 
 const SETTINGS_KEY = 'foliate_reader_settings';
 const RECENT_BOOKS_KEY = 'foliate_recent_books';
-const LOCATIONS_KEY = 'foliate_book_locations';
-const ANNOTATIONS_KEY = 'foliate_book_annotations';
-const BOOKMARKS_KEY = 'foliate_book_bookmarks';
 const LOCAL_CACHE_KEY = 'foliate_local_books_cache';
 
 export const DEFAULT_SETTINGS: ReaderSettings = {
@@ -237,13 +234,15 @@ export async function removeRecentBook(id: string): Promise<void> {
   await deleteBookCover(id);
 }
 
-// Book Progress / Location
+// Book Progress / Location (saved in recent books)
 export function loadLastLocation(bookId: string): { cfi?: string; fraction?: number } | null {
   try {
-    const data = localStorage.getItem(LOCATIONS_KEY);
-    if (!data) return null;
-    const map = JSON.parse(data);
-    return map[bookId] || null;
+    const recent = loadRecentBooks();
+    const target = recent.find((b) => b.id === bookId || (b.filePath && b.filePath === bookId));
+    if (target) {
+      return { cfi: target.lastLocation, fraction: target.progressFraction };
+    }
+    return null;
   } catch {
     return null;
   }
@@ -251,12 +250,6 @@ export function loadLastLocation(bookId: string): { cfi?: string; fraction?: num
 
 export function saveLastLocation(bookId: string, cfi: string, fraction: number): void {
   try {
-    const data = localStorage.getItem(LOCATIONS_KEY);
-    const map = data ? JSON.parse(data) : {};
-    map[bookId] = { cfi, fraction, updatedAt: new Date().toISOString() };
-    localStorage.setItem(LOCATIONS_KEY, JSON.stringify(map));
-
-    // Update in recent books as well
     const recent = loadRecentBooks();
     const target = recent.find((b) => b.id === bookId);
     if (target) {
@@ -266,91 +259,7 @@ export function saveLastLocation(bookId: string, cfi: string, fraction: number):
       localStorage.setItem(RECENT_BOOKS_KEY, JSON.stringify(recent));
     }
   } catch (err) {
-    console.error('Failed to save location:', err);
-  }
-}
-
-// Annotations
-export function loadAnnotations(bookId: string): Annotation[] {
-  try {
-    const data = localStorage.getItem(ANNOTATIONS_KEY);
-    if (!data) return [];
-    const map = JSON.parse(data);
-    return map[bookId] || [];
-  } catch {
-    return [];
-  }
-}
-
-export function saveAnnotation(annotation: Annotation): void {
-  try {
-    const data = localStorage.getItem(ANNOTATIONS_KEY);
-    const map = data ? JSON.parse(data) : {};
-    const list: Annotation[] = map[annotation.bookId] || [];
-    const idx = list.findIndex((a) => a.id === annotation.id || a.value === annotation.value);
-    if (idx >= 0) {
-      list[idx] = annotation;
-    } else {
-      list.unshift(annotation);
-    }
-    map[annotation.bookId] = list;
-    localStorage.setItem(ANNOTATIONS_KEY, JSON.stringify(map));
-  } catch (err) {
-    console.error('Failed to save annotation:', err);
-  }
-}
-
-export function deleteAnnotation(bookId: string, annotationIdOrValue: string): void {
-  try {
-    const data = localStorage.getItem(ANNOTATIONS_KEY);
-    if (!data) return;
-    const map = JSON.parse(data);
-    const list: Annotation[] = map[bookId] || [];
-    map[bookId] = list.filter((a) => a.id !== annotationIdOrValue && a.value !== annotationIdOrValue);
-    localStorage.setItem(ANNOTATIONS_KEY, JSON.stringify(map));
-  } catch (err) {
-    console.error('Failed to delete annotation:', err);
-  }
-}
-
-// Bookmarks
-export function loadBookmarks(bookId: string): Bookmark[] {
-  try {
-    const data = localStorage.getItem(BOOKMARKS_KEY);
-    if (!data) return [];
-    const map = JSON.parse(data);
-    return map[bookId] || [];
-  } catch {
-    return [];
-  }
-}
-
-export function saveBookmark(bookmark: Bookmark): void {
-  try {
-    const data = localStorage.getItem(BOOKMARKS_KEY);
-    const map = data ? JSON.parse(data) : {};
-    const list: Bookmark[] = map[bookmark.bookId] || [];
-    const exists = list.some((b) => b.cfi === bookmark.cfi);
-    if (!exists) {
-      list.unshift(bookmark);
-      map[bookmark.bookId] = list;
-      localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(map));
-    }
-  } catch (err) {
-    console.error('Failed to save bookmark:', err);
-  }
-}
-
-export function deleteBookmark(bookId: string, bookmarkId: string): void {
-  try {
-    const data = localStorage.getItem(BOOKMARKS_KEY);
-    if (!data) return;
-    const map = JSON.parse(data);
-    const list: Bookmark[] = map[bookId] || [];
-    map[bookId] = list.filter((b) => b.id !== bookmarkId);
-    localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(map));
-  } catch (err) {
-    console.error('Failed to delete bookmark:', err);
+    console.error('Failed to save location to recent books:', err);
   }
 }
 

@@ -99,16 +99,7 @@ export async function getDbServerBookId(bookId: string): Promise<string | null> 
 export async function loadDbLastLocation(
   bookId: string
 ): Promise<{ cfi?: string; fraction?: number; isRead?: boolean } | null> {
-  if (!isTauri()) {
-    try {
-      const data = localStorage.getItem('foliate_book_locations');
-      if (!data) return null;
-      const map = JSON.parse(data);
-      return map[bookId] || null;
-    } catch {
-      return null;
-    }
-  }
+  if (!isTauri()) return null;
 
   try {
     const res = await invoke<DbBookProgress | null>('db_get_progress', { bookId });
@@ -130,17 +121,7 @@ export async function saveDbLastLocation(
   fraction: number,
   isRead: boolean = false
 ): Promise<void> {
-  if (!isTauri()) {
-    try {
-      const data = localStorage.getItem('foliate_book_locations');
-      const map = data ? JSON.parse(data) : {};
-      map[bookId] = { cfi, fraction, isRead, updatedAt: new Date().toISOString() };
-      localStorage.setItem('foliate_book_locations', JSON.stringify(map));
-    } catch (err) {
-      console.error('Failed to save location to localStorage:', err);
-    }
-    return;
-  }
+  if (!isTauri()) return;
 
   try {
     const progressPercent = Math.min(100.0, Math.max(0.0, fraction * 100.0));
@@ -158,16 +139,7 @@ export async function saveDbLastLocation(
 // ================= BOOKMARKS =================
 
 export async function loadDbBookmarks(bookId: string): Promise<Bookmark[]> {
-  if (!isTauri()) {
-    try {
-      const data = localStorage.getItem('foliate_book_bookmarks');
-      if (!data) return [];
-      const map = JSON.parse(data);
-      return map[bookId] || [];
-    } catch {
-      return [];
-    }
-  }
+  if (!isTauri()) return [];
 
   try {
     const res = await invoke<DbBookmark[]>('db_get_bookmarks', { bookId });
@@ -187,22 +159,7 @@ export async function loadDbBookmarks(bookId: string): Promise<Bookmark[]> {
 }
 
 export async function saveDbBookmark(bookmark: Bookmark): Promise<void> {
-  if (!isTauri()) {
-    try {
-      const data = localStorage.getItem('foliate_book_bookmarks');
-      const map = data ? JSON.parse(data) : {};
-      const list: Bookmark[] = map[bookmark.bookId] || [];
-      const exists = list.some((b) => b.cfi === bookmark.cfi);
-      if (!exists) {
-        list.unshift(bookmark);
-        map[bookmark.bookId] = list;
-        localStorage.setItem('foliate_book_bookmarks', JSON.stringify(map));
-      }
-    } catch (err) {
-      console.error('Failed to save bookmark to localStorage:', err);
-    }
-    return;
-  }
+  if (!isTauri()) return;
 
   try {
     await invoke('db_save_bookmark', {
@@ -218,20 +175,8 @@ export async function saveDbBookmark(bookmark: Bookmark): Promise<void> {
   }
 }
 
-export async function deleteDbBookmark(bookId: string, bookmarkId: string): Promise<void> {
-  if (!isTauri()) {
-    try {
-      const data = localStorage.getItem('foliate_book_bookmarks');
-      if (!data) return;
-      const map = JSON.parse(data);
-      const list: Bookmark[] = map[bookId] || [];
-      map[bookId] = list.filter((b) => b.id !== bookmarkId);
-      localStorage.setItem('foliate_book_bookmarks', JSON.stringify(map));
-    } catch (err) {
-      console.error('Failed to delete bookmark from localStorage:', err);
-    }
-    return;
-  }
+export async function deleteDbBookmark(_bookId: string, bookmarkId: string): Promise<void> {
+  if (!isTauri()) return;
 
   try {
     await invoke('db_delete_bookmark', { id: bookmarkId });
@@ -243,16 +188,7 @@ export async function deleteDbBookmark(bookId: string, bookmarkId: string): Prom
 // ================= ANNOTATIONS =================
 
 export async function loadDbAnnotations(bookId: string): Promise<Annotation[]> {
-  if (!isTauri()) {
-    try {
-      const data = localStorage.getItem('foliate_book_annotations');
-      if (!data) return [];
-      const map = JSON.parse(data);
-      return map[bookId] || [];
-    } catch {
-      return [];
-    }
-  }
+  if (!isTauri()) return [];
 
   try {
     const res = await invoke<DbAnnotation[]>('db_get_annotations', { bookId });
@@ -278,27 +214,9 @@ export async function loadDbAnnotations(bookId: string): Promise<Annotation[]> {
 }
 
 export async function saveDbAnnotation(annotation: Annotation): Promise<void> {
+  if (!isTauri()) return;
   const { locationStart, locationEnd } = parseCfiRange(annotation.value);
   const colorKey = getAnnotationColorKey(annotation.color);
-  if (!isTauri()) {
-    try {
-      const data = localStorage.getItem('foliate_book_annotations');
-      const map = data ? JSON.parse(data) : {};
-      const list: Annotation[] = map[annotation.bookId] || [];
-      const normalizedAnn: Annotation = { ...annotation, color: colorKey };
-      const idx = list.findIndex((a) => a.id === annotation.id || a.value === annotation.value);
-      if (idx >= 0) {
-        list[idx] = normalizedAnn;
-      } else {
-        list.unshift(normalizedAnn);
-      }
-      map[annotation.bookId] = list;
-      localStorage.setItem('foliate_book_annotations', JSON.stringify(map));
-    } catch (err) {
-      console.error('Failed to save annotation to localStorage:', err);
-    }
-    return;
-  }
 
   try {
     await invoke('db_save_annotation', {
@@ -320,24 +238,10 @@ export async function saveDbAnnotation(annotation: Annotation): Promise<void> {
 }
 
 export async function deleteDbAnnotation(
-  bookId: string,
+  _bookId: string,
   annotationIdOrValue: string
 ): Promise<void> {
-  if (!isTauri()) {
-    try {
-      const data = localStorage.getItem('foliate_book_annotations');
-      if (!data) return;
-      const map = JSON.parse(data);
-      const list: Annotation[] = map[bookId] || [];
-      map[bookId] = list.filter(
-        (a) => a.id !== annotationIdOrValue && a.value !== annotationIdOrValue
-      );
-      localStorage.setItem('foliate_book_annotations', JSON.stringify(map));
-    } catch (err) {
-      console.error('Failed to delete annotation from localStorage:', err);
-    }
-    return;
-  }
+  if (!isTauri()) return;
 
   try {
     await invoke('db_delete_annotation', { idOrValue: annotationIdOrValue });
