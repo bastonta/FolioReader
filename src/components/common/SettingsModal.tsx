@@ -407,7 +407,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               Choose how books and folders are displayed by default in your library and catalog.
             </p>
 
-            <div className="segmented-control" style={{ maxWidth: 360 }}>
+            <div className="segmented-control" style={{ width: '100%', height: 38 }}>
               <button
                 type="button"
                 className={`segmented-btn ${(settings.libraryViewMode || 'grid') === 'grid' ? 'active' : ''}`}
@@ -415,9 +415,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   localStorage.setItem('folio_library_view_mode', 'grid');
                   onUpdateSettings({ libraryViewMode: 'grid' });
                 }}
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                style={{ height: '100%', fontSize: 13, gap: 8 }}
               >
-                <LayoutGrid size={15} />
+                <LayoutGrid size={16} />
                 <span>Grid</span>
               </button>
               <button
@@ -427,9 +427,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   localStorage.setItem('folio_library_view_mode', 'list');
                   onUpdateSettings({ libraryViewMode: 'list' });
                 }}
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                style={{ height: '100%', fontSize: 13, gap: 8 }}
               >
-                <ListIcon size={15} />
+                <ListIcon size={16} />
                 <span>List</span>
               </button>
             </div>
@@ -456,11 +456,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 Choose how pages are turned on mobile devices. Tap uses 30% left to go back and 70% right to advance.
               </p>
 
-              <div className="segmented-control" style={{ maxWidth: 360 }}>
+              <div className="segmented-control" style={{ width: '100%', height: 38 }}>
                 <button
                   type="button"
                   className={`segmented-btn ${settings.pageTurnMethod === 'tap' ? 'active' : ''}`}
                   onClick={() => onUpdateSettings({ pageTurnMethod: 'tap' })}
+                  style={{ height: '100%', fontSize: 13 }}
                 >
                   Tap
                 </button>
@@ -468,6 +469,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   type="button"
                   className={`segmented-btn ${settings.pageTurnMethod === 'swipe' ? 'active' : ''}`}
                   onClick={() => onUpdateSettings({ pageTurnMethod: 'swipe' })}
+                  style={{ height: '100%', fontSize: 13 }}
                 >
                   Swipe
                 </button>
@@ -475,6 +477,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   type="button"
                   className={`segmented-btn ${(!settings.pageTurnMethod || settings.pageTurnMethod === 'both') ? 'active' : ''}`}
                   onClick={() => onUpdateSettings({ pageTurnMethod: 'both' })}
+                  style={{ height: '100%', fontSize: 13 }}
                 >
                   Both
                 </button>
