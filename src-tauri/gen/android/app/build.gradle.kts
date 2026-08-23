@@ -1,4 +1,6 @@
+import com.android.build.api.dsl.ApplicationExtension
 import java.util.Properties
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
     id("com.android.application")
@@ -13,7 +15,7 @@ val tauriProperties = Properties().apply {
     }
 }
 
-android {
+configure<ApplicationExtension> {
     compileSdk = 37
     namespace = "com.folio.folioapp"
     defaultConfig {
@@ -58,6 +60,7 @@ android {
         getByName("release") {
             signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 *fileTree(".") { include("**/*.pro") }
                     .plus(getDefaultProguardFile("proguard-android-optimize.txt"))
@@ -69,15 +72,18 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
     buildFeatures {
         buildConfig = true
     }
     lint {
         checkReleaseBuilds = false
         abortOnError = false
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(JvmTarget.JVM_17)
     }
 }
 
@@ -94,6 +100,8 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
-}
 
-apply(from = "tauri.build.gradle.kts")
+    // Tauri dependencies
+    implementation(project(":tauri-android"))
+    implementation(project(":tauri-plugin-opener"))
+}

@@ -23,6 +23,7 @@ import android.webkit.ValueCallback
 import android.webkit.WebView
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
@@ -37,8 +38,31 @@ class MainActivity : TauriActivity() {
   private var currentExplicitActionMode: ActionMode? = null
   private var mainWebView: WebView? = null
 
+  private val folderPickerLauncher = registerForActivityResult(
+    ActivityResultContracts.StartActivityForResult()
+  ) { result ->
+    if (result.resultCode == RESULT_OK) {
+      val uri = result.data?.data ?: return@registerForActivityResult
+      val takeFlags = (result.data?.flags ?: 0) and
+        (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+      try {
+        contentResolver.takePersistableUriPermission(uri, takeFlags)
+      } catch (_: Exception) {}
+
+      val path = getPathFromTreeUri(uri)
+      if (path != null) {
+        val escapedPath = path.replace("\\", "\\\\").replace("'", "\\'")
+        mainWebView?.post {
+          mainWebView?.evaluateJavascript(
+            "if (typeof window.onAndroidFolderSelected === 'function') { window.onAndroidFolderSelected('$escapedPath'); }",
+            null
+          )
+        }
+      }
+    }
+  }
+
   companion object {
-    private const val FOLDER_PICKER_REQUEST_CODE = 9901
     private const val STORAGE_PERMISSION_REQUEST_CODE = 9902
   }
 
@@ -403,7 +427,7 @@ class MainActivity : TauriActivity() {
                 Intent.FLAG_GRANT_PREFIX_URI_PERMISSION
               )
             }
-            startActivityForResult(intent, FOLDER_PICKER_REQUEST_CODE)
+            folderPickerLauncher.launch(intent)
           } catch (e: Exception) {
             e.printStackTrace()
           }
@@ -438,30 +462,6 @@ class MainActivity : TauriActivity() {
         }
       }
     }, "AndroidBridge")
-  }
-
-  @Deprecated("Deprecated in Java")
-  override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-    super.onActivityResult(requestCode, resultCode, data)
-    if (requestCode == FOLDER_PICKER_REQUEST_CODE && resultCode == RESULT_OK) {
-      val uri = data?.data ?: return
-      val takeFlags = (data.flags
-        and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION))
-      try {
-        contentResolver.takePersistableUriPermission(uri, takeFlags)
-      } catch (_: Exception) {}
-
-      val path = getPathFromTreeUri(uri)
-      if (path != null) {
-        val escapedPath = path.replace("\\", "\\\\").replace("'", "\\'")
-        mainWebView?.post {
-          mainWebView?.evaluateJavascript(
-            "if (typeof window.onAndroidFolderSelected === 'function') { window.onAndroidFolderSelected('$escapedPath'); }",
-            null
-          )
-        }
-      }
-    }
   }
 
   private fun getPathFromTreeUri(uri: Uri): String? {

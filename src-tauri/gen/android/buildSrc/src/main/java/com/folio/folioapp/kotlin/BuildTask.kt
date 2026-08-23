@@ -69,5 +69,18 @@ abstract class BuildTask : DefaultTask() {
             }
             args(listOf("--target", target))
         }.assertNormalExitValue()
+
+        // Sanitize generated tauri.build.gradle.kts to prevent Gradle 9+ deprecation warnings
+        val tauriGradleFile = File(project.projectDir, "tauri.build.gradle.kts")
+        if (tauriGradleFile.exists()) {
+            val content = tauriGradleFile.readText()
+            if (content.contains("val implementation by configurations")) {
+                tauriGradleFile.writeText(
+                    content.replace("val implementation by configurations\n", "")
+                        .replace("val implementation by configurations\r\n", "")
+                        .replace("  implementation(", "  \"implementation\"(")
+                )
+            }
+        }
     }
 }
