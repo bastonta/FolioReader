@@ -105,6 +105,27 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
     { label: 'Monospace', value: 'ui-monospace, monospace' },
   ];
 
+  const getFontWeightLabel = (weight: number = 400) => {
+    switch (weight) {
+      case 300:
+        return '300 (Light)';
+      case 400:
+        return '400 (Regular)';
+      case 500:
+        return '500 (Medium)';
+      case 600:
+        return '600 (Semi-Bold)';
+      case 700:
+        return '700 (Bold)';
+      case 800:
+        return '800 (Extra Bold)';
+      case 900:
+        return '900 (Black)';
+      default:
+        return `${weight}`;
+    }
+  };
+
   return (
     <>
       {/* Backdrop overlay for tap-outside dismiss on mobile & desktop */}
@@ -343,6 +364,44 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
               onClick={() => onUpdateSettings({ fontSize: Math.min(36, settings.fontSize + 1) })}
               title="Increase Font Size"
               aria-label="Increase Font Size"
+            >
+              <Plus size={16} />
+            </button>
+          </div>
+        </div>
+
+        {/* Font Weight */}
+        <div className="settings-section">
+          <div className="settings-row-between">
+            <label className="settings-label">Font Weight</label>
+            <span className="settings-val-text">{getFontWeightLabel(settings.fontWeight || 400)}</span>
+          </div>
+          <div className="stepper-control">
+            <button
+              type="button"
+              className="stepper-btn"
+              onClick={() => onUpdateSettings({ fontWeight: Math.max(300, (settings.fontWeight || 400) - 100) })}
+              title="Decrease Font Weight"
+              aria-label="Decrease Font Weight"
+            >
+              <Minus size={16} />
+            </button>
+            <input
+              type="range"
+              min={300}
+              max={900}
+              step={100}
+              value={settings.fontWeight || 400}
+              onChange={(e) => onUpdateSettings({ fontWeight: Number(e.target.value) })}
+              className="settings-slider"
+              aria-label="Font Weight Slider"
+            />
+            <button
+              type="button"
+              className="stepper-btn"
+              onClick={() => onUpdateSettings({ fontWeight: Math.min(900, (settings.fontWeight || 400) + 100) })}
+              title="Increase Font Weight"
+              aria-label="Increase Font Weight"
             >
               <Plus size={16} />
             </button>

@@ -63,6 +63,7 @@ export interface ReaderSettings {
   columns: 'auto' | 1 | 2;
   fontFamily: string;
   fontSize: number; // in pt or px, e.g. 18
+  fontWeight?: number; // 300 - 900, e.g. 400
   spacing: number; // line-height, e.g. 1.5
   margin: number; // page margin in px
   justify: boolean;

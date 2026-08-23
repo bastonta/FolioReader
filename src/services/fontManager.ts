@@ -66,7 +66,7 @@ class FontManager {
 
       // Register in document.fonts for UI preview
       try {
-        const fontFace = new FontFace(font.fontFamily, uint8.buffer);
+        const fontFace = new FontFace(font.fontFamily, uint8.buffer, { weight: '100 900' });
         await fontFace.load();
         document.fonts.add(fontFace);
       } catch (fontFaceErr) {
@@ -176,7 +176,7 @@ class FontManager {
 @font-face {
   font-family: '${f.fontFamily}';
   src: url('${f.dataUrl}') format('${f.format}');
-  font-weight: normal;
+  font-weight: 100 900;
   font-style: normal;
 }
         `

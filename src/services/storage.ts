@@ -11,6 +11,7 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   columns: 'auto',
   fontFamily: 'Georgia, serif',
   fontSize: 18,
+  fontWeight: 400,
   spacing: 1.5,
   margin: 48,
   justify: true,

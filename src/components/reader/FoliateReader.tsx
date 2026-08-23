@@ -188,6 +188,8 @@ const getReaderCSS = (settings: ReaderSettings, customFontsCss: string = '') => 
   };
 
   const colors = themeColors[settings.theme] || themeColors.light;
+  const baseWeight = settings.fontWeight || 400;
+  const boldWeight = Math.min(900, Math.max(700, baseWeight + 200));
 
   return `
     ${customFontsCss}
@@ -200,14 +202,17 @@ const getReaderCSS = (settings: ReaderSettings, customFontsCss: string = '') => 
     body {
       font-family: ${settings.fontFamily} !important;
       font-size: ${settings.fontSize}px !important;
+      font-weight: ${baseWeight} !important;
       line-height: ${settings.spacing} !important;
       background-color: ${colors.bg} !important;
       color: ${colors.text} !important;
       -webkit-touch-callout: none !important;
       user-select: text !important;
       -webkit-user-select: text !important;
+      font-synthesis: weight style;
     }
     p, li, blockquote, dd {
+      font-weight: ${baseWeight} !important;
       line-height: ${settings.spacing} !important;
       text-align: ${settings.justify ? 'justify' : 'start'} !important;
       -webkit-hyphens: ${settings.hyphenate ? 'auto' : 'manual'} !important;
@@ -217,6 +222,12 @@ const getReaderCSS = (settings: ReaderSettings, customFontsCss: string = '') => 
       -webkit-hyphenate-limit-lines: 2;
       hanging-punctuation: allow-end last;
       widows: 2;
+    }
+    b, strong, th {
+      font-weight: ${boldWeight} !important;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      font-weight: ${boldWeight} !important;
     }
     /* Prevent overriding explicit alignment */
     [align="left"] { text-align: left !important; }
