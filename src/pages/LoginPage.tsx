@@ -37,7 +37,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ theme, onToggleTheme }) =>
       if (res?.need2fa) {
         setTwoFactorData({ token: res.token, need2fa: true });
       } else {
-        navigate('/');
+        navigate('/', { replace: true });
       }
     } catch (err) {
       setError((err as any)?.message || 'Invalid email or password');
@@ -58,7 +58,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ theme, onToggleTheme }) =>
     try {
       setLoading(true);
       await login2fa(twoFactorData!.token, twoFactorCode, isRecovery ? 'recovery' : 'code');
-      navigate('/');
+      navigate('/', { replace: true });
     } catch (err) {
       setError((err as any)?.message || 'Invalid code');
     } finally {

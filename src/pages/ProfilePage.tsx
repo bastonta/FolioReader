@@ -376,8 +376,8 @@ export const ProfilePage: React.FC = () => {
               <strong style={{ fontSize: 13.5, color: 'var(--text-primary)' }}>{serverUrl}</strong>
             </div>
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-              <button className="auth-btn-secondary" style={{ width: 'auto' }} onClick={() => { clearServer(); navigate('/server'); }}>Change Server</button>
-              <button className="auth-btn-secondary" style={{ width: 'auto', display: 'flex', alignItems: 'center', gap: 8 }} onClick={() => { logout(); navigate('/login'); }}>
+              <button className="auth-btn-secondary" style={{ width: 'auto' }} onClick={() => { clearServer(); navigate('/server', { replace: true }); }}>Change Server</button>
+              <button className="auth-btn-secondary" style={{ width: 'auto', display: 'flex', alignItems: 'center', gap: 8 }} onClick={() => { logout(); navigate('/login', { replace: true }); }}>
                 <LogOut size={16} /> Sign Out
               </button>
             </div>

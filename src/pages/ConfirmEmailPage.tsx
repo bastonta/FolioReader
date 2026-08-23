@@ -30,7 +30,7 @@ export const ConfirmEmailPage: React.FC<ConfirmEmailPageProps> = ({ theme, onTog
 
   useEffect(() => {
     if (!userId || !email) {
-      navigate('/login');
+      navigate('/login', { replace: true });
     }
   }, [userId, email, navigate]);
 
@@ -66,7 +66,7 @@ export const ConfirmEmailPage: React.FC<ConfirmEmailPageProps> = ({ theme, onTog
       setLoading(true);
       await emailConfirm(userId!, code);
       setSuccess(true);
-      setTimeout(() => navigate('/'), 1500);
+      setTimeout(() => navigate('/', { replace: true }), 1500);
     } catch (err) {
       setError((err as any)?.message || 'Invalid confirmation code');
     } finally {

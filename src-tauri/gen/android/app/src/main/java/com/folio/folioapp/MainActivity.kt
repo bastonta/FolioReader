@@ -33,6 +33,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import java.io.File
 
 class MainActivity : TauriActivity() {
+  override val handleBackNavigation: Boolean = false
   private var disableSystemActionMode = false
   private var isShowingExplicitActionMode = false
   private var currentExplicitActionMode: ActionMode? = null
@@ -93,19 +94,19 @@ class MainActivity : TauriActivity() {
               val isHandled = result == "true"
               if (!isHandled) {
                 runOnUiThread {
-                  isEnabled = false
-                  if (!moveTaskToBack(false)) {
-                    onBackPressedDispatcher.onBackPressed()
+                  if (!moveTaskToBack(true)) {
+                    finish()
                   }
-                  isEnabled = true
                 }
               }
             }
           )
         } else {
-          isEnabled = false
-          onBackPressedDispatcher.onBackPressed()
-          isEnabled = true
+          runOnUiThread {
+            if (!moveTaskToBack(true)) {
+              finish()
+            }
+          }
         }
       }
     }

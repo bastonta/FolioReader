@@ -124,7 +124,7 @@ function AppRoutes() {
   useBackHandler(
     () => {
       if (location.pathname === '/profile') {
-        navigate('/');
+        navigate('/', { replace: true });
         return true;
       }
       if (
@@ -132,7 +132,7 @@ function AppRoutes() {
         location.pathname === '/forgot-password' ||
         location.pathname === '/confirm-email'
       ) {
-        navigate('/login');
+        navigate('/login', { replace: true });
         return true;
       }
       navigate(-1);

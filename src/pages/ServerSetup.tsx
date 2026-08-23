@@ -54,7 +54,7 @@ export const ServerSetup: React.FC<ServerSetupProps> = ({ theme, onToggleTheme }
       }
 
       setServerUrl(finalUrl);
-      navigate("/login");
+      navigate("/login", { replace: true });
     } catch (err) {
       setError(
         (err as any)?.message ||
