@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { BookOpen, LogIn, Lock, Mail, AlertCircle, ShieldCheck, KeyRound, ArrowLeft, Server, Loader } from 'lucide-react';
 import { ThemeToggle } from '../components/common/ThemeToggle';
+import { useBackHandler } from '../services/backHandler';
 
 interface LoginPageProps {
   theme?: string;
@@ -15,7 +16,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ theme, onToggleTheme }) =>
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   
-  const [twoFactorData, setTwoFactorData] = useState<{ token: string; need2fa: boolean } | null>(null);
+  const [twoFactorData, setTwoFactorData] = useState<{ userId: string; token: string; need2fa: boolean } | null>(null);
   const [twoFactorCode, setTwoFactorCode] = useState('');
   const [isRecovery, setIsRecovery] = useState(false);
 
@@ -35,7 +36,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ theme, onToggleTheme }) =>
       setLoading(true);
       const res = await login(email, password);
       if (res?.need2fa) {
-        setTwoFactorData({ token: res.token, need2fa: true });
+        setTwoFactorData({ userId: res.userId, token: res.token, need2fa: true });
       } else {
         navigate('/', { replace: true });
       }
@@ -57,7 +58,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ theme, onToggleTheme }) =>
 
     try {
       setLoading(true);
-      await login2fa(twoFactorData!.token, twoFactorCode, isRecovery ? 'recovery' : 'code');
+      await login2fa(twoFactorData!.userId, twoFactorData!.token, twoFactorCode, isRecovery ? 'recovery' : 'code');
       navigate('/', { replace: true });
     } catch (err) {
       setError((err as any)?.message || 'Invalid code');
@@ -71,6 +72,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({ theme, onToggleTheme }) =>
     setTwoFactorCode('');
     setError('');
   };
+
+  useBackHandler(() => {
+    if (twoFactorData) {
+      handleBackToLogin();
+      return true;
+    }
+    return false;
+  }, Boolean(twoFactorData), 100);
 
   const handleChangeServer = () => {
     clearServer();

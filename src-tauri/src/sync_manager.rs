@@ -253,20 +253,64 @@ pub async fn pull_book_progress(
     if res.status().is_success() {
         if let Ok(remote) = res.json::<ServerProgressResponse>().await {
             if let Some(loc) = remote.location {
-                let percent = remote.progress_percent.unwrap_or(0.0);
+                let remote_percent = remote.progress_percent.unwrap_or(0.0);
                 let is_read = remote.is_read.unwrap_or(false);
 
+                let current_local = db::get_progress(pool, book_id).await.ok().flatten();
+                let local_is_pending = current_local
+                    .as_ref()
+                    .map(|p| p.sync_status == "pending")
+                    .unwrap_or(false);
+                let local_percent = current_local.as_ref().map(|p| p.progress_percent).unwrap_or(0.0);
+
+                // If local progress is pending or further ahead, preserve local and push it to the server
+                if local_is_pending || (local_percent > remote_percent && local_percent > 0.0) {
+                    if let Some(local_p) = current_local {
+                        // Push local to server
+                        let put_url = format!("{base}/api/books/{server_id}/progress?format=cfi");
+                        let payload = ServerProgressPayload {
+                            location: Some(local_p.location.clone()),
+                            progress_percent: Some(local_p.progress_percent),
+                            is_read: Some(local_p.is_read),
+                        };
+                        let put_res = client
+                            .put(&put_url)
+                            .headers(headers.clone())
+                            .json(&payload)
+                            .send()
+                            .await;
+
+                        if let Ok(r) = put_res {
+                            if r.status().is_success() {
+                                let _ = sqlx::query("UPDATE book_progress SET sync_status = 'synced' WHERE book_id = ? OR book_id = ?")
+                                    .bind(book_id)
+                                    .bind(&server_id)
+                                    .execute(pool)
+                                    .await;
+                            }
+                        }
+
+                        return Ok(PullProgressResult {
+                            success: true,
+                            message: "Local progress preserved and synced with server".to_string(),
+                            location: Some(local_p.location),
+                            progress_percent: Some(local_p.progress_percent),
+                            is_read: Some(local_p.is_read),
+                        });
+                    }
+                }
+
                 // Force save to local SQLite database with sync_status = 'synced'
-                let _ = db::save_progress(pool, book_id, &loc, percent, is_read, false).await;
+                let _ = db::save_progress(pool, book_id, &loc, remote_percent, is_read, false).await;
                 if server_id != book_id {
-                    let _ = db::save_progress(pool, &server_id, &loc, percent, is_read, false).await;
+                    let _ = db::save_progress(pool, &server_id, &loc, remote_percent, is_read, false).await;
                 }
 
                 return Ok(PullProgressResult {
                     success: true,
                     message: "Progress successfully fetched from server".to_string(),
                     location: Some(loc),
-                    progress_percent: Some(percent),
+                    progress_percent: Some(remote_percent),
                     is_read: Some(is_read),
                 });
             }

@@ -107,16 +107,24 @@ class FontManager {
   }
 
   /**
-   * Adds a new font file to the persistent fonts storage.
+   * Adds a new font file to the persistent fonts storage using fast Base64 transfer.
    */
   public async addFontFile(file: File): Promise<LoadedCustomFont> {
     try {
-      const buffer = await file.arrayBuffer();
-      const bytes = Array.from(new Uint8Array(buffer));
+      const base64Data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = reader.result as string;
+          const commaIdx = result.indexOf(',');
+          resolve(commaIdx >= 0 ? result.slice(commaIdx + 1) : result);
+        };
+        reader.onerror = (e) => reject(e);
+        reader.readAsDataURL(file);
+      });
 
       const info = await invoke<CustomFontInfo>('save_custom_font', {
         fileName: file.name,
-        bytes,
+        base64Data,
       });
 
       const loaded = await this.loadFont(info);

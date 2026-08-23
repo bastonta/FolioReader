@@ -249,7 +249,7 @@ function AppRoutes() {
       }
       const file = await fileManager.readBookFile(filePath);
       const fileName = filePath.split(/[\\/]/).pop() || 'book.epub';
-      const bookId = `local-${filePath.replace(/[^a-zA-Z0-9]/g, '_')}`;
+      const bookId = fileManager.getLocalBookId(filePath, settings.downloadPath);
 
       if (serverBookId) {
         saveDbBookMapping(bookId, serverBookId, filePath).catch(console.warn);

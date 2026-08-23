@@ -107,10 +107,9 @@ export const fileManager = {
    */
   readBookFile: async (filePath: string): Promise<File> => {
     try {
-      const bytes = await invoke<number[]>('read_book_file', { filePath });
-      const uint8 = new Uint8Array(bytes);
+      const arrayBuffer = await invoke<ArrayBuffer>('read_book_file', { filePath });
       const fileName = filePath.split(/[\\/]/).pop() || 'book.epub';
-      return new File([uint8], fileName, { type: 'application/epub+zip' });
+      return new File([arrayBuffer], fileName, { type: 'application/epub+zip' });
     } catch (err) {
       console.error(`Failed to read book file '${filePath}':`, err);
       throw err;
@@ -176,5 +175,22 @@ export const fileManager = {
       console.warn('Check book downloaded error:', err);
       return null;
     }
+  },
+
+  /**
+   * Generates a consistent local book ID from filePath and optional baseDir,
+   * matching the logic in Rust `fs_manager.rs`.
+   */
+  getLocalBookId: (filePath: string, baseDir?: string): string => {
+    let relPath = filePath;
+    if (baseDir) {
+      const normalizedBase = baseDir.replace(/\\/g, '/').replace(/\/+$/, '');
+      const normalizedPath = filePath.replace(/\\/g, '/');
+      if (normalizedPath.startsWith(normalizedBase + '/')) {
+        relPath = normalizedPath.slice(normalizedBase.length + 1);
+      }
+    }
+    const sanitized = relPath.replace(/\\/g, '/').replace(/[/\\ .]/g, '_');
+    return `local-${sanitized}`;
   },
 };

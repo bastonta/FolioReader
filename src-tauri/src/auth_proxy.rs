@@ -46,6 +46,8 @@ impl AuthHttpClient {
         let client = Client::builder()
             .cookie_provider(jar.clone())
             .tls_certs_only(root_certs)
+            .timeout(std::time::Duration::from_secs(30))
+            .connect_timeout(std::time::Duration::from_secs(10))
             .build()
             .expect("failed to build reqwest client");
         Self {

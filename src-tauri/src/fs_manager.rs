@@ -1,6 +1,8 @@
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tokio::fs;
+use tokio::io::AsyncWriteExt;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -196,15 +198,17 @@ pub async fn scan_local_books(dir_path: String) -> Result<Vec<LocalBookFile>, St
 }
 
 #[tauri::command]
-pub async fn read_book_file(file_path: String) -> Result<Vec<u8>, String> {
+pub async fn read_book_file(file_path: String) -> Result<tauri::ipc::Response, String> {
     let path = Path::new(&file_path);
     if !path.exists() {
         return Err(format!("File not found: {file_path}"));
     }
 
-    fs::read(path)
+    let bytes = fs::read(path)
         .await
-        .map_err(|e| format!("Failed to read file '{file_path}': {e}"))
+        .map_err(|e| format!("Failed to read file '{file_path}': {e}"))?;
+
+    Ok(tauri::ipc::Response::new(bytes))
 }
 
 #[tauri::command]
@@ -264,6 +268,8 @@ pub async fn download_book_file(
 
     let client = reqwest::Client::builder()
         .tls_certs_only(root_certs)
+        .timeout(std::time::Duration::from_secs(120))
+        .connect_timeout(std::time::Duration::from_secs(15))
         .build()
         .map_err(|e| format!("Failed to build HTTP client: {e}"))?;
 
@@ -279,7 +285,7 @@ pub async fn download_book_file(
             request = request.header("Authorization", format!("Bearer {t}"));
         }
 
-    let response = request
+    let mut response = request
         .send()
         .await
         .map_err(|e| format!("Download request failed: {e}"))?;
@@ -291,14 +297,23 @@ pub async fn download_book_file(
         ));
     }
 
-    let bytes = response
-        .bytes()
+    let mut file = tokio::fs::File::create(&final_path)
         .await
-        .map_err(|e| format!("Failed to read book response body: {e}"))?;
+        .map_err(|e| format!("Failed to create file '{:?}': {e}", final_path))?;
 
-    fs::write(&final_path, bytes)
+    while let Some(chunk) = response
+        .chunk()
         .await
-        .map_err(|e| format!("Failed to save book to '{:?}': {e}", final_path))?;
+        .map_err(|e| format!("Failed to read chunk from server: {e}"))?
+    {
+        file.write_all(&chunk)
+            .await
+            .map_err(|e| format!("Failed to write chunk to file: {e}"))?;
+    }
+
+    file.flush()
+        .await
+        .map_err(|e| format!("Failed to flush file '{:?}': {e}", final_path))?;
 
     let final_path_str = final_path.to_string_lossy().to_string();
     let rel_path = final_path
@@ -392,8 +407,12 @@ pub async fn check_book_downloaded(
 pub async fn save_custom_font(
     app: tauri::AppHandle,
     file_name: String,
-    bytes: Vec<u8>,
+    base64_data: String,
 ) -> Result<CustomFontInfo, String> {
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(&base64_data)
+        .map_err(|e| format!("Failed to decode base64 font data: {e}"))?;
+
     let fonts_dir = get_fonts_dir(&app)?;
     let clean_file_name = sanitize_filename_part(&file_name);
     let target_path = fonts_dir.join(&clean_file_name);

@@ -1194,8 +1194,9 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
             if (remoteProgress?.success && remoteProgress.location) {
               const remoteLoc = remoteProgress.location;
               const remotePct = Math.round(remoteProgress.progressPercent || 0);
+              const localPct = Math.round((savedLoc?.fraction || 0) * 100);
 
-              if (remoteLoc !== savedLoc?.cfi) {
+              if (remoteLoc !== savedLoc?.cfi && (remotePct >= localPct || !savedLoc?.cfi)) {
                 if (viewRef.current) {
                   await viewRef.current.goTo(remoteLoc);
                   showSyncToast(`Synced latest progress from server: ${remotePct}%`, 'success');

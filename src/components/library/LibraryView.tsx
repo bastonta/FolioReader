@@ -35,7 +35,7 @@ import {
 import { LocalBookFile } from '../../types/browse';
 import { ReaderSettings, RecentBook } from '../../types/reader';
 import { FolderStackCover } from './FolderStackCover';
-import { pullBookProgress } from '../../services/readerDb';
+import { pullBookProgress, loadDbLastLocation } from '../../services/readerDb';
 import { useBackHandler } from '../../services/backHandler';
 
 interface LibraryViewProps {
@@ -62,11 +62,35 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   const [currentFolderPath, setCurrentFolderPath] = useState<string[]>([]);
   const [hasPermission, setHasPermission] = useState(true);
   const [recentBooks, setRecentBooks] = useState<RecentBook[]>(() => loadRecentBooks().slice(0, 3));
+  const [dbProgressMap, setDbProgressMap] = useState<Record<string, { fraction: number; isRead?: boolean }>>({});
   const isMobile = isMobileDevice();
 
   // Back button handling in LibraryView (highest to lowest priority)
   useBackHandler(() => { setCurrentFolderPath((prev) => prev.slice(0, -1)); return true; }, currentFolderPath.length > 0, 40);
   useBackHandler(() => { setSearchQuery(''); return true; }, Boolean(searchQuery), 30);
+
+  const loadAllProgress = useCallback(async (books: LocalBookFile[]) => {
+    if (!books.length) return;
+    try {
+      const entries = await Promise.all(
+        books.map(async (book) => {
+          const loc = await loadDbLastLocation(book.id);
+          return [book.id, loc ? { fraction: loc.fraction || 0, isRead: loc.isRead } : null] as const;
+        })
+      );
+      setDbProgressMap((prev) => {
+        const next = { ...prev };
+        for (const [id, data] of entries) {
+          if (data) {
+            next[id] = data;
+          }
+        }
+        return next;
+      });
+    } catch (err) {
+      console.warn('Failed to load progress from SQLite:', err);
+    }
+  }, []);
 
   const refreshRecentProgress = useCallback(() => {
     const list = loadRecentBooks().slice(0, 3);
@@ -86,6 +110,10 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                     : b
                 )
               );
+              setDbProgressMap((prev) => ({
+                ...prev,
+                [book.id]: { fraction: frac, isRead: res.isRead },
+              }));
             }
           })
           .catch(console.warn);
@@ -95,7 +123,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
 
   useEffect(() => {
     refreshRecentProgress();
-  }, [localBooks, refreshRecentProgress]);
+    loadAllProgress(localBooks);
+  }, [localBooks, refreshRecentProgress, loadAllProgress]);
 
   // Re-fetch recent books progress when device reconnects
   useEffect(() => {
@@ -919,8 +948,10 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     const folderName = book.folderName;
 
     // Reading location & progress
-    const location = loadLastLocation(book.id);
-    const percent = Math.round((location?.fraction || 0) * 100);
+    const dbLoc = dbProgressMap[book.id];
+    const recentLoc = loadLastLocation(book.id);
+    const fraction = dbLoc?.fraction ?? recentLoc?.fraction ?? 0;
+    const percent = Math.round(fraction * 100);
 
     return (
       <div
@@ -1053,10 +1084,12 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     const folderName = book.folderName;
 
     // Reading location & progress
-    const location = loadLastLocation(book.id);
-    const fraction = location?.fraction || 0;
+    const dbLoc = dbProgressMap[book.id];
+    const recentLoc = loadLastLocation(book.id);
+    const fraction = dbLoc?.fraction ?? recentLoc?.fraction ?? 0;
     const percent = Math.round(fraction * 100);
-    const readingStatus = percent >= 100 ? 'Completed' : percent > 0 ? 'Reading' : 'Not started';
+    const isRead = dbLoc?.isRead ?? (percent >= 100);
+    const readingStatus = isRead ? 'Completed' : percent > 0 ? 'Reading' : 'Not started';
 
     return (
       <div
