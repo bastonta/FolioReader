@@ -3419,3 +3419,157 @@ foliate-view::part(foot) {
     gap: 8px;
   }
 }
+
+/* ==========================================================================
+   Native Android-Style Splash & Loading Screen
+   ========================================================================== */
+.android-splash-container {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  background-color: var(--bg-primary, #ffffff);
+  color: var(--text-primary, #2e3436);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: max(24px, var(--sat, 0px)) max(16px, var(--sar, 0px)) max(32px, var(--sab, 0px)) max(16px, var(--sal, 0px));
+  box-sizing: border-box;
+  user-select: none;
+  -webkit-user-select: none;
+  z-index: 99999;
+}
+
+.android-splash-center {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  margin-top: 24px;
+}
+
+.android-splash-icon-wrapper {
+  width: 96px;
+  height: 96px;
+  border-radius: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: android-splash-scale-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.android-splash-icon {
+  width: 96px;
+  height: 96px;
+  object-fit: contain;
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.08));
+}
+
+.android-splash-spinner-wrapper {
+  margin-top: 36px;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.android-splash-spinner {
+  width: 36px;
+  height: 36px;
+  animation: android-splash-rotate 1.4s linear infinite;
+}
+
+.android-splash-spinner-track {
+  stroke: var(--border-subtle, rgba(128, 128, 128, 0.15));
+}
+
+.android-splash-spinner-head {
+  stroke: var(--accent-color, #3584e4);
+  stroke-linecap: round;
+  stroke-dasharray: 80, 200;
+  stroke-dashoffset: 0;
+  animation: android-splash-dash 1.4s ease-in-out infinite;
+}
+
+.android-splash-message {
+  margin-top: 16px;
+  font-size: 14px;
+  color: var(--text-secondary, #5e5c64);
+  font-weight: 500;
+}
+
+.android-splash-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding-bottom: 8px;
+  animation: android-splash-fade-in 0.4s ease forwards;
+}
+
+.android-splash-title {
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text-primary, #2e3436);
+}
+
+.android-splash-subtitle {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--text-muted, #86848d);
+  text-transform: uppercase;
+}
+
+@keyframes android-splash-scale-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.88);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes android-splash-fade-in {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes android-splash-rotate {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes android-splash-dash {
+  0% {
+    stroke-dasharray: 1, 200;
+    stroke-dashoffset: 0;
+  }
+  50% {
+    stroke-dasharray: 90, 200;
+    stroke-dashoffset: -35px;
+  }
+  100% {
+    stroke-dasharray: 90, 200;
+    stroke-dashoffset: -125px;
+  }
+}
+

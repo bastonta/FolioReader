@@ -20,6 +20,7 @@ import { saveDbBookMapping, loadDbLastLocation } from './services/readerDb';
 import { fileManager } from './services/fileManager';
 import { setStatusBarVisible, setStatusBarTheme, isMobileDevice } from './services/systemUi';
 import { useBackHandler } from './services/backHandler';
+import { SplashScreen } from './components/common/SplashScreen';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
 // Auth pages
@@ -44,20 +45,11 @@ interface ActiveBookState {
 
 // ─── Route guard: requires authentication ────────────────────────────────
 
-function RequireAuth({ children }: { children: React.ReactNode }) {
+function RequireAuth({ children, theme }: { children: React.ReactNode; theme?: string }) {
   const { isAuthenticated, isLoading, serverUrl } = useAuth();
 
   if (isLoading) {
-    return (
-      <div className="auth-page">
-        <div className="auth-card" style={{ textAlign: 'center' }}>
-          <div className="auth-icon-badge" style={{ margin: '0 auto' }}>
-            <span className="auth-loading-spinner" />
-          </div>
-          <p style={{ color: 'var(--text-secondary)' }}>Loading…</p>
-        </div>
-      </div>
-    );
+    return <SplashScreen theme={theme} />;
   }
 
   if (!serverUrl) {
@@ -73,11 +65,11 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 
 // ─── Route guard: redirect if already authenticated ──────────────────────
 
-function GuestOnly({ children }: { children: React.ReactNode }) {
+function GuestOnly({ children, theme }: { children: React.ReactNode; theme?: string }) {
   const { isAuthenticated, isLoading, serverUrl } = useAuth();
 
   if (isLoading) {
-    return null;
+    return <SplashScreen theme={theme} />;
   }
 
   if (!serverUrl) {
@@ -94,7 +86,7 @@ function GuestOnly({ children }: { children: React.ReactNode }) {
 // ─── Main app with routes ────────────────────────────────────────────────
 
 function AppRoutes() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
   const [settings, setSettings] = useState<ReaderSettings>(() => loadSettings());
   const [activeBook, setActiveBook] = useState<ActiveBookState | null>(null);
   const [currentView, setCurrentView] = useState<'library' | 'browse'>('library');
@@ -303,6 +295,10 @@ function AppRoutes() {
     handleUpdateSettings({ theme: settings.theme === 'dark' || settings.theme === 'gray' ? 'light' : 'dark' });
   };
 
+  if (isLoading) {
+    return <SplashScreen theme={settings.theme} />;
+  }
+
   return (
     <div className={`app-container theme-${settings.theme}`}>
       <Routes>
@@ -311,7 +307,7 @@ function AppRoutes() {
         <Route
           path="/login"
           element={
-            <GuestOnly>
+            <GuestOnly theme={settings.theme}>
               <LoginPage theme={settings.theme} onToggleTheme={handleToggleAuthTheme} />
             </GuestOnly>
           }
@@ -319,7 +315,7 @@ function AppRoutes() {
         <Route
           path="/register"
           element={
-            <GuestOnly>
+            <GuestOnly theme={settings.theme}>
               <RegisterPage theme={settings.theme} onToggleTheme={handleToggleAuthTheme} />
             </GuestOnly>
           }
@@ -331,7 +327,7 @@ function AppRoutes() {
         <Route
           path="/forgot-password"
           element={
-            <GuestOnly>
+            <GuestOnly theme={settings.theme}>
               <ForgotPasswordPage theme={settings.theme} onToggleTheme={handleToggleAuthTheme} />
             </GuestOnly>
           }
@@ -341,7 +337,7 @@ function AppRoutes() {
         <Route
           path="/profile"
           element={
-            <RequireAuth>
+            <RequireAuth theme={settings.theme}>
               <ProfilePage />
             </RequireAuth>
           }
@@ -349,7 +345,7 @@ function AppRoutes() {
         <Route
           path="/"
           element={
-            <RequireAuth>
+            <RequireAuth theme={settings.theme}>
               {activeBook ? (
                 <FoliateReader
                   bookId={activeBook.id}
