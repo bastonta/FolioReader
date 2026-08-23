@@ -185,8 +185,8 @@ export const compare = (a, b) => {
     return 0
 }
 
-const isTextNode = ({ nodeType }) => nodeType === 3 || nodeType === 4
-const isElementNode = ({ nodeType }) => nodeType === 1
+const isTextNode = node => Boolean(node && (node.nodeType === 3 || node.nodeType === 4))
+const isElementNode = node => Boolean(node && node.nodeType === 1)
 
 const getChildNodes = (node, filter) => {
     const nodes = Array.from(node.childNodes)
@@ -232,6 +232,7 @@ const indexChildNodes = (node, filter) => {
 }
 
 const partsToNode = (node, parts, filter) => {
+    if (!node || !parts?.length) return { node, offset: 0 }
     const { id } = parts[parts.length - 1]
     if (id) {
         const el = node.ownerDocument.getElementById(id)
@@ -244,17 +245,20 @@ const partsToNode = (node, parts, filter) => {
         if (newNode === 'last') return { node: node.lastChild ?? node }
         if (newNode === 'before') return { node, before: true }
         if (newNode === 'after') return { node, after: true }
+        if (!newNode) return { node, offset: 0 }
         node = newNode
     }
-    const { offset } = parts[parts.length - 1]
+    const { offset = 0 } = parts[parts.length - 1]
     if (!Array.isArray(node)) return { node, offset }
     // get underlying text node and offset from the chunk
     let sum = 0
     for (const n of node) {
-        const { length } = n.nodeValue
+        const length = n.nodeValue?.length ?? 0
         if (sum + length >= offset) return { node: n, offset: offset - sum }
         sum += length
     }
+    const lastTextNode = node[node.length - 1]
+    return { node: lastTextNode, offset: lastTextNode?.nodeValue?.length ?? 0 }
 }
 
 const nodeToParts = (node, offset, filter) => {
@@ -298,18 +302,31 @@ export const toRange = (doc, parts, filter) => {
     const endParts = collapse(parts, true)
 
     const root = doc.documentElement
-    const start = partsToNode(root, startParts[0], filter)
-    const end = partsToNode(root, endParts[0], filter)
+    const start = partsToNode(root, startParts[0], filter) || { node: root, offset: 0 }
+    const end = partsToNode(root, endParts[0], filter) || { node: root, offset: 0 }
 
     const range = doc.createRange()
 
-    if (start.before) range.setStartBefore(start.node)
-    else if (start.after) range.setStartAfter(start.node)
-    else range.setStart(start.node, start.offset)
+    const startNode = start.node || root
+    const endNode = end.node || root
 
-    if (end.before) range.setEndBefore(end.node)
-    else if (end.after) range.setEndAfter(end.node)
-    else range.setEnd(end.node, end.offset)
+    if (start.before) range.setStartBefore(startNode)
+    else if (start.after) range.setStartAfter(startNode)
+    else {
+        const maxOffset = isTextNode(startNode)
+            ? startNode.nodeValue?.length ?? 0
+            : startNode.childNodes?.length ?? 0
+        range.setStart(startNode, Math.min(start.offset ?? 0, maxOffset))
+    }
+
+    if (end.before) range.setEndBefore(endNode)
+    else if (end.after) range.setEndAfter(endNode)
+    else {
+        const maxOffset = isTextNode(endNode)
+            ? endNode.nodeValue?.length ?? 0
+            : endNode.childNodes?.length ?? 0
+        range.setEnd(endNode, Math.min(end.offset ?? 0, maxOffset))
+    }
     return range
 }
 
@@ -327,7 +344,7 @@ export const fromElements = elements => {
 }
 
 export const toElement = (doc, parts) =>
-    partsToNode(doc.documentElement, collapse(parts)).node
+    partsToNode(doc.documentElement, collapse(parts))?.node
 
 // turn indices into standard CFIs when you don't have an actual package document
 export const fake = {
