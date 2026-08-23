@@ -289,16 +289,36 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
             <label className="settings-label">Line Spacing</label>
             <span className="settings-val-text">{settings.spacing.toFixed(1)}</span>
           </div>
-          <input
-            type="range"
-            min={1.0}
-            max={2.4}
-            step={0.1}
-            value={settings.spacing}
-            onChange={(e) => onUpdateSettings({ spacing: parseFloat(e.target.value) })}
-            className="settings-slider"
-            aria-label="Line Spacing Slider"
-          />
+          <div className="stepper-control">
+            <button
+              type="button"
+              className="stepper-btn"
+              onClick={() => onUpdateSettings({ spacing: Math.max(1.0, Math.round((settings.spacing - 0.1) * 10) / 10) })}
+              title="Decrease Line Spacing"
+              aria-label="Decrease Line Spacing"
+            >
+              <Minus size={16} />
+            </button>
+            <input
+              type="range"
+              min={1.0}
+              max={2.4}
+              step={0.1}
+              value={settings.spacing}
+              onChange={(e) => onUpdateSettings({ spacing: parseFloat(e.target.value) })}
+              className="settings-slider"
+              aria-label="Line Spacing Slider"
+            />
+            <button
+              type="button"
+              className="stepper-btn"
+              onClick={() => onUpdateSettings({ spacing: Math.min(2.4, Math.round((settings.spacing + 0.1) * 10) / 10) })}
+              title="Increase Line Spacing"
+              aria-label="Increase Line Spacing"
+            >
+              <Plus size={16} />
+            </button>
+          </div>
         </div>
 
         {/* Margins */}
@@ -307,16 +327,36 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
             <label className="settings-label">Margins</label>
             <span className="settings-val-text">{settings.margin}px</span>
           </div>
-          <input
-            type="range"
-            min={8}
-            max={120}
-            step={4}
-            value={settings.margin}
-            onChange={(e) => onUpdateSettings({ margin: Number(e.target.value) })}
-            className="settings-slider"
-            aria-label="Margin Slider"
-          />
+          <div className="stepper-control">
+            <button
+              type="button"
+              className="stepper-btn"
+              onClick={() => onUpdateSettings({ margin: Math.max(8, settings.margin - 4) })}
+              title="Decrease Margins"
+              aria-label="Decrease Margins"
+            >
+              <Minus size={16} />
+            </button>
+            <input
+              type="range"
+              min={8}
+              max={120}
+              step={4}
+              value={settings.margin}
+              onChange={(e) => onUpdateSettings({ margin: Number(e.target.value) })}
+              className="settings-slider"
+              aria-label="Margin Slider"
+            />
+            <button
+              type="button"
+              className="stepper-btn"
+              onClick={() => onUpdateSettings({ margin: Math.min(120, settings.margin + 4) })}
+              title="Increase Margins"
+              aria-label="Increase Margins"
+            >
+              <Plus size={16} />
+            </button>
+          </div>
         </div>
 
         <div className="settings-divider" />
