@@ -251,9 +251,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const login = useCallback(
     async (email: string, password: string): Promise<LoginResponse> => {
+      await clearAllUserData({ preserveServerUrl: true });
       const res = await authApi.login(email, password);
       if (!res.need2fa) {
-        await clearAllUserData({ preserveServerUrl: true });
         setAccessToken(res.token);
         await fetchProfile();
       }
@@ -269,8 +269,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       code: string,
       type: Login2faType = 'code',
     ): Promise<void> => {
-      const res = await authApi.login2fa(userId, token, code, type);
       await clearAllUserData({ preserveServerUrl: true });
+      const res = await authApi.login2fa(userId, token, code, type);
       setAccessToken(res.token);
       await fetchProfile();
     },
@@ -286,8 +286,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const emailConfirm = useCallback(
     async (userId: string, code: string): Promise<void> => {
-      const res = await authApi.emailConfirm(userId, code);
       await clearAllUserData({ preserveServerUrl: true });
+      const res = await authApi.emailConfirm(userId, code);
       setAccessToken(res.token);
       await fetchProfile();
     },
