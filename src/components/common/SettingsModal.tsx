@@ -506,23 +506,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 {!isMobile && (
                   <button
                     type="button"
-                    className="auth-btn-secondary"
-                    style={{ padding: '5px 10px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                    className="settings-font-folder-btn"
                     onClick={handleOpenFontsFolder}
                     title="Open local fonts folder in file explorer"
                   >
-                    <FolderOpen size={14} />
+                    <FolderOpen size={13} />
                     <span>Open Folder</span>
                   </button>
                 )}
                 <button
                   type="button"
-                  className="auth-btn-primary"
-                  style={{ padding: '5px 12px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                  className="settings-font-add-btn"
                   onClick={() => fontInputRef.current?.click()}
                   disabled={isUploadingFont}
+                  title="Add custom font (.ttf, .otf, .woff, .woff2)"
                 >
-                  <Plus size={14} />
+                  <Plus size={13} />
                   <span>{isUploadingFont ? 'Adding...' : 'Add Font'}</span>
                 </button>
               </div>

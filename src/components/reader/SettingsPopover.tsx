@@ -272,19 +272,6 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
               onClick={() => fontInputRef.current?.click()}
               disabled={isUploadingFont}
               title="Add custom font (.ttf, .otf, .woff, .woff2)"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 4,
-                padding: '3px 8px',
-                fontSize: 11,
-                fontWeight: 600,
-                color: 'var(--accent-color)',
-                backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                border: '1px solid rgba(59, 130, 246, 0.25)',
-                borderRadius: 'var(--radius-sm)',
-                cursor: 'pointer',
-              }}
             >
               <Plus size={12} />
               <span>{isUploadingFont ? 'Adding...' : 'Add Font'}</span>
