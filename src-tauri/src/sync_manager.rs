@@ -147,18 +147,20 @@ pub async fn resolve_server_book_id(
         .flatten();
     if let Some(fp) = file_path_opt {
         let p = Path::new(&fp);
-        if p.exists() && p.is_file()
-            && let Some(hash) = calculate_file_hash(p).await {
-                let url = format!("{base_url}/api/books/by-hash/{hash}");
-                if let Ok(res) = client.get(&url).headers(headers.clone()).send().await
-                    && res.status().is_success()
-                        && let Ok(val) = res.json::<serde_json::Value>().await
-                            && let Some(id_str) = val.get("id").and_then(|v| v.as_str()) {
-                                let _ =
-                                    db::save_book_mapping(pool, book_id, id_str, Some(&fp)).await;
-                                return Some(id_str.to_string());
-                            }
+        if p.exists()
+            && p.is_file()
+            && let Some(hash) = calculate_file_hash(p).await
+        {
+            let url = format!("{base_url}/api/books/by-hash/{hash}");
+            if let Ok(res) = client.get(&url).headers(headers.clone()).send().await
+                && res.status().is_success()
+                && let Ok(val) = res.json::<serde_json::Value>().await
+                && let Some(id_str) = val.get("id").and_then(|v| v.as_str())
+            {
+                let _ = db::save_book_mapping(pool, book_id, id_str, Some(&fp)).await;
+                return Some(id_str.to_string());
             }
+        }
     }
 
     None
@@ -251,87 +253,91 @@ pub async fn pull_book_progress(
         .map_err(|e| format!("Failed to fetch server progress: {e}"))?;
 
     if res.status().is_success() {
-        if let Ok(remote) = res.json::<ServerProgressResponse>().await {
-            if let Some(loc) = remote.location {
-                let remote_percent = remote.progress_percent.unwrap_or(0.0);
-                let is_read = remote.is_read.unwrap_or(false);
+        if let Ok(remote) = res.json::<ServerProgressResponse>().await
+            && let Some(loc) = remote.location
+        {
+            let remote_percent = remote.progress_percent.unwrap_or(0.0);
+            let is_read = remote.is_read.unwrap_or(false);
 
-                let current_local = db::get_progress(pool, book_id).await.ok().flatten();
-                let local_is_pending = current_local
-                    .as_ref()
-                    .map(|p| p.sync_status == "pending")
-                    .unwrap_or(false);
-                let local_percent = current_local.as_ref().map(|p| p.progress_percent).unwrap_or(0.0);
+            let current_local = db::get_progress(pool, book_id).await.ok().flatten();
+            let local_is_pending = current_local
+                .as_ref()
+                .map(|p| p.sync_status == "pending")
+                .unwrap_or(false);
+            let local_percent = current_local
+                .as_ref()
+                .map(|p| p.progress_percent)
+                .unwrap_or(0.0);
 
-                // If local progress is pending or further ahead, preserve local and push it to the server
-                if local_is_pending || (local_percent > remote_percent && local_percent > 0.0) {
-                    if let Some(local_p) = current_local {
-                        // Push local to server
-                        let put_url = format!("{base}/api/books/{server_id}/progress?format=cfi");
-                        let payload = ServerProgressPayload {
-                            location: Some(local_p.location.clone()),
-                            progress_percent: Some(local_p.progress_percent),
-                            is_read: Some(local_p.is_read),
-                        };
-                        let put_res = client
-                            .put(&put_url)
-                            .headers(headers.clone())
-                            .json(&payload)
-                            .send()
-                            .await;
+            // If local progress is pending or further ahead, preserve local and push it to the server
+            if (local_is_pending || (local_percent > remote_percent && local_percent > 0.0))
+                && let Some(local_p) = current_local
+            {
+                // Push local to server
+                let put_url = format!("{base}/api/books/{server_id}/progress?format=cfi");
+                let payload = ServerProgressPayload {
+                    location: Some(local_p.location.clone()),
+                    progress_percent: Some(local_p.progress_percent),
+                    is_read: Some(local_p.is_read),
+                };
+                let put_res = client
+                    .put(&put_url)
+                    .headers(headers.clone())
+                    .json(&payload)
+                    .send()
+                    .await;
 
-                        if let Ok(r) = put_res {
-                            if r.status().is_success() {
-                                let _ = sqlx::query("UPDATE book_progress SET sync_status = 'synced' WHERE book_id = ? OR book_id = ?")
+                if let Ok(r) = put_res
+                    && r.status().is_success()
+                {
+                    let _ = sqlx::query("UPDATE book_progress SET sync_status = 'synced' WHERE book_id = ? OR book_id = ?")
                                     .bind(book_id)
                                     .bind(&server_id)
                                     .execute(pool)
                                     .await;
-                            }
-                        }
-
-                        return Ok(PullProgressResult {
-                            success: true,
-                            message: "Local progress preserved and synced with server".to_string(),
-                            location: Some(local_p.location),
-                            progress_percent: Some(local_p.progress_percent),
-                            is_read: Some(local_p.is_read),
-                        });
-                    }
-                }
-
-                // Force save to local SQLite database with sync_status = 'synced'
-                let _ = db::save_progress(pool, book_id, &loc, remote_percent, is_read, false).await;
-                if server_id != book_id {
-                    let _ = db::save_progress(pool, &server_id, &loc, remote_percent, is_read, false).await;
                 }
 
                 return Ok(PullProgressResult {
                     success: true,
-                    message: "Progress successfully fetched from server".to_string(),
-                    location: Some(loc),
-                    progress_percent: Some(remote_percent),
-                    is_read: Some(is_read),
+                    message: "Local progress preserved and synced with server".to_string(),
+                    location: Some(local_p.location),
+                    progress_percent: Some(local_p.progress_percent),
+                    is_read: Some(local_p.is_read),
                 });
             }
+
+            // Force save to local SQLite database with sync_status = 'synced'
+            let _ = db::save_progress(pool, book_id, &loc, remote_percent, is_read, false).await;
+            if server_id != book_id {
+                let _ =
+                    db::save_progress(pool, &server_id, &loc, remote_percent, is_read, false).await;
+            }
+
+            return Ok(PullProgressResult {
+                success: true,
+                message: "Progress successfully fetched from server".to_string(),
+                location: Some(loc),
+                progress_percent: Some(remote_percent),
+                is_read: Some(is_read),
+            });
         }
-        return Ok(PullProgressResult {
+        Ok(PullProgressResult {
             success: false,
             message: "No reading progress recorded on server for this book".to_string(),
             location: None,
             progress_percent: None,
             is_read: None,
-        });
+        })
     } else if res.status().as_u16() == 404 {
-        return Ok(PullProgressResult {
+        Ok(PullProgressResult {
             success: false,
             message: "No progress found on server".to_string(),
             location: None,
             progress_percent: None,
             is_read: None,
-        });
+        })
     } else {
-        return Err(format!("Server returned error status {}", res.status()));
+        Err(format!("Server returned error status {}", res.status()))
     }
 }
 
@@ -349,30 +355,33 @@ async fn sync_progress(
 
     // 1. Push if pending and not just unread 0%
     if let Some(p) = &local
-        && p.sync_status == "pending" {
-            let url = format!("{base_url}/api/books/{server_book_id}/progress?format=cfi");
-            let payload = ServerProgressPayload {
-                location: Some(p.location.clone()),
-                progress_percent: Some(p.progress_percent),
-                is_read: Some(p.is_read),
-            };
+        && p.sync_status == "pending"
+    {
+        let url = format!("{base_url}/api/books/{server_book_id}/progress?format=cfi");
+        let payload = ServerProgressPayload {
+            location: Some(p.location.clone()),
+            progress_percent: Some(p.progress_percent),
+            is_read: Some(p.is_read),
+        };
 
-            let res = client
-                .put(&url)
-                .headers(headers.clone())
-                .json(&payload)
-                .send()
-                .await
-                .map_err(|e| format!("Failed to push progress: {e}"))?;
+        let res = client
+            .put(&url)
+            .headers(headers.clone())
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| format!("Failed to push progress: {e}"))?;
 
-            if res.status().is_success() {
-                let _ = sqlx::query("UPDATE book_progress SET sync_status = 'synced' WHERE book_id = ? OR book_id = ?")
-                    .bind(local_book_id)
-                    .bind(server_book_id)
-                    .execute(pool)
-                    .await;
-            }
+        if res.status().is_success() {
+            let _ = sqlx::query(
+                "UPDATE book_progress SET sync_status = 'synced' WHERE book_id = ? OR book_id = ?",
+            )
+            .bind(local_book_id)
+            .bind(server_book_id)
+            .execute(pool)
+            .await;
         }
+    }
 
     // 2. Pull remote
     let url = format!("{base_url}/api/books/{server_book_id}/progress?format=cfi");
@@ -380,40 +389,44 @@ async fn sync_progress(
 
     if let Ok(r) = res
         && r.status().is_success()
-            && let Ok(remote) = r.json::<ServerProgressResponse>().await
-                && let Some(loc) = remote.location {
-                    let current_local = db::get_progress(pool, local_book_id).await.ok().flatten();
-                    let is_pending = current_local
-                        .as_ref()
-                        .map(|p| p.sync_status == "pending")
-                        .unwrap_or(false);
-                    // If not pending, or if local is at 0% while remote is further ahead, update local
-                    let local_percent = current_local.as_ref().map(|p| p.progress_percent).unwrap_or(0.0);
-                    let remote_percent = remote.progress_percent.unwrap_or(0.0);
-                    if !is_pending || (local_percent <= 0.01 && remote_percent > 0.0) {
-                        let _ = db::save_progress(
-                            pool,
-                            local_book_id,
-                            &loc,
-                            remote_percent,
-                            remote.is_read.unwrap_or(false),
-                            false,
-                        )
-                        .await;
-                        if server_book_id != local_book_id {
-                            let _ = db::save_progress(
-                                pool,
-                                server_book_id,
-                                &loc,
-                                remote_percent,
-                                remote.is_read.unwrap_or(false),
-                                false,
-                            )
-                            .await;
-                        }
-                    }
-                    return Ok(true);
-                }
+        && let Ok(remote) = r.json::<ServerProgressResponse>().await
+        && let Some(loc) = remote.location
+    {
+        let current_local = db::get_progress(pool, local_book_id).await.ok().flatten();
+        let is_pending = current_local
+            .as_ref()
+            .map(|p| p.sync_status == "pending")
+            .unwrap_or(false);
+        // If not pending, or if local is at 0% while remote is further ahead, update local
+        let local_percent = current_local
+            .as_ref()
+            .map(|p| p.progress_percent)
+            .unwrap_or(0.0);
+        let remote_percent = remote.progress_percent.unwrap_or(0.0);
+        if !is_pending || (local_percent <= 0.01 && remote_percent > 0.0) {
+            let _ = db::save_progress(
+                pool,
+                local_book_id,
+                &loc,
+                remote_percent,
+                remote.is_read.unwrap_or(false),
+                false,
+            )
+            .await;
+            if server_book_id != local_book_id {
+                let _ = db::save_progress(
+                    pool,
+                    server_book_id,
+                    &loc,
+                    remote_percent,
+                    remote.is_read.unwrap_or(false),
+                    false,
+                )
+                .await;
+            }
+        }
+        return Ok(true);
+    }
 
     Ok(false)
 }
@@ -444,13 +457,14 @@ async fn sync_bookmarks(
             let url = format!("{base_url}/api/books/{server_book_id}/bookmarks/{server_id}");
             let res = client.delete(&url).headers(headers.clone()).send().await;
             if let Ok(r) = res
-                && (r.status().is_success() || r.status().as_u16() == 404) {
-                    let _ = sqlx::query("DELETE FROM bookmarks WHERE id = ?")
-                        .bind(&bm.id)
-                        .execute(pool)
-                        .await;
-                    count += 1;
-                }
+                && (r.status().is_success() || r.status().as_u16() == 404)
+            {
+                let _ = sqlx::query("DELETE FROM bookmarks WHERE id = ?")
+                    .bind(&bm.id)
+                    .execute(pool)
+                    .await;
+                count += 1;
+            }
         }
     }
 
@@ -479,16 +493,17 @@ async fn sync_bookmarks(
             .await;
         if let Ok(r) = res
             && r.status().is_success()
-                && let Ok(created) = r.json::<ServerBookmarkResponse>().await {
-                    let _ = sqlx::query(
-                        "UPDATE bookmarks SET server_id = ?, sync_status = 'synced' WHERE id = ?",
-                    )
-                    .bind(created.id.to_string())
-                    .bind(&bm.id)
-                    .execute(pool)
-                    .await;
-                    count += 1;
-                }
+            && let Ok(created) = r.json::<ServerBookmarkResponse>().await
+        {
+            let _ = sqlx::query(
+                "UPDATE bookmarks SET server_id = ?, sync_status = 'synced' WHERE id = ?",
+            )
+            .bind(created.id.to_string())
+            .bind(&bm.id)
+            .execute(pool)
+            .await;
+            count += 1;
+        }
     }
 
     // 3. Pull remote
@@ -497,10 +512,11 @@ async fn sync_bookmarks(
 
     if let Ok(r) = res
         && r.status().is_success()
-            && let Ok(remote_bookmarks) = r.json::<Vec<ServerBookmarkResponse>>().await {
-                for rbm in remote_bookmarks {
-                    let server_id_str = rbm.id.to_string();
-                    let existing = sqlx::query_as::<_, DbBookmark>(
+        && let Ok(remote_bookmarks) = r.json::<Vec<ServerBookmarkResponse>>().await
+    {
+        for rbm in remote_bookmarks {
+            let server_id_str = rbm.id.to_string();
+            let existing = sqlx::query_as::<_, DbBookmark>(
                         "SELECT id, server_id, book_id, location, fraction, location_label, chapter_title, created_at, is_deleted != 0 AS is_deleted, sync_status FROM bookmarks WHERE server_id = ? OR (location = ? AND (book_id = ? OR book_id = ?))",
                     )
                     .bind(&server_id_str)
@@ -511,12 +527,12 @@ async fn sync_bookmarks(
                     .await
                     .unwrap_or(None);
 
-                    match existing {
-                        Some(loc_bm) => {
-                            if loc_bm.sync_status != "pending_create"
-                                && loc_bm.sync_status != "pending_delete"
-                            {
-                                let _ = sqlx::query(
+            match existing {
+                Some(loc_bm) => {
+                    if loc_bm.sync_status != "pending_create"
+                        && loc_bm.sync_status != "pending_delete"
+                    {
+                        let _ = sqlx::query(
                                     "UPDATE bookmarks SET server_id = ?, location = ?, chapter_title = ?, is_deleted = 0, sync_status = 'synced' WHERE id = ?",
                                 )
                                 .bind(&server_id_str)
@@ -525,28 +541,28 @@ async fn sync_bookmarks(
                                 .bind(&loc_bm.id)
                                 .execute(pool)
                                 .await;
-                            }
-                        }
-                        None => {
-                            let new_id = format!("bm-{}", Uuid::now_v7());
-                            let _ = db::save_bookmark(
-                                pool,
-                                &new_id,
-                                Some(&server_id_str),
-                                local_book_id,
-                                &rbm.location,
-                                0.0,
-                                None,
-                                rbm.title.as_deref(),
-                                Some(&rbm.created_at),
-                                false,
-                            )
-                            .await;
-                            count += 1;
-                        }
                     }
                 }
+                None => {
+                    let new_id = format!("bm-{}", Uuid::now_v7());
+                    let _ = db::save_bookmark(
+                        pool,
+                        &new_id,
+                        Some(&server_id_str),
+                        local_book_id,
+                        &rbm.location,
+                        0.0,
+                        None,
+                        rbm.title.as_deref(),
+                        Some(&rbm.created_at),
+                        false,
+                    )
+                    .await;
+                    count += 1;
+                }
             }
+        }
+    }
 
     Ok(count)
 }
@@ -564,9 +580,7 @@ fn normalize_annotation_color(color: Option<&str>) -> Option<String> {
         "orange" | "#f97316" => Some("orange".to_string()),
         "purple" | "#a855f7" => Some("purple".to_string()),
         other => {
-            if other.is_empty() {
-                Some("yellow".to_string())
-            } else if other.starts_with('#') {
+            if other.is_empty() || other.starts_with('#') {
                 Some("yellow".to_string())
             } else {
                 Some(other.to_string())
@@ -600,13 +614,14 @@ async fn sync_annotations(
             let url = format!("{base_url}/api/books/{server_book_id}/annotations/{server_id}");
             let res = client.delete(&url).headers(headers.clone()).send().await;
             if let Ok(r) = res
-                && (r.status().is_success() || r.status().as_u16() == 404) {
-                    let _ = sqlx::query("DELETE FROM annotations WHERE id = ?")
-                        .bind(&ann.id)
-                        .execute(pool)
-                        .await;
-                    count += 1;
-                }
+                && (r.status().is_success() || r.status().as_u16() == 404)
+            {
+                let _ = sqlx::query("DELETE FROM annotations WHERE id = ?")
+                    .bind(&ann.id)
+                    .execute(pool)
+                    .await;
+                count += 1;
+            }
         }
     }
 
@@ -646,16 +661,17 @@ async fn sync_annotations(
             .await;
         if let Ok(r) = res
             && r.status().is_success()
-                && let Ok(created) = r.json::<ServerAnnotationResponse>().await {
-                    let _ = sqlx::query(
-                        "UPDATE annotations SET server_id = ?, sync_status = 'synced' WHERE id = ?",
-                    )
-                    .bind(created.id.to_string())
-                    .bind(&ann.id)
-                    .execute(pool)
-                    .await;
-                    count += 1;
-                }
+            && let Ok(created) = r.json::<ServerAnnotationResponse>().await
+        {
+            let _ = sqlx::query(
+                "UPDATE annotations SET server_id = ?, sync_status = 'synced' WHERE id = ?",
+            )
+            .bind(created.id.to_string())
+            .bind(&ann.id)
+            .execute(pool)
+            .await;
+            count += 1;
+        }
     }
 
     // 3. Push updated
@@ -684,14 +700,14 @@ async fn sync_annotations(
                 .send()
                 .await;
             if let Ok(r) = res
-                && r.status().is_success() {
-                    let _ =
-                        sqlx::query("UPDATE annotations SET sync_status = 'synced' WHERE id = ?")
-                            .bind(&ann.id)
-                            .execute(pool)
-                            .await;
-                    count += 1;
-                }
+                && r.status().is_success()
+            {
+                let _ = sqlx::query("UPDATE annotations SET sync_status = 'synced' WHERE id = ?")
+                    .bind(&ann.id)
+                    .execute(pool)
+                    .await;
+                count += 1;
+            }
         }
     }
 
@@ -701,10 +717,11 @@ async fn sync_annotations(
 
     if let Ok(r) = res
         && r.status().is_success()
-            && let Ok(remote_annotations) = r.json::<Vec<ServerAnnotationResponse>>().await {
-                for rann in remote_annotations {
-                    let server_id_str = rann.id.to_string();
-                    let existing = sqlx::query_as::<_, DbAnnotation>(
+        && let Ok(remote_annotations) = r.json::<Vec<ServerAnnotationResponse>>().await
+    {
+        for rann in remote_annotations {
+            let server_id_str = rann.id.to_string();
+            let existing = sqlx::query_as::<_, DbAnnotation>(
                         "SELECT id, server_id, book_id, location_start, location_end, value, selected_text, note, color, style, chapter_title, section_index, created_at, updated_at, is_deleted != 0 AS is_deleted, sync_status FROM annotations WHERE server_id = ? OR (location_start = ? AND (book_id = ? OR book_id = ?))",
                     )
                     .bind(&server_id_str)
@@ -715,15 +732,15 @@ async fn sync_annotations(
                     .await
                     .unwrap_or(None);
 
-                    match existing {
-                        Some(loc_ann) => {
-                            if loc_ann.sync_status != "pending_create"
-                                && loc_ann.sync_status != "pending_delete"
-                                && loc_ann.sync_status != "pending_update"
-                            {
-                                let normalized_color = normalize_annotation_color(rann.color.as_deref());
-                                let _ = sqlx::query(
-                                    r#"
+            match existing {
+                Some(loc_ann) => {
+                    if loc_ann.sync_status != "pending_create"
+                        && loc_ann.sync_status != "pending_delete"
+                        && loc_ann.sync_status != "pending_update"
+                    {
+                        let normalized_color = normalize_annotation_color(rann.color.as_deref());
+                        let _ = sqlx::query(
+                            r#"
                                     UPDATE annotations SET
                                         server_id = ?,
                                         location_start = ?,
@@ -736,52 +753,52 @@ async fn sync_annotations(
                                         sync_status = 'synced'
                                     WHERE id = ?
                                     "#,
-                                )
-                                .bind(&server_id_str)
-                                .bind(&rann.location_start)
-                                .bind(&rann.location_end)
-                                .bind(&rann.selected_text)
-                                .bind(&rann.note)
-                                .bind(&normalized_color)
-                                .bind(&rann.updated_at)
-                                .bind(&loc_ann.id)
-                                .execute(pool)
-                                .await;
-                            }
-                        }
-                        None => {
-                            let new_id = format!("ann-{}", Uuid::now_v7());
-                            let val = if !rann.location_start.is_empty() {
-                                rann.location_start.clone()
-                            } else {
-                                rann.location_end.clone()
-                            };
-                            let color = normalize_annotation_color(rann.color.as_deref())
-                                .unwrap_or_else(|| "yellow".to_string());
-
-                            let _ = db::save_annotation(
-                                pool,
-                                &new_id,
-                                Some(&server_id_str),
-                                local_book_id,
-                                &rann.location_start,
-                                &rann.location_end,
-                                &val,
-                                &rann.selected_text,
-                                rann.note.as_deref(),
-                                &color,
-                                Some("highlight"),
-                                None,
-                                None,
-                                Some(&rann.created_at),
-                                false,
-                            )
-                            .await;
-                            count += 1;
-                        }
+                        )
+                        .bind(&server_id_str)
+                        .bind(&rann.location_start)
+                        .bind(&rann.location_end)
+                        .bind(&rann.selected_text)
+                        .bind(&rann.note)
+                        .bind(&normalized_color)
+                        .bind(&rann.updated_at)
+                        .bind(&loc_ann.id)
+                        .execute(pool)
+                        .await;
                     }
                 }
+                None => {
+                    let new_id = format!("ann-{}", Uuid::now_v7());
+                    let val = if !rann.location_start.is_empty() {
+                        rann.location_start.clone()
+                    } else {
+                        rann.location_end.clone()
+                    };
+                    let color = normalize_annotation_color(rann.color.as_deref())
+                        .unwrap_or_else(|| "yellow".to_string());
+
+                    let _ = db::save_annotation(
+                        pool,
+                        &new_id,
+                        Some(&server_id_str),
+                        local_book_id,
+                        &rann.location_start,
+                        &rann.location_end,
+                        &val,
+                        &rann.selected_text,
+                        rann.note.as_deref(),
+                        &color,
+                        Some("highlight"),
+                        None,
+                        None,
+                        Some(&rann.created_at),
+                        false,
+                    )
+                    .await;
+                    count += 1;
+                }
             }
+        }
+    }
 
     Ok(count)
 }

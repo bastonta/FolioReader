@@ -6,7 +6,7 @@ use reqwest::{
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, State};
 use tokio::fs;
 use tokio::sync::Mutex;
 
@@ -65,11 +65,7 @@ impl AuthHttpClient {
 pub type AuthHttpClientState = Mutex<AuthHttpClient>;
 
 fn get_session_file_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let base_dir = app
-        .path()
-        .app_local_data_dir()
-        .or_else(|_| app.path().app_data_dir())
-        .map_err(|e| format!("Failed to get app data dir: {e}"))?;
+    let base_dir = crate::get_app_base_dir(app)?;
     Ok(base_dir.join(SESSION_FILE_NAME))
 }
 
@@ -107,19 +103,20 @@ async fn delete_persisted_refresh_token(app: &AppHandle) {
 fn extract_refresh_token(headers: &reqwest::header::HeaderMap) -> Option<Option<String>> {
     for val in headers.get_all(SET_COOKIE) {
         if let Ok(val_str) = val.to_str()
-            && let Some(pos) = val_str.find("refresh_token=") {
-                let after = &val_str[pos + "refresh_token=".len()..];
-                let token_val = after.split(';').next().unwrap_or("").trim();
-                let lower = val_str.to_lowercase();
-                if token_val.is_empty()
-                    || lower.contains("max-age=0")
-                    || lower.contains("expires=thu, 01 jan 1970")
-                {
-                    return Some(None);
-                } else {
-                    return Some(Some(token_val.to_string()));
-                }
+            && let Some(pos) = val_str.find("refresh_token=")
+        {
+            let after = &val_str[pos + "refresh_token=".len()..];
+            let token_val = after.split(';').next().unwrap_or("").trim();
+            let lower = val_str.to_lowercase();
+            if token_val.is_empty()
+                || lower.contains("max-age=0")
+                || lower.contains("expires=thu, 01 jan 1970")
+            {
+                return Some(None);
+            } else {
+                return Some(Some(token_val.to_string()));
             }
+        }
     }
     None
 }

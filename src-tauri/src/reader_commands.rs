@@ -49,10 +49,7 @@ pub async fn db_get_progress(
 }
 
 #[tauri::command]
-pub async fn db_delete_progress(
-    book_id: String,
-    db: State<'_, DbPool>,
-) -> Result<(), String> {
+pub async fn db_delete_progress(book_id: String, db: State<'_, DbPool>) -> Result<(), String> {
     db::delete_progress(&db, &book_id)
         .await
         .map_err(|e| e.to_string())
@@ -111,6 +108,7 @@ pub async fn db_get_annotations(
         .map_err(|e| e.to_string())
 }
 
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn db_save_annotation(
     id: String,
@@ -242,7 +240,5 @@ pub async fn sync_all_pending(
 
 #[tauri::command]
 pub async fn db_clear_all_data(db: State<'_, DbPool>) -> Result<(), String> {
-    db::clear_all_data(&db)
-        .await
-        .map_err(|e| e.to_string())
+    db::clear_all_data(&db).await.map_err(|e| e.to_string())
 }

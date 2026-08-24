@@ -5,8 +5,34 @@ mod reader_commands;
 mod sync_manager;
 
 use auth_proxy::{AuthHttpClient, AuthHttpClientState};
+use std::path::PathBuf;
 use tauri::Manager;
 use tokio::sync::Mutex;
+
+pub fn get_app_base_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let base_dir = app
+        .path()
+        .app_local_data_dir()
+        .or_else(|_| app.path().app_data_dir())
+        .map_err(|e| format!("Failed to resolve app data directory: {e}"))?;
+
+    #[cfg(debug_assertions)]
+    {
+        let identifier = app.config().identifier.as_str();
+        if !identifier.ends_with(".dev")
+            && !identifier.ends_with(".debug")
+            && !identifier.ends_with("-dev")
+        {
+            let dev_dir = base_dir.join("dev_data");
+            if !dev_dir.exists() {
+                let _ = std::fs::create_dir_all(&dev_dir);
+            }
+            return Ok(dev_dir);
+        }
+    }
+
+    Ok(base_dir)
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -15,11 +41,7 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         .setup(|app| {
             let app_handle = app.handle();
-            let base_dir = app_handle
-                .path()
-                .app_local_data_dir()
-                .or_else(|_| app_handle.path().app_data_dir())
-                .unwrap_or_else(|_| std::path::PathBuf::from("."));
+            let base_dir = get_app_base_dir(app_handle).unwrap_or_else(|_| PathBuf::from("."));
             let db_path = base_dir.join("folio_local.db");
 
             tauri::async_runtime::block_on(async move {

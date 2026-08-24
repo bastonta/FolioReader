@@ -17,12 +17,7 @@ pub struct CustomFontInfo {
 }
 
 pub fn get_fonts_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    use tauri::Manager;
-    let base_dir = app
-        .path()
-        .app_local_data_dir()
-        .or_else(|_| app.path().app_data_dir())
-        .map_err(|e| format!("Failed to resolve app data directory: {e}"))?;
+    let base_dir = crate::get_app_base_dir(app)?;
 
     let fonts_dir = base_dir.join("fonts");
     if !fonts_dir.exists() {
@@ -129,64 +124,66 @@ pub async fn scan_local_books(dir_path: String) -> Result<Vec<LocalBookFile>, St
             if path.is_dir() {
                 // Avoid hidden directories
                 if let Some(name) = path.file_name().and_then(|n| n.to_str())
-                    && !name.starts_with('.') {
-                        stack.push(path);
-                    }
+                    && !name.starts_with('.')
+                {
+                    stack.push(path);
+                }
             } else if path.is_file() {
                 // Scan ONLY .epub files as requested
                 if let Some(ext) = path.extension().and_then(|e| e.to_str())
-                    && ext.eq_ignore_ascii_case("epub") {
-                        let file_name = path
-                            .file_name()
-                            .and_then(|n| n.to_str())
-                            .unwrap_or("book.epub")
-                            .to_string();
+                    && ext.eq_ignore_ascii_case("epub")
+                {
+                    let file_name = path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("book.epub")
+                        .to_string();
 
-                        let rel_path = path
-                            .strip_prefix(&base)
-                            .unwrap_or(&path)
-                            .to_string_lossy()
-                            .replace('\\', "/");
+                    let rel_path = path
+                        .strip_prefix(&base)
+                        .unwrap_or(&path)
+                        .to_string_lossy()
+                        .replace('\\', "/");
 
-                        let folder_name = if let Some(parent) = path.parent() {
-                            if parent != base {
-                                parent
-                                    .strip_prefix(&base)
-                                    .ok()
-                                    .and_then(|p| p.to_str())
-                                    .map(|s| s.replace('\\', "/"))
-                                    .or_else(|| {
-                                        parent
-                                            .file_name()
-                                            .and_then(|n| n.to_str())
-                                            .map(|s| s.to_string())
-                                    })
-                            } else {
-                                None
-                            }
+                    let folder_name = if let Some(parent) = path.parent() {
+                        if parent != base {
+                            parent
+                                .strip_prefix(&base)
+                                .ok()
+                                .and_then(|p| p.to_str())
+                                .map(|s| s.replace('\\', "/"))
+                                .or_else(|| {
+                                    parent
+                                        .file_name()
+                                        .and_then(|n| n.to_str())
+                                        .map(|s| s.to_string())
+                                })
                         } else {
                             None
-                        };
+                        }
+                    } else {
+                        None
+                    };
 
-                        let metadata = entry.metadata().await.ok();
-                        let file_size = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
-                        let modified_at = metadata.and_then(|m| m.modified().ok()).map(|time| {
-                            let datetime: chrono::DateTime<chrono::Utc> = time.into();
-                            datetime.to_rfc3339()
-                        });
+                    let metadata = entry.metadata().await.ok();
+                    let file_size = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
+                    let modified_at = metadata.and_then(|m| m.modified().ok()).map(|time| {
+                        let datetime: chrono::DateTime<chrono::Utc> = time.into();
+                        datetime.to_rfc3339()
+                    });
 
-                        let id = format!("local-{}", rel_path.replace(['/', '\\', ' ', '.'], "_"));
+                    let id = format!("local-{}", rel_path.replace(['/', '\\', ' ', '.'], "_"));
 
-                        books.push(LocalBookFile {
-                            id,
-                            file_path: path.to_string_lossy().to_string(),
-                            file_name,
-                            relative_path: rel_path,
-                            folder_name,
-                            file_size,
-                            modified_at,
-                        });
-                    }
+                    books.push(LocalBookFile {
+                        id,
+                        file_path: path.to_string_lossy().to_string(),
+                        file_name,
+                        relative_path: rel_path,
+                        folder_name,
+                        file_size,
+                        modified_at,
+                    });
+                }
             }
         }
     }
@@ -211,6 +208,7 @@ pub async fn read_book_file(file_path: String) -> Result<tauri::ipc::Response, S
     Ok(tauri::ipc::Response::new(bytes))
 }
 
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn download_book_file(
     server_url: String,
@@ -281,9 +279,10 @@ pub async fn download_book_file(
 
     let mut request = client.get(&url);
     if let Some(t) = token
-        && !t.is_empty() {
-            request = request.header("Authorization", format!("Bearer {t}"));
-        }
+        && !t.is_empty()
+    {
+        request = request.header("Authorization", format!("Bearer {t}"));
+    }
 
     let mut response = request
         .send()
@@ -387,14 +386,16 @@ pub async fn check_book_downloaded(
                     let path = entry.path();
                     if path.is_dir() {
                         if let Some(name) = path.file_name().and_then(|n| n.to_str())
-                            && !name.starts_with('.') {
-                                stack.push(path);
-                            }
+                            && !name.starts_with('.')
+                        {
+                            stack.push(path);
+                        }
                     } else if path.is_file()
                         && let Some(name) = path.file_name().and_then(|n| n.to_str())
-                            && name.eq_ignore_ascii_case(&clean_name) {
-                                return Ok(Some(path.to_string_lossy().to_string()));
-                            }
+                        && name.eq_ignore_ascii_case(&clean_name)
+                    {
+                        return Ok(Some(path.to_string_lossy().to_string()));
+                    }
                 }
             }
         }
@@ -468,47 +469,47 @@ pub async fn list_custom_fonts(app: tauri::AppHandle) -> Result<Vec<CustomFontIn
 
     while let Ok(Some(entry)) = entries.next_entry().await {
         let path = entry.path();
-        if path.is_file() {
-            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                let ext_lower = ext.to_lowercase();
-                if ["ttf", "otf", "woff", "woff2"].contains(&ext_lower.as_str()) {
-                    let file_name = path
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or("font")
-                        .to_string();
-
-                    let stem = path
-                        .file_stem()
-                        .and_then(|s| s.to_str())
-                        .unwrap_or("font")
-                        .to_string();
-
-                    let name = stem.replace(['_', '-'], " ");
-                    let font_family = format!("CustomFont_{}", stem.replace([' ', '-'], "_"));
-                    let id = format!("font-{}", stem.replace([' ', '-'], "_"));
-
-                    let format = match ext_lower.as_str() {
-                        "woff2" => "woff2",
-                        "woff" => "woff",
-                        "otf" => "opentype",
-                        _ => "truetype",
-                    }
+        if path.is_file()
+            && let Some(ext) = path.extension().and_then(|e| e.to_str())
+        {
+            let ext_lower = ext.to_lowercase();
+            if ["ttf", "otf", "woff", "woff2"].contains(&ext_lower.as_str()) {
+                let file_name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("font")
                     .to_string();
 
-                    let metadata = entry.metadata().await.ok();
-                    let file_size = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
+                let stem = path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("font")
+                    .to_string();
 
-                    fonts.push(CustomFontInfo {
-                        id,
-                        name,
-                        font_family,
-                        file_path: path.to_string_lossy().to_string(),
-                        file_name,
-                        format,
-                        file_size,
-                    });
+                let name = stem.replace(['_', '-'], " ");
+                let font_family = format!("CustomFont_{}", stem.replace([' ', '-'], "_"));
+                let id = format!("font-{}", stem.replace([' ', '-'], "_"));
+
+                let format = match ext_lower.as_str() {
+                    "woff2" => "woff2",
+                    "woff" => "woff",
+                    "otf" => "opentype",
+                    _ => "truetype",
                 }
+                .to_string();
+
+                let metadata = entry.metadata().await.ok();
+                let file_size = metadata.as_ref().map(|m| m.len()).unwrap_or(0);
+
+                fonts.push(CustomFontInfo {
+                    id,
+                    name,
+                    font_family,
+                    file_path: path.to_string_lossy().to_string(),
+                    file_name,
+                    format,
+                    file_size,
+                });
             }
         }
     }
@@ -560,4 +561,3 @@ pub async fn open_fonts_folder(app: tauri::AppHandle) -> Result<(), String> {
         .open_path(path_str, None::<&str>)
         .map_err(|e| format!("Failed to open fonts folder: {e}"))
 }
-

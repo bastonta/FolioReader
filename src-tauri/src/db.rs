@@ -341,6 +341,7 @@ pub async fn get_bookmarks(pool: &DbPool, book_id: &str) -> Result<Vec<DbBookmar
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn save_bookmark(
     pool: &DbPool,
     id: &str,
@@ -464,6 +465,7 @@ pub async fn get_annotations(
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn save_annotation(
     pool: &DbPool,
     id: &str,
@@ -714,10 +716,14 @@ mod tests {
         // 5. Clear all data
         clear_all_data(&pool).await.expect("clear all data");
 
-        let prog_after_clear = get_progress(&pool, book_id).await.expect("get progress after clear");
+        let prog_after_clear = get_progress(&pool, book_id)
+            .await
+            .expect("get progress after clear");
         assert!(prog_after_clear.is_none());
 
-        let mapping_after_clear = get_server_book_id(&pool, local_id).await.expect("get mapping after clear");
+        let mapping_after_clear = get_server_book_id(&pool, local_id)
+            .await
+            .expect("get mapping after clear");
         assert!(mapping_after_clear.is_none());
     }
 }
