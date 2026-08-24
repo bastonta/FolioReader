@@ -55,6 +55,7 @@ pub fn run() {
             reader_commands::db_get_server_book_id,
             reader_commands::db_save_progress,
             reader_commands::db_get_progress,
+            reader_commands::db_delete_progress,
             reader_commands::db_get_bookmarks,
             reader_commands::db_save_bookmark,
             reader_commands::db_delete_bookmark,

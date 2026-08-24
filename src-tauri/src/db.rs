@@ -287,6 +287,29 @@ pub async fn save_progress(
     })
 }
 
+pub async fn delete_progress(pool: &DbPool, book_id: &str) -> Result<(), sqlx::Error> {
+    let server_id = get_server_book_id(pool, book_id).await.unwrap_or(None);
+    let local_id = if uuid::Uuid::parse_str(book_id).is_ok() {
+        get_local_id_by_server_id(pool, book_id)
+            .await
+            .unwrap_or(None)
+    } else {
+        None
+    };
+
+    let s_id = server_id.as_deref().unwrap_or(book_id);
+    let l_id = local_id.as_deref().unwrap_or(book_id);
+
+    sqlx::query("DELETE FROM book_progress WHERE book_id = ? OR book_id = ? OR book_id = ?")
+        .bind(book_id)
+        .bind(s_id)
+        .bind(l_id)
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}
+
 // ================= BOOKMARKS REPO =================
 
 pub async fn get_bookmarks(pool: &DbPool, book_id: &str) -> Result<Vec<DbBookmark>, sqlx::Error> {

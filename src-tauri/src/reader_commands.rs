@@ -49,6 +49,16 @@ pub async fn db_get_progress(
 }
 
 #[tauri::command]
+pub async fn db_delete_progress(
+    book_id: String,
+    db: State<'_, DbPool>,
+) -> Result<(), String> {
+    db::delete_progress(&db, &book_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn db_get_bookmarks(
     book_id: String,
     db: State<'_, DbPool>,

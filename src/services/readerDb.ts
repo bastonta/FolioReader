@@ -1,7 +1,8 @@
 import { invoke } from '@tauri-apps/api/core';
 import { Annotation, Bookmark, getAnnotationColorKey } from '../types/reader';
 import { getServerUrl, getAccessToken } from '../api/tokenManager';
-import { apiGet } from '../api/client';
+import { apiGet, apiPut, apiDelete } from '../api/client';
+import { resetRecentBookProgress, saveLastLocation } from './storage';
 import { parseCfiRange, toCfiRange } from '../utils/cfi';
 
 export interface SyncResult {
@@ -133,6 +134,83 @@ export async function saveDbLastLocation(
     });
   } catch (err) {
     console.error('Failed to save progress to SQLite:', err);
+  }
+}
+
+export async function deleteDbProgress(bookId: string): Promise<void> {
+  if (!isTauri()) return;
+
+  try {
+    await invoke('db_delete_progress', { bookId });
+  } catch (err) {
+    console.error('Failed to delete progress from SQLite:', err);
+  }
+}
+
+function isUuid(str: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+}
+
+/**
+ * Resets book progress locally and optionally on the server.
+ */
+export async function resetBookProgress(bookId: string, resetOnServer: boolean = false): Promise<void> {
+  // 1. Delete from SQLite
+  await deleteDbProgress(bookId);
+
+  // 2. Reset in localStorage recent books
+  resetRecentBookProgress(bookId);
+
+  // 3. Reset on server if requested
+  if (resetOnServer) {
+    try {
+      let serverBookId: string | null = null;
+      if (isUuid(bookId)) {
+        serverBookId = bookId;
+      } else {
+        serverBookId = await getDbServerBookId(bookId);
+      }
+
+      if (serverBookId && !serverBookId.startsWith('local-')) {
+        await apiDelete(`/books/${serverBookId}/progress`);
+      }
+    } catch (err) {
+      console.warn(`Failed to reset progress on server for book ${bookId}:`, err);
+    }
+  }
+}
+
+/**
+ * Sets book read status (marked as read: 100% / isRead: true; unread: 0% / isRead: false).
+ */
+export async function setBookReadStatus(bookId: string, isRead: boolean): Promise<void> {
+  const fraction = isRead ? 1.0 : 0.0;
+  const cfi = '';
+
+  // 1. Save to local SQLite
+  await saveDbLastLocation(bookId, cfi, fraction, isRead);
+
+  // 2. Update localStorage recent books
+  saveLastLocation(bookId, cfi, fraction);
+
+  // 3. Update on server if connected
+  try {
+    let serverBookId: string | null = null;
+    if (isUuid(bookId)) {
+      serverBookId = bookId;
+    } else {
+      serverBookId = await getDbServerBookId(bookId);
+    }
+
+    if (serverBookId && !serverBookId.startsWith('local-')) {
+      await apiPut(`/books/${serverBookId}/progress?format=cfi`, {
+        location: cfi || undefined,
+        progressPercent: isRead ? 100.0 : 0.0,
+        isRead,
+      });
+    }
+  } catch (err) {
+    console.warn(`Failed to update read status on server for book ${bookId}:`, err);
   }
 }
 

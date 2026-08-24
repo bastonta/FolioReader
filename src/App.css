@@ -2425,7 +2425,8 @@ foliate-view::part(foot) {
   background-color: var(--bg-tertiary);
 }
 
-.book-card-delete-btn {
+.book-card-delete-btn,
+.book-card-menu-btn {
   position: absolute;
   top: 8px;
   right: 8px;
@@ -2436,15 +2437,28 @@ foliate-view::part(foot) {
   color: #ffffff;
   opacity: 0;
   z-index: 5;
-  transition: opacity 0.15s ease, background-color 0.15s ease;
+  transition: opacity 0.15s ease, background-color 0.15s ease, transform 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border: none;
+  backdrop-filter: blur(4px);
 }
 
-.book-card:hover .book-card-delete-btn {
+.book-card:hover .book-card-delete-btn,
+.book-card:hover .book-card-menu-btn {
   opacity: 1;
 }
 
 .book-card-delete-btn:hover {
   background-color: var(--danger-color);
+}
+
+.book-card-menu-btn:hover {
+  background-color: rgba(0, 0, 0, 0.85);
+  color: var(--accent-color);
+  transform: scale(1.05);
 }
 
 .book-card-details {
@@ -3019,25 +3033,36 @@ foliate-view::part(foot) {
   flex-shrink: 0;
 }
 
-.list-delete-btn {
+.list-delete-btn,
+.list-menu-btn {
   width: 30px;
   height: 30px;
   border-radius: var(--radius-sm);
   color: var(--text-muted);
-  opacity: 0.3;
+  opacity: 0.4;
   transition: all 0.15s ease;
   background: none;
   border: none;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .book-list-item:hover .list-delete-btn,
-.folder-list-item:hover .list-delete-btn {
+.folder-list-item:hover .list-delete-btn,
+.book-list-item:hover .list-menu-btn,
+.folder-list-item:hover .list-menu-btn {
   opacity: 1;
 }
 
 .list-delete-btn:hover {
   color: var(--danger-color);
+  background-color: var(--bg-tertiary);
+}
+
+.list-menu-btn:hover {
+  color: var(--text-primary);
   background-color: var(--bg-tertiary);
 }
 
@@ -3292,7 +3317,8 @@ foliate-view::part(foot) {
     font-size: 10px;
   }
 
-  .book-card-delete-btn {
+  .book-card-delete-btn,
+  .book-card-menu-btn {
     opacity: 0.85;
     top: 4px;
     right: 4px;
@@ -3630,4 +3656,196 @@ foliate-view::part(foot) {
     stroke-dashoffset: -125px;
   }
 }
+
+/* ==========================================================================
+   Book Context Menu
+   ========================================================================== */
+.book-context-menu {
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2);
+  padding: 4px;
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  animation: context-menu-appear 0.12s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+}
+
+@keyframes context-menu-appear {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.book-context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.book-context-menu-item:hover {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.book-context-menu-item:active {
+  background-color: var(--bg-tertiary);
+}
+
+.book-context-menu-item.danger {
+  color: var(--danger-color, #ef4444);
+}
+
+.book-context-menu-item.danger:hover {
+  background-color: rgba(239, 68, 68, 0.12);
+  color: #f87171;
+}
+
+.context-menu-icon {
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+.book-context-menu-divider {
+  height: 1px;
+  background-color: var(--border-subtle);
+  margin: 4px 0;
+}
+
+/* ==========================================================================
+   Reset Book Progress Modal
+   ========================================================================== */
+.reset-modal-content {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.reset-modal-book-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.reset-modal-book-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+  line-height: 1.35;
+}
+
+.reset-modal-book-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 2px 0 0 0;
+}
+
+.reset-modal-description {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.reset-modal-options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.reset-option-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 12px 14px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s ease;
+  width: 100%;
+}
+
+.reset-option-card:hover {
+  border-color: var(--accent-color);
+  background-color: var(--bg-tertiary);
+  transform: translateY(-1px);
+}
+
+.reset-option-card.server-option:hover {
+  border-color: #a855f7;
+}
+
+.reset-option-icon-wrap {
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(99, 102, 241, 0.12);
+  color: var(--accent-color);
+  flex-shrink: 0;
+}
+
+.reset-option-icon-wrap.server-icon {
+  background-color: rgba(168, 85, 247, 0.12);
+  color: #a855f7;
+}
+
+.reset-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.reset-option-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.reset-option-subtitle {
+  font-size: 11.5px;
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+
+.reset-modal-offline-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background-color: rgba(234, 179, 8, 0.1);
+  border: 1px solid rgba(234, 179, 8, 0.25);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
 

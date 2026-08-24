@@ -368,6 +368,20 @@ export function saveLastLocation(bookId: string, cfi: string, fraction: number):
   }
 }
 
+export function resetRecentBookProgress(bookId: string): void {
+  try {
+    const recent = loadRecentBooks();
+    const target = recent.find((b) => b.id === bookId || (b.filePath && b.filePath === bookId));
+    if (target) {
+      target.lastLocation = undefined;
+      target.progressFraction = 0;
+      localStorage.setItem(RECENT_BOOKS_KEY, JSON.stringify(recent));
+    }
+  } catch (err) {
+    console.error('Failed to reset recent book progress:', err);
+  }
+}
+
 // Local Books Metadata Cache
 export interface LocalBookCacheItem {
   title: string;

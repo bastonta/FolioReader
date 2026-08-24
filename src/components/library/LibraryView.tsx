@@ -18,6 +18,7 @@ import {
   ArrowLeft,
   X,
   WifiOff,
+  MoreVertical,
 } from 'lucide-react';
 import { fileManager } from '../../services/fileManager';
 import { isMobileDevice } from '../../services/systemUi';
@@ -35,7 +36,14 @@ import {
 import { LocalBookFile } from '../../types/browse';
 import { ReaderSettings, RecentBook } from '../../types/reader';
 import { FolderStackCover } from './FolderStackCover';
-import { pullBookProgress, loadDbLastLocation } from '../../services/readerDb';
+import { BookContextMenu } from './BookContextMenu';
+import { ResetProgressModal } from './ResetProgressModal';
+import {
+  pullBookProgress,
+  loadDbLastLocation,
+  resetBookProgress,
+  setBookReadStatus,
+} from '../../services/readerDb';
 import { useBackHandler } from '../../services/backHandler';
 
 interface LibraryViewProps {
@@ -64,6 +72,31 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   const [recentBooks, setRecentBooks] = useState<RecentBook[]>(() => loadRecentBooks().slice(0, 3));
   const [dbProgressMap, setDbProgressMap] = useState<Record<string, { fraction: number; isRead?: boolean }>>({});
   const isMobile = isMobileDevice();
+
+  // Context menu state
+  const [menuState, setMenuState] = useState<{
+    isOpen: boolean;
+    book: LocalBookFile | null;
+    position: { x: number; y: number };
+    isRead?: boolean;
+  }>({
+    isOpen: false,
+    book: null,
+    position: { x: 0, y: 0 },
+    isRead: false,
+  });
+
+  // Reset Progress confirmation modal state
+  const [resetModalState, setResetModalState] = useState<{
+    isOpen: boolean;
+    book: LocalBookFile | null;
+    title: string;
+    percent?: number;
+  }>({
+    isOpen: false,
+    book: null,
+    title: '',
+  });
 
   // Back button handling in LibraryView (highest to lowest priority)
   useBackHandler(() => { setCurrentFolderPath((prev) => prev.slice(0, -1)); return true; }, currentFolderPath.length > 0, 40);
@@ -274,13 +307,94 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     };
   }, [localBooks]);
 
-  // Delete local book
-  const handleDeleteBook = async (book: LocalBookFile, e: React.MouseEvent) => {
+  // Context menu actions
+  const handleOpenBookMenu = (
+    book: LocalBookFile,
+    e: React.MouseEvent,
+    isRead: boolean
+  ) => {
+    e.preventDefault();
     e.stopPropagation();
+    setMenuState({
+      isOpen: true,
+      book,
+      position: { x: e.clientX, y: e.clientY },
+      isRead,
+    });
+  };
+
+  const handleCloseBookMenu = () => {
+    setMenuState((prev) => ({ ...prev, isOpen: false, book: null }));
+  };
+
+  // Toggle Read / Unread status
+  const handleToggleReadStatus = async (book: LocalBookFile, currentIsRead: boolean) => {
+    const nextIsRead = !currentIsRead;
+    const nextFraction = nextIsRead ? 1.0 : 0.0;
+
+    // 1. Update React state immediately
+    setDbProgressMap((prev) => ({
+      ...prev,
+      [book.id]: { fraction: nextFraction, isRead: nextIsRead },
+    }));
+
+    setRecentBooks((prev) =>
+      prev.map((b) =>
+        b.id === book.id || (book.filePath && b.filePath === book.filePath)
+          ? { ...b, progressFraction: nextFraction }
+          : b
+      )
+    );
+
+    // 2. Persist to DB / Server
+    await setBookReadStatus(book.id, nextIsRead);
+  };
+
+  // Open Reset Progress Modal
+  const handleOpenResetModalForBook = (book: LocalBookFile, percent: number) => {
+    const meta = metaCache[book.id];
+    const title = meta?.title || book.fileName.replace(/\.[^/.]+$/, '');
+    setResetModalState({
+      isOpen: true,
+      book,
+      title,
+      percent,
+    });
+  };
+
+  // Confirm Reset Progress
+  const handleConfirmResetProgress = async (resetOnServer: boolean) => {
+    if (!resetModalState.book) return;
+    const book = resetModalState.book;
+
+    // 1. Update React state immediately
+    setDbProgressMap((prev) => {
+      const next = { ...prev };
+      delete next[book.id];
+      return next;
+    });
+
+    setRecentBooks((prev) =>
+      prev.map((b) =>
+        b.id === book.id || (book.filePath && b.filePath === book.filePath)
+          ? { ...b, progressFraction: 0, lastLocation: undefined }
+          : b
+      )
+    );
+
+    // 2. Perform DB / Server reset
+    await resetBookProgress(book.id, resetOnServer);
+    refreshRecentProgress();
+  };
+
+  // Delete local book
+  const handleDeleteBook = async (book: LocalBookFile, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
     const name = metaCache[book.id]?.title || book.fileName;
     if (confirm(`Delete book "${name}" from device?`)) {
       await fileManager.deleteBookFile(book.filePath);
       await scanFolder();
+      refreshRecentProgress();
     }
   };
 
@@ -941,6 +1055,47 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           )}
         </section>
       </main>
+
+      {/* Book Context Menu */}
+      {menuState.isOpen && menuState.book && (
+        <BookContextMenu
+          isOpen={menuState.isOpen}
+          position={menuState.position}
+          isRead={menuState.isRead}
+          onClose={handleCloseBookMenu}
+          onMarkAsRead={() => {
+            if (menuState.book) {
+              handleToggleReadStatus(menuState.book, menuState.isRead || false);
+            }
+          }}
+          onOpenResetModal={() => {
+            if (menuState.book) {
+              const dbLoc = dbProgressMap[menuState.book.id];
+              const recentLoc = loadLastLocation(menuState.book.id);
+              const fraction = dbLoc?.fraction ?? recentLoc?.fraction ?? 0;
+              const percent = Math.round(fraction * 100);
+              handleOpenResetModalForBook(menuState.book, percent);
+            }
+          }}
+          onDeleteBook={() => {
+            if (menuState.book) {
+              handleDeleteBook(menuState.book);
+            }
+          }}
+        />
+      )}
+
+      {/* Reset Progress Modal */}
+      {resetModalState.isOpen && resetModalState.book && (
+        <ResetProgressModal
+          isOpen={resetModalState.isOpen}
+          bookTitle={resetModalState.title}
+          currentPercent={resetModalState.percent}
+          isOffline={isOffline}
+          onClose={() => setResetModalState((prev) => ({ ...prev, isOpen: false, book: null }))}
+          onConfirmReset={handleConfirmResetProgress}
+        />
+      )}
     </div>
   );
 
@@ -956,12 +1111,14 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     const recentLoc = loadLastLocation(book.id);
     const fraction = dbLoc?.fraction ?? recentLoc?.fraction ?? 0;
     const percent = Math.round(fraction * 100);
+    const isRead = dbLoc?.isRead ?? (percent >= 100);
 
     return (
       <div
         key={book.id}
         className="book-card"
         onClick={() => onOpenLocalBook(book, meta)}
+        onContextMenu={(e) => handleOpenBookMenu(book, e, isRead)}
       >
         <div className="book-card-cover-wrap">
           {/* Background placeholder */}
@@ -1018,14 +1175,15 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             </span>
           )}
 
+          {/* Context Menu 3-Dots Button */}
           <button
             type="button"
-            className="book-card-delete-btn"
-            onClick={(e) => handleDeleteBook(book, e)}
-            title="Delete book file"
-            aria-label="Delete book"
+            className="book-card-menu-btn"
+            onClick={(e) => handleOpenBookMenu(book, e, isRead)}
+            title="Book options"
+            aria-label="Book options"
           >
-            <Trash2 size={14} />
+            <MoreVertical size={16} />
           </button>
         </div>
 
@@ -1100,6 +1258,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         key={book.id}
         className="book-list-item"
         onClick={() => onOpenLocalBook(book, meta)}
+        onContextMenu={(e) => handleOpenBookMenu(book, e, isRead)}
       >
         {/* Cover thumbnail on the left */}
         <div className="book-list-thumbnail-wrap">
@@ -1144,16 +1303,16 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           <span className="book-list-percent">{percent}%</span>
         </div>
 
-        {/* Delete button */}
+        {/* 3-Dots Menu button */}
         <div className="book-list-actions">
           <button
             type="button"
-            className="list-delete-btn"
-            onClick={(e) => handleDeleteBook(book, e)}
-            title="Delete book"
-            aria-label="Delete book"
+            className="list-menu-btn"
+            onClick={(e) => handleOpenBookMenu(book, e, isRead)}
+            title="Book options"
+            aria-label="Book options"
           >
-            <Trash2 size={15} />
+            <MoreVertical size={16} />
           </button>
         </div>
       </div>
