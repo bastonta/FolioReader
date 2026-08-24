@@ -26,6 +26,22 @@ jobs:
     env:
       APP_VERSION: ${{ github.ref_name }}
     steps:
+      - name: Free Disk Space (Ubuntu)
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          echo "Disk space before cleanup:"
+          df -h
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/.ghcup
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /opt/hostedtoolcache/dotnet
+          sudo docker system prune -a --volumes -f || true
+          sudo apt-get clean
+          echo "Disk space after cleanup:"
+          df -h
+
       - name: Checkout repository
         uses: actions/checkout@v7
 
@@ -86,6 +102,24 @@ jobs:
     env:
       APP_VERSION: ${{ github.ref_name }}
     steps:
+      - name: Free Disk Space (Ubuntu)
+        run: |
+          echo "Disk space before cleanup:"
+          df -h
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/.ghcup
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf /usr/local/share/chromium
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /opt/hostedtoolcache/dotnet
+          sudo rm -rf /usr/local/lib/android/sdk/system-images
+          sudo docker system prune -a --volumes -f || true
+          sudo rm -rf /var/lib/docker || true
+          sudo apt-get clean
+          echo "Disk space after cleanup:"
+          df -h
+
       - name: Checkout repository
         uses: actions/checkout@v7
 
