@@ -20,7 +20,11 @@ import {
   Type,
   Trash2,
   Plus,
+  Info,
+  Calendar,
 } from 'lucide-react';
+import { APP_VERSION, BUILD_TIME, formatBuildTime } from '../../constants/buildInfo';
+
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -642,9 +646,75 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             )}
           </div>
 
+          {/* About / App Information */}
+          <div className="settings-block" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 16 }}>
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontSize: 14,
+                fontWeight: 600,
+                color: 'var(--text-primary)',
+                marginBottom: 10,
+              }}
+            >
+              <Info size={18} style={{ color: 'var(--accent-color)' }} />
+              <span>About Folio</span>
+            </label>
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+                padding: '12px 14px',
+                backgroundColor: 'var(--bg-secondary)',
+                border: '1px solid var(--border-color)',
+                borderRadius: 'var(--radius-md)',
+                fontSize: 12,
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Application Version</span>
+                <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'monospace' }}>
+                  v{APP_VERSION}
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <Calendar size={13} />
+                  <span>Build Date</span>
+                </span>
+                <span style={{ color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
+                  {formatBuildTime(BUILD_TIME)}
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Platform</span>
+                <span style={{ color: 'var(--text-secondary)' }}>
+                  {isMobile ? 'Android (Mobile)' : 'Desktop'}
+                </span>
+              </div>
+            </div>
+          </div>
+
         </div>
 
-        <div className="modal-footer" style={{ padding: '16px 24px' }}>
+        <div
+          className="modal-footer"
+          style={{
+            padding: '16px 24px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+          }}
+        >
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.3 }}>
+            <span>Folio v{APP_VERSION}</span>
+            <span style={{ margin: '0 5px' }}>•</span>
+            <span>{formatBuildTime(BUILD_TIME)}</span>
+          </div>
           <button type="button" className="auth-btn-primary" onClick={onClose} style={{ minWidth: 100 }}>
             Done
           </button>

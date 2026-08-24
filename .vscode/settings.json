@@ -9,6 +9,7 @@
     "fileprovider",
     "folioapp",
     "proguard",
+    "qrcode",
     "reqwest",
     "rlib",
     "serde",

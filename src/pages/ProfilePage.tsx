@@ -6,8 +6,10 @@ import QRCode from 'qrcode';
 import {
   ArrowLeft, ShieldCheck, ShieldAlert, Copy, Download,
   KeyRound, AlertCircle, CheckCircle2, X, Mail, Server,
-  LogOut, Pencil
+  LogOut, Pencil, Info, Calendar
 } from 'lucide-react';
+import { APP_VERSION, BUILD_TIME, formatBuildTime } from '../constants/buildInfo';
+
 
 export const ProfilePage: React.FC = () => {
   const { user, serverUrl, clearServer, logout, refreshUser } = useAuth();
@@ -380,6 +382,42 @@ export const ProfilePage: React.FC = () => {
               <button className="auth-btn-secondary" style={{ width: 'auto', display: 'flex', alignItems: 'center', gap: 8 }} onClick={() => { logout(); navigate('/login', { replace: true }); }}>
                 <LogOut size={16} /> Sign Out
               </button>
+            </div>
+          </div>
+        </div>
+
+        {/* About & Version Information */}
+        <div className="profile-card">
+          <div className="profile-card-title">
+            <Info size={18} />
+            <span>About Folio</span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--border-subtle)' }}>
+              <span style={{ fontSize: 13.5, color: 'var(--text-secondary)' }}>Version</span>
+              <span style={{ fontSize: 13.5, fontWeight: 600, fontFamily: 'monospace', color: 'var(--text-primary)' }}>
+                v{APP_VERSION}
+              </span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--border-subtle)' }}>
+              <span style={{ fontSize: 13.5, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Calendar size={14} />
+                <span>Build Date</span>
+              </span>
+              <span style={{ fontSize: 13.5, color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
+                {formatBuildTime(BUILD_TIME)}
+              </span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0' }}>
+              <span style={{ fontSize: 13.5, color: 'var(--text-secondary)' }}>Source</span>
+              <a
+                href="https://github.com/bastonta/FolioApp"
+                target="_blank"
+                rel="noreferrer"
+                style={{ fontSize: 13.5, color: 'var(--accent-color)', textDecoration: 'none' }}
+              >
+                GitHub Repository
+              </a>
             </div>
           </div>
         </div>

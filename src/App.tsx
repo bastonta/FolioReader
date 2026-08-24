@@ -22,6 +22,7 @@ import { setStatusBarVisible, setStatusBarTheme, isMobileDevice } from './servic
 import { useBackHandler } from './services/backHandler';
 import { SplashScreen } from './components/common/SplashScreen';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { APP_VERSION, BUILD_TIME } from './constants/buildInfo';
 
 // Auth pages
 import { ServerSetup } from './pages/ServerSetup';
@@ -93,6 +94,10 @@ function AppRoutes() {
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
+
+  useEffect(() => {
+    console.info(`[Folio] Version: ${APP_VERSION}, Build: ${BUILD_TIME}`);
+  }, []);
 
   // Reset active book and reload settings when auth state changes (e.g. login/logout)
   useEffect(() => {
