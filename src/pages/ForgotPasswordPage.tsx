@@ -112,7 +112,7 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
   return (
     <div className="auth-page">
       {/* Top Right Theme Toggle */}
-      <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+      <ThemeToggle theme={theme} onToggle={onToggleTheme} tabIndex={step === 'SUCCESS' ? 2 : (step === 'VERIFY' || step === 'RESET' ? 5 : 4)} />
 
       <div className="auth-card">
         {step === 'REQUEST' && (
@@ -153,11 +153,12 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
                     autoCorrect="off"
                     spellCheck={false}
                     autoFocus
+                    tabIndex={1}
                   />
                 </div>
               </div>
 
-              <button type="submit" className="auth-btn-primary" disabled={loading || !email}>
+              <button type="submit" className="auth-btn-primary" disabled={loading || !email} tabIndex={2}>
                 {loading ? <Loader size={18} className="spinner" /> : <Mail size={18} />}
                 <span>{loading ? 'Sending...' : 'Send Reset Code'}</span>
               </button>
@@ -201,11 +202,12 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
                     disabled={loading}
                     autoComplete="one-time-code"
                     autoFocus
+                    tabIndex={1}
                   />
                 </div>
               </div>
 
-              <button type="submit" className="auth-btn-primary" disabled={loading || code.length !== 6}>
+              <button type="submit" className="auth-btn-primary" disabled={loading || code.length !== 6} tabIndex={2}>
                 {loading ? <Loader size={18} className="spinner" /> : <ShieldCheck size={18} />}
                 <span>{loading ? 'Verifying...' : 'Verify Code'}</span>
               </button>
@@ -215,6 +217,7 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
                 className="auth-btn-text" 
                 onClick={handleResend}
                 disabled={loading || countdown > 0}
+                tabIndex={3}
               >
                 <RefreshCw size={16} className={countdown > 0 ? '' : 'spin-on-hover'} />
                 <span>
@@ -259,6 +262,7 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
                     onChange={(e) => setPassword(e.target.value)}
                     disabled={loading}
                     autoComplete="new-password"
+                    tabIndex={1}
                   />
                 </div>
               </div>
@@ -279,11 +283,12 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     disabled={loading}
                     autoComplete="new-password"
+                    tabIndex={2}
                   />
                 </div>
               </div>
 
-              <button type="submit" className="auth-btn-primary" disabled={loading || !password || !confirmPassword}>
+              <button type="submit" className="auth-btn-primary" disabled={loading || !password || !confirmPassword} tabIndex={3}>
                 {loading ? <Loader size={18} className="spinner" /> : <Lock size={18} />}
                 <span>{loading ? 'Resetting...' : 'Reset Password'}</span>
               </button>
@@ -299,7 +304,7 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
             <h1 className="auth-title">Password Reset</h1>
             <p className="auth-subtitle">Your password has been successfully reset.</p>
             <br />
-            <Link to="/login" className="auth-btn-primary" style={{ textDecoration: 'none' }}>
+            <Link to="/login" className="auth-btn-primary" style={{ textDecoration: 'none' }} tabIndex={1}>
               Back to Sign In
             </Link>
           </div>
@@ -307,7 +312,7 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
 
         {step !== 'SUCCESS' && (
           <div className="auth-footer-text">
-            <Link to="/login" className="auth-link" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <Link to="/login" className="auth-link" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }} tabIndex={step === 'RESET' ? 4 : (step === 'VERIFY' ? 4 : 3)}>
               <ArrowLeft size={16} /> Back to Sign In
             </Link>
           </div>

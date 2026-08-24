@@ -89,11 +89,23 @@ export const LoginPage: React.FC<LoginPageProps> = ({ theme, onToggleTheme }) =>
   return (
     <div className="auth-page">
       {/* Top Right Theme Toggle */}
-      <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+      <ThemeToggle theme={theme} onToggle={onToggleTheme} tabIndex={twoFactorData ? 5 : 6} />
 
       <div className="auth-card">
         {serverUrl && (
-          <div className="auth-server-badge" onClick={handleChangeServer} title="Change server">
+          <div
+            className="auth-server-badge"
+            onClick={handleChangeServer}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                handleChangeServer();
+              }
+            }}
+            tabIndex={twoFactorData ? 6 : 7}
+            role="button"
+            title="Change server"
+          >
             <Server size={14} />
             <span>{new URL(serverUrl).host}</span>
           </div>
@@ -142,6 +154,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ theme, onToggleTheme }) =>
                   autoCorrect="off"
                   spellCheck={false}
                   autoFocus
+                  tabIndex={1}
                 />
               </div>
             </div>
@@ -149,7 +162,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ theme, onToggleTheme }) =>
             <div className="auth-field">
               <div className="auth-label-row">
                 <label className="auth-label" htmlFor="password">Password</label>
-                <Link to="/forgot-password" className="auth-link-sm">Forgot password?</Link>
+                <Link to="/forgot-password" className="auth-link-sm" tabIndex={4}>Forgot password?</Link>
               </div>
               <div className="auth-input-wrapper">
                 <div className="auth-input-icon">
@@ -165,18 +178,19 @@ export const LoginPage: React.FC<LoginPageProps> = ({ theme, onToggleTheme }) =>
                   onChange={(e) => setPassword(e.target.value)}
                   disabled={loading}
                   autoComplete="current-password"
+                  tabIndex={2}
                 />
               </div>
             </div>
 
-            <button type="submit" className="auth-btn-primary" disabled={loading || !email || !password}>
+            <button type="submit" className="auth-btn-primary" disabled={loading || !email || !password} tabIndex={3}>
               {loading ? <Loader size={18} className="spinner" /> : <LogIn size={18} />}
               <span>{loading ? 'Signing in...' : 'Sign In'}</span>
             </button>
 
             <div className="auth-footer-text">
               Don't have an account?{' '}
-              <Link to="/register" className="auth-link">Register here</Link>
+              <Link to="/register" className="auth-link" tabIndex={5}>Register here</Link>
             </div>
           </form>
         ) : (
@@ -201,11 +215,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({ theme, onToggleTheme }) =>
                   disabled={loading}
                   autoComplete={isRecovery ? "off" : "one-time-code"}
                   autoFocus
+                  tabIndex={1}
                 />
               </div>
             </div>
 
-            <button type="submit" className="auth-btn-primary" disabled={loading || !twoFactorCode}>
+            <button type="submit" className="auth-btn-primary" disabled={loading || !twoFactorCode} tabIndex={2}>
               {loading ? <Loader size={18} className="spinner" /> : <ShieldCheck size={18} />}
               <span>{loading ? 'Verifying...' : 'Verify & Sign In'}</span>
             </button>
@@ -219,6 +234,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ theme, onToggleTheme }) =>
                 setError('');
               }}
               disabled={loading}
+              tabIndex={3}
             >
               {isRecovery ? 'Use authenticator app code' : 'Use recovery code instead'}
             </button>
@@ -228,6 +244,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ theme, onToggleTheme }) =>
               className="auth-btn-secondary" 
               onClick={handleBackToLogin}
               disabled={loading}
+              tabIndex={4}
             >
               <ArrowLeft size={16} />
               <span>Back to Sign In</span>

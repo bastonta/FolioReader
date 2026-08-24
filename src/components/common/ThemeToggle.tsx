@@ -5,12 +5,14 @@ interface ThemeToggleProps {
   theme?: string;
   onToggle?: () => void;
   className?: string;
+  tabIndex?: number;
 }
 
 export const ThemeToggle: React.FC<ThemeToggleProps> = ({
   theme = 'light',
   onToggle,
   className = '',
+  tabIndex,
 }) => {
   const isDark = theme === 'dark' || theme === 'gray';
 
@@ -20,6 +22,7 @@ export const ThemeToggle: React.FC<ThemeToggleProps> = ({
       onClick={onToggle}
       className={`auth-theme-toggle ${className}`}
       title={isDark ? 'Switch to Light Theme' : 'Switch to Dark Theme'}
+      tabIndex={tabIndex}
     >
       {isDark ? (
         <>

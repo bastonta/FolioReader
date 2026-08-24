@@ -55,11 +55,23 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ theme, onToggleTheme
   return (
     <div className="auth-page">
       {/* Top Right Theme Toggle */}
-      <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+      <ThemeToggle theme={theme} onToggle={onToggleTheme} tabIndex={6} />
 
       <div className="auth-card">
         {serverUrl && (
-          <div className="auth-server-badge" onClick={handleChangeServer} title="Change server">
+          <div
+            className="auth-server-badge"
+            onClick={handleChangeServer}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                handleChangeServer();
+              }
+            }}
+            tabIndex={7}
+            role="button"
+            title="Change server"
+          >
             <Server size={14} />
             <span>{new URL(serverUrl).host}</span>
           </div>
@@ -98,6 +110,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ theme, onToggleTheme
                 disabled={loading}
                 autoComplete="name"
                 autoFocus
+                tabIndex={1}
               />
             </div>
           </div>
@@ -121,6 +134,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ theme, onToggleTheme
                 autoCapitalize="none"
                 autoCorrect="off"
                 spellCheck={false}
+                tabIndex={2}
               />
             </div>
           </div>
@@ -141,18 +155,19 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ theme, onToggleTheme
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={loading}
                 autoComplete="new-password"
+                tabIndex={3}
               />
             </div>
           </div>
 
-          <button type="submit" className="auth-btn-primary" disabled={loading || !name || !email || !password}>
+          <button type="submit" className="auth-btn-primary" disabled={loading || !name || !email || !password} tabIndex={4}>
             {loading ? <Loader size={18} className="spinner" /> : <UserPlus size={18} />}
             <span>{loading ? 'Creating account...' : 'Create Account'}</span>
           </button>
 
           <div className="auth-footer-text">
             Already have an account?{' '}
-            <Link to="/login" className="auth-link">Sign in here</Link>
+            <Link to="/login" className="auth-link" tabIndex={5}>Sign in here</Link>
           </div>
         </form>
       </div>

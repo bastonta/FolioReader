@@ -113,7 +113,7 @@ export const ConfirmEmailPage: React.FC<ConfirmEmailPageProps> = ({ theme, onTog
   return (
     <div className="auth-page">
       {/* Top Right Theme Toggle */}
-      <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+      <ThemeToggle theme={theme} onToggle={onToggleTheme} tabIndex={5} />
 
       <div className="auth-card">
         <div className="auth-header">
@@ -152,11 +152,12 @@ export const ConfirmEmailPage: React.FC<ConfirmEmailPageProps> = ({ theme, onTog
                 disabled={loading}
                 autoComplete="one-time-code"
                 autoFocus
+                tabIndex={1}
               />
             </div>
           </div>
 
-          <button type="submit" className="auth-btn-primary" disabled={loading || code.length !== 6}>
+          <button type="submit" className="auth-btn-primary" disabled={loading || code.length !== 6} tabIndex={2}>
             {loading ? <Loader size={18} className="spinner" /> : <CheckCircle2 size={18} />}
             <span>{loading ? 'Confirming...' : 'Confirm Email'}</span>
           </button>
@@ -166,6 +167,7 @@ export const ConfirmEmailPage: React.FC<ConfirmEmailPageProps> = ({ theme, onTog
             className="auth-btn-text" 
             onClick={handleResend}
             disabled={loading || countdown > 0}
+            tabIndex={3}
           >
             <RefreshCw size={16} className={countdown > 0 ? '' : 'spin-on-hover'} />
             <span>
@@ -174,7 +176,7 @@ export const ConfirmEmailPage: React.FC<ConfirmEmailPageProps> = ({ theme, onTog
           </button>
 
           <div className="auth-footer-text">
-            <Link to="/login" className="auth-link" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <Link to="/login" className="auth-link" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }} tabIndex={4}>
               <ArrowLeft size={16} /> Back to Sign In
             </Link>
           </div>

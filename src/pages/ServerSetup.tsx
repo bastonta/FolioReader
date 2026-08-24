@@ -68,7 +68,7 @@ export const ServerSetup: React.FC<ServerSetupProps> = ({ theme, onToggleTheme }
   return (
     <div className="auth-page">
       {/* Top Right Theme Toggle */}
-      <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+      <ThemeToggle theme={theme} onToggle={onToggleTheme} tabIndex={3} />
 
       <div className="auth-card">
         <div className="auth-header">
@@ -109,6 +109,7 @@ export const ServerSetup: React.FC<ServerSetupProps> = ({ theme, onToggleTheme }
                 autoCapitalize="off"
                 spellCheck={false}
                 autoFocus
+                tabIndex={1}
               />
             </div>
           </div>
@@ -117,6 +118,7 @@ export const ServerSetup: React.FC<ServerSetupProps> = ({ theme, onToggleTheme }
             type="submit"
             className="auth-btn-primary"
             disabled={loading || !url}
+            tabIndex={2}
           >
             {loading ? (
               <Loader size={18} className="spinner" />
