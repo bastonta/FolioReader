@@ -89,12 +89,14 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ theme, onToggleTheme
               </div>
               <input
                 id="name"
+                name="name"
                 type="text"
                 className="auth-input"
                 placeholder="John Doe"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 disabled={loading}
+                autoComplete="name"
                 autoFocus
               />
             </div>
@@ -108,12 +110,17 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ theme, onToggleTheme
               </div>
               <input
                 id="email"
+                name="email"
                 type="email"
                 className="auth-input"
                 placeholder="name@example.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 disabled={loading}
+                autoComplete="email"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
               />
             </div>
           </div>
@@ -126,12 +133,14 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ theme, onToggleTheme
               </div>
               <input
                 id="password"
+                name="password"
                 type="password"
                 className="auth-input"
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={loading}
+                autoComplete="new-password"
               />
             </div>
           </div>

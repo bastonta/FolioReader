@@ -86,7 +86,7 @@ export const ServerSetup: React.FC<ServerSetupProps> = ({ theme, onToggleTheme }
           </div>
         )}
 
-        <form className="auth-form" onSubmit={handleSubmit}>
+        <form className="auth-form" onSubmit={handleSubmit} autoComplete="off">
           <div className="auth-field">
             <label className="auth-label" htmlFor="serverUrl">
               Server URL
@@ -97,12 +97,17 @@ export const ServerSetup: React.FC<ServerSetupProps> = ({ theme, onToggleTheme }
               </div>
               <input
                 id="serverUrl"
+                name="serverUrl"
                 type="url"
                 className="auth-input"
                 placeholder="https://folio.example.com"
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 disabled={loading}
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
                 autoFocus
               />
             </div>

@@ -529,6 +529,10 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                   placeholder="Search downloaded books & folders..."
                   className="auth-input"
                   style={{ paddingLeft: 36, paddingRight: searchQuery ? 32 : 12, height: 38, fontSize: 13 }}
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
                 />
                 {searchQuery && (
                   <button

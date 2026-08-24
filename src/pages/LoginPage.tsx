@@ -130,12 +130,17 @@ export const LoginPage: React.FC<LoginPageProps> = ({ theme, onToggleTheme }) =>
                 </div>
                 <input
                   id="email"
+                  name="email"
                   type="email"
                   className="auth-input"
                   placeholder="name@example.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   disabled={loading}
+                  autoComplete="username"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
                   autoFocus
                 />
               </div>
@@ -152,12 +157,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({ theme, onToggleTheme }) =>
                 </div>
                 <input
                   id="password"
+                  name="password"
                   type="password"
                   className="auth-input"
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   disabled={loading}
+                  autoComplete="current-password"
                 />
               </div>
             </div>
@@ -173,7 +180,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ theme, onToggleTheme }) =>
             </div>
           </form>
         ) : (
-          <form className="auth-form" onSubmit={handle2faSubmit}>
+          <form className="auth-form" onSubmit={handle2faSubmit} autoComplete="off">
             <div className="auth-field">
               <label className="auth-label" htmlFor="code">
                 {isRecovery ? 'Recovery Code' : '6-Digit TOTP Code'}
@@ -184,13 +191,15 @@ export const LoginPage: React.FC<LoginPageProps> = ({ theme, onToggleTheme }) =>
                 </div>
                 <input
                   id="code"
+                  name="code"
                   type="text"
+                  inputMode={isRecovery ? "text" : "numeric"}
                   className="auth-input auth-input-code"
                   placeholder={isRecovery ? 'XXXXX-XXXXX' : '000000'}
                   value={twoFactorCode}
                   onChange={(e) => setTwoFactorCode(e.target.value.replace(/[^a-zA-Z0-9-]/g, ''))}
                   disabled={loading}
-                  autoComplete="off"
+                  autoComplete={isRecovery ? "off" : "one-time-code"}
                   autoFocus
                 />
               </div>

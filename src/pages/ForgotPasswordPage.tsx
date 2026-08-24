@@ -141,12 +141,17 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
                   </div>
                   <input
                     id="email"
+                    name="email"
                     type="email"
                     className="auth-input"
                     placeholder="name@example.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     disabled={loading}
+                    autoComplete="email"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
                     autoFocus
                   />
                 </div>
@@ -177,7 +182,7 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
               </div>
             )}
 
-            <form className="auth-form" onSubmit={handleVerify}>
+            <form className="auth-form" onSubmit={handleVerify} autoComplete="off">
               <div className="auth-field">
                 <label className="auth-label" htmlFor="code">Reset Code</label>
                 <div className="auth-input-wrapper">
@@ -186,12 +191,15 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
                   </div>
                   <input
                     id="code"
+                    name="code"
                     type="text"
+                    inputMode="numeric"
                     className="auth-input auth-input-code"
                     placeholder="000000"
                     value={code}
                     onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                     disabled={loading}
+                    autoComplete="one-time-code"
                     autoFocus
                   />
                 </div>
@@ -243,12 +251,14 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
                   </div>
                   <input
                     id="password"
+                    name="password"
                     type="password"
                     className="auth-input"
                     placeholder="••••••••"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     disabled={loading}
+                    autoComplete="new-password"
                   />
                 </div>
               </div>
@@ -261,12 +271,14 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
                   </div>
                   <input
                     id="confirmPassword"
+                    name="confirmPassword"
                     type="password"
                     className="auth-input"
                     placeholder="••••••••"
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     disabled={loading}
+                    autoComplete="new-password"
                   />
                 </div>
               </div>

@@ -133,7 +133,7 @@ export const ConfirmEmailPage: React.FC<ConfirmEmailPageProps> = ({ theme, onTog
           </div>
         )}
 
-        <form className="auth-form" onSubmit={handleSubmit}>
+        <form className="auth-form" onSubmit={handleSubmit} autoComplete="off">
           <div className="auth-field">
             <label className="auth-label" htmlFor="code">Confirmation Code</label>
             <div className="auth-input-wrapper">
@@ -142,12 +142,15 @@ export const ConfirmEmailPage: React.FC<ConfirmEmailPageProps> = ({ theme, onTog
               </div>
               <input
                 id="code"
+                name="code"
                 type="text"
+                inputMode="numeric"
                 className="auth-input auth-input-code"
                 placeholder="000000"
                 value={code}
                 onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                 disabled={loading}
+                autoComplete="one-time-code"
                 autoFocus
               />
             </div>

@@ -435,7 +435,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
           {/* Search & Filters */}
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
             {/* Search input */}
-            <form onSubmit={handleSearchSubmit} style={{ flex: '1 1 200px', minWidth: 160, position: 'relative' }}>
+            <form onSubmit={handleSearchSubmit} style={{ flex: '1 1 200px', minWidth: 160, position: 'relative' }} autoComplete="off">
               <Search
                 size={16}
                 style={{
@@ -453,6 +453,10 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                 placeholder="Search books or series..."
                 className="auth-input"
                 style={{ paddingLeft: 36, height: 38, fontSize: 13 }}
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
               />
             </form>
 

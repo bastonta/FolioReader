@@ -282,11 +282,14 @@ export const ProfilePage: React.FC = () => {
                 ) : (
                   <form onSubmit={handleUpdateName} className="profile-inline-form" style={{ maxWidth: 400 }}>
                     <input 
+                      id="name"
+                      name="name"
                       type="text" 
                       className="auth-input" 
                       value={newName} 
                       onChange={e => setNewName(e.target.value)}
                       disabled={isLoading}
+                      autoComplete="name"
                       autoFocus
                     />
                     <button type="submit" className="auth-btn-primary" style={{ width: 'auto', padding: '0 16px' }} disabled={isLoading || !newName.trim()}>Save</button>
@@ -432,7 +435,7 @@ export const ProfilePage: React.FC = () => {
               <span className="modal-title">Change Password</span>
               <button className="modal-close-btn" onClick={() => { setShowPasswordChange(false); setPasswordData({ oldPassword: '', newPassword: '', confirmPassword: '' }); }}><X size={16} /></button>
             </div>
-            <form onSubmit={handleChangePassword}>
+            <form onSubmit={handleChangePassword} autoComplete="off">
               <div className="modal-body">
                 {error && (
                   <div className="auth-error" style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -443,6 +446,8 @@ export const ProfilePage: React.FC = () => {
                 <div style={{ marginBottom: 12 }}>
                   <label style={{ display: 'block', marginBottom: 4, fontSize: 13, color: 'var(--text-muted)' }}>Current Password</label>
                   <input
+                    id="oldPassword"
+                    name="current-password"
                     type="password"
                     required
                     className="auth-input"
@@ -450,12 +455,15 @@ export const ProfilePage: React.FC = () => {
                     value={passwordData.oldPassword}
                     onChange={e => setPasswordData({ ...passwordData, oldPassword: e.target.value })}
                     disabled={isLoading}
+                    autoComplete="current-password"
                     autoFocus
                   />
                 </div>
                 <div style={{ marginBottom: 12 }}>
                   <label style={{ display: 'block', marginBottom: 4, fontSize: 13, color: 'var(--text-muted)' }}>New Password</label>
                   <input
+                    id="newPassword"
+                    name="new-password"
                     type="password"
                     required
                     className="auth-input"
@@ -463,11 +471,14 @@ export const ProfilePage: React.FC = () => {
                     value={passwordData.newPassword}
                     onChange={e => setPasswordData({ ...passwordData, newPassword: e.target.value })}
                     disabled={isLoading}
+                    autoComplete="new-password"
                   />
                 </div>
                 <div style={{ marginBottom: 8 }}>
                   <label style={{ display: 'block', marginBottom: 4, fontSize: 13, color: 'var(--text-muted)' }}>Confirm New Password</label>
                   <input
+                    id="confirmPassword"
+                    name="confirm-password"
                     type="password"
                     required
                     className="auth-input"
@@ -475,6 +486,7 @@ export const ProfilePage: React.FC = () => {
                     value={passwordData.confirmPassword}
                     onChange={e => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
                     disabled={isLoading}
+                    autoComplete="new-password"
                   />
                 </div>
               </div>
@@ -496,7 +508,7 @@ export const ProfilePage: React.FC = () => {
               <button className="modal-close-btn" onClick={() => { setShowEmailChange(false); setEmailChangeStep(1); setEmailData({ newEmail: '', currentPassword: '', code: '' }); }}><X size={16} /></button>
             </div>
             {emailChangeStep === 1 ? (
-              <form onSubmit={handleRequestEmailChange}>
+              <form onSubmit={handleRequestEmailChange} autoComplete="off">
                 <div className="modal-body">
                   {error && (
                     <div className="auth-error" style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -507,6 +519,8 @@ export const ProfilePage: React.FC = () => {
                   <div style={{ marginBottom: 12 }}>
                     <label style={{ display: 'block', marginBottom: 4, fontSize: 13, color: 'var(--text-muted)' }}>New Email Address</label>
                     <input
+                      id="newEmail"
+                      name="email"
                       type="email"
                       required
                       className="auth-input"
@@ -514,12 +528,18 @@ export const ProfilePage: React.FC = () => {
                       value={emailData.newEmail}
                       onChange={e => setEmailData({ ...emailData, newEmail: e.target.value })}
                       disabled={isLoading}
+                      autoComplete="email"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
                       autoFocus
                     />
                   </div>
                   <div style={{ marginBottom: 8 }}>
                     <label style={{ display: 'block', marginBottom: 4, fontSize: 13, color: 'var(--text-muted)' }}>Current Password</label>
                     <input
+                      id="emailChangePassword"
+                      name="password"
                       type="password"
                       required
                       className="auth-input"
@@ -527,6 +547,7 @@ export const ProfilePage: React.FC = () => {
                       value={emailData.currentPassword}
                       onChange={e => setEmailData({ ...emailData, currentPassword: e.target.value })}
                       disabled={isLoading}
+                      autoComplete="current-password"
                     />
                   </div>
                 </div>
@@ -536,7 +557,7 @@ export const ProfilePage: React.FC = () => {
                 </div>
               </form>
             ) : (
-              <form onSubmit={handleConfirmEmailChange}>
+              <form onSubmit={handleConfirmEmailChange} autoComplete="off">
                 <div className="modal-body">
                   {error && (
                     <div className="auth-error" style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -550,13 +571,17 @@ export const ProfilePage: React.FC = () => {
                   <div style={{ marginBottom: 8 }}>
                     <label style={{ display: 'block', marginBottom: 4, fontSize: 13, color: 'var(--text-muted)' }}>Verification Code</label>
                     <input
+                      id="emailVerificationCode"
+                      name="code"
                       type="text"
+                      inputMode="numeric"
                       required
                       className="auth-input auth-input-code"
                       style={{ letterSpacing: 4, textAlign: 'center', fontSize: 18 }}
                       value={emailData.code}
                       onChange={e => setEmailData({ ...emailData, code: e.target.value })}
                       disabled={isLoading}
+                      autoComplete="one-time-code"
                       maxLength={6}
                       autoFocus
                     />
@@ -581,7 +606,7 @@ export const ProfilePage: React.FC = () => {
               <span className="modal-title">Set up Two-Factor Authentication</span>
               <button className="modal-close-btn" onClick={() => setShowEnable2FA(false)}><X size={16} /></button>
             </div>
-            <form onSubmit={handleConfirmEnable2FA}>
+            <form onSubmit={handleConfirmEnable2FA} autoComplete="off">
               <div className="modal-body">
                 {error && (
                   <div className="auth-error" style={{ marginBottom: 16 }}>
@@ -603,7 +628,19 @@ export const ProfilePage: React.FC = () => {
                 </div>
                 <div style={{ marginBottom: 8 }}>
                   <label className="auth-label" style={{ display: 'block', marginBottom: 6 }}>Enter the 6-digit code from your app</label>
-                  <input type="text" required className="auth-input auth-input-code" value={twoFaCode} onChange={e => setTwoFaCode(e.target.value)} disabled={isLoading} maxLength={6} />
+                  <input
+                    id="enable2FaCode"
+                    name="code"
+                    type="text"
+                    inputMode="numeric"
+                    required
+                    className="auth-input auth-input-code"
+                    value={twoFaCode}
+                    onChange={e => setTwoFaCode(e.target.value)}
+                    disabled={isLoading}
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                  />
                 </div>
               </div>
               <div className="modal-footer">
@@ -659,7 +696,7 @@ export const ProfilePage: React.FC = () => {
               <span className="modal-title">View Recovery Codes</span>
               <button className="modal-close-btn" onClick={() => setShowViewRecoveryCodes(false)}><X size={16} /></button>
             </div>
-            <form onSubmit={handleViewRecoveryCodes}>
+            <form onSubmit={handleViewRecoveryCodes} autoComplete="off">
               <div className="modal-body">
                 {error && (
                   <div className="auth-error" style={{ marginBottom: 16 }}>
@@ -672,7 +709,20 @@ export const ProfilePage: React.FC = () => {
                 </p>
                 <div style={{ marginBottom: 8 }}>
                   <label className="auth-label" style={{ display: 'block', marginBottom: 6 }}>Authenticator Code</label>
-                  <input type="text" required className="auth-input auth-input-code" value={viewCodesTotp} onChange={e => setViewCodesTotp(e.target.value)} disabled={isLoading} maxLength={6} autoFocus />
+                  <input
+                    id="viewCodesTotp"
+                    name="code"
+                    type="text"
+                    inputMode="numeric"
+                    required
+                    className="auth-input auth-input-code"
+                    value={viewCodesTotp}
+                    onChange={e => setViewCodesTotp(e.target.value)}
+                    disabled={isLoading}
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    autoFocus
+                  />
                 </div>
               </div>
               <div className="modal-footer">
@@ -692,7 +742,7 @@ export const ProfilePage: React.FC = () => {
               <span className="modal-title">Disable Two-Factor Authentication</span>
               <button className="modal-close-btn" onClick={() => setShowDisable2FA(false)}><X size={16} /></button>
             </div>
-            <form onSubmit={handleDisable2FA}>
+            <form onSubmit={handleDisable2FA} autoComplete="off">
               <div className="modal-body">
                 {error && (
                   <div className="auth-error" style={{ marginBottom: 16 }}>
@@ -705,7 +755,19 @@ export const ProfilePage: React.FC = () => {
                 </p>
                 <div style={{ marginBottom: 8 }}>
                   <label className="auth-label" style={{ display: 'block', marginBottom: 6 }}>Enter Password to Confirm</label>
-                  <input type="password" required className="auth-input" style={{ paddingLeft: 12 }} value={disable2FAPassword} onChange={e => setDisable2FAPassword(e.target.value)} disabled={isLoading} autoFocus />
+                  <input
+                    id="disable2FAPassword"
+                    name="password"
+                    type="password"
+                    required
+                    className="auth-input"
+                    style={{ paddingLeft: 12 }}
+                    value={disable2FAPassword}
+                    onChange={e => setDisable2FAPassword(e.target.value)}
+                    disabled={isLoading}
+                    autoComplete="current-password"
+                    autoFocus
+                  />
                 </div>
               </div>
               <div className="modal-footer">
