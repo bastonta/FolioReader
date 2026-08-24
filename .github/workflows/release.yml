@@ -33,35 +33,7 @@ jobs:
           cache: "npm"
 
       - name: Sync version from Git tag
-        run: |
-          node -e "
-            const fs = require('fs');
-            const tag = process.env.GITHUB_REF_NAME || '';
-            const version = tag.replace(/^v/, '');
-            if (!version) process.exit(0);
-
-            // Update package.json
-            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-            pkg.version = version;
-            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
-
-            // Update tauri.conf.json
-            const tauriPath = 'src-tauri/tauri.conf.json';
-            if (fs.existsSync(tauriPath)) {
-              const tauri = JSON.parse(fs.readFileSync(tauriPath, 'utf8'));
-              tauri.version = version;
-              fs.writeFileSync(tauriPath, JSON.stringify(tauri, null, 2) + '\n');
-            }
-
-            // Update Cargo.toml
-            const cargoPath = 'src-tauri/Cargo.toml';
-            if (fs.existsSync(cargoPath)) {
-              let cargo = fs.readFileSync(cargoPath, 'utf8');
-              cargo = cargo.replace(/^version = \".*\"/m, \`version = \"\${version}\"\`);
-              fs.writeFileSync(cargoPath, cargo);
-            }
-            console.log('Synchronized version to ' + version);
-          "
+        run: node scripts/sync-version.cjs
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
@@ -121,35 +93,7 @@ jobs:
           cache: "npm"
 
       - name: Sync version from Git tag
-        run: |
-          node -e "
-            const fs = require('fs');
-            const tag = process.env.GITHUB_REF_NAME || '';
-            const version = tag.replace(/^v/, '');
-            if (!version) process.exit(0);
-
-            // Update package.json
-            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-            pkg.version = version;
-            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
-
-            // Update tauri.conf.json
-            const tauriPath = 'src-tauri/tauri.conf.json';
-            if (fs.existsSync(tauriPath)) {
-              const tauri = JSON.parse(fs.readFileSync(tauriPath, 'utf8'));
-              tauri.version = version;
-              fs.writeFileSync(tauriPath, JSON.stringify(tauri, null, 2) + '\n');
-            }
-
-            // Update Cargo.toml
-            const cargoPath = 'src-tauri/Cargo.toml';
-            if (fs.existsSync(cargoPath)) {
-              let cargo = fs.readFileSync(cargoPath, 'utf8');
-              cargo = cargo.replace(/^version = \".*\"/m, \`version = \"\${version}\"\`);
-              fs.writeFileSync(cargoPath, cargo);
-            }
-            console.log('Synchronized version to ' + version);
-          "
+        run: node scripts/sync-version.cjs
 
       - name: Setup Java 17
         uses: actions/setup-java@v5
