@@ -8,6 +8,7 @@
     "codegen",
     "fileprovider",
     "folioapp",
+    "nsis",
     "proguard",
     "qrcode",
     "reqwest",
