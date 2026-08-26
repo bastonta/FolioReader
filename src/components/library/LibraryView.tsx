@@ -943,6 +943,14 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                 {/* 1. Direct subfolders as grid cards */}
                 {directSubfolderNames.map((folderName) => {
                   const booksInFolder = directSubfolderMap.get(folderName) || [];
+                  const sampleAuthors = Array.from(
+                    new Set(
+                      booksInFolder
+                        .map((b) => metaCache[b.id]?.author)
+                        .filter((a) => a && a !== 'Unknown Author' && a !== t('common.unknownAuthor'))
+                    )
+                  ).slice(0, 2).join(', ');
+
                   return (
                     <div
                       key={`folder-${folderName}`}
@@ -950,13 +958,6 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                       onClick={() => setCurrentFolderPath((prev) => [...prev, folderName])}
                       title={t('library.openFolderTitle', { name: folderName })}
                     >
-                      {/* Top folder title header */}
-                      <div className="folder-grid-header">
-                        <span className="folder-grid-title" title={folderName}>
-                          {folderName}
-                        </span>
-                      </div>
-
                       {/* Stacked covers */}
                       <div className="folder-stack-container">
                         <FolderStackCover books={booksInFolder} metaCache={metaCache} />
@@ -976,16 +977,25 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                       </div>
 
                       {/* Details at bottom */}
-                      <div className="folder-grid-footer">
-                        <div className="folder-footer-info">
+                      <div className="folder-grid-details">
+                        <div>
+                          <h4 className="book-card-title" title={folderName}>
+                            {folderName}
+                          </h4>
+                          <p className="book-card-author" title={sampleAuthors || t('library.collectionFolderHint')}>
+                            {sampleAuthors || t('library.collectionFolderHint')}
+                          </p>
+                        </div>
+
+                        <div className="folder-grid-footer">
                           <span className="folder-footer-count">
                             {booksInFolder.length} {getBookPluralLabel(booksInFolder.length)}
                           </span>
+                          <span className="folder-open-action">
+                            <span>{t('common.open')}</span>
+                            <ChevronRight size={13} />
+                          </span>
                         </div>
-                        <span className="folder-open-action">
-                          <span>{t('common.open')}</span>
-                          <ChevronRight size={13} />
-                        </span>
                       </div>
                     </div>
                   );
