@@ -1,14 +1,25 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
-import { profileApi } from '../api/profileApi';
-import QRCode from 'qrcode';
 import {
-  ArrowLeft, ShieldCheck, ShieldAlert, Copy, Download,
-  KeyRound, AlertCircle, CheckCircle2, X, Mail, Server,
-  LogOut, Pencil, Info, Calendar
+    AlertCircle,
+    ArrowLeft,
+    Calendar,
+    CheckCircle2,
+    Copy, Download,
+    Info,
+    KeyRound,
+    LogOut,
+    Mail,
+    Pencil,
+    Server,
+    ShieldAlert,
+    ShieldCheck,
+    X
 } from 'lucide-react';
+import QRCode from 'qrcode';
+import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { profileApi } from '../api/profileApi';
 import { APP_VERSION, BUILD_TIME, formatBuildTime } from '../constants/buildInfo';
+import { useAuth } from '../context/AuthContext';
 import { useTranslation } from '../i18n';
 
 export const ProfilePage: React.FC = () => {
@@ -325,7 +336,7 @@ export const ProfilePage: React.FC = () => {
             <p style={{ color: 'var(--text-secondary)', fontSize: 13.5, margin: '0 0 16px 0', lineHeight: 1.4 }}>
               {t('profile.changePasswordSubtitle')}
             </p>
-            <button className="auth-btn-primary" style={{ maxWidth: 200 }} onClick={() => { clearMessages(); setShowPasswordChange(true); }} disabled={isLoading}>
+            <button className="auth-btn-primary" onClick={() => { clearMessages(); setShowPasswordChange(true); }} disabled={isLoading}>
               {t('profile.changePassword')}
             </button>
           </div>
@@ -341,7 +352,7 @@ export const ProfilePage: React.FC = () => {
             <p style={{ color: 'var(--text-secondary)', fontSize: 13.5, margin: '0 0 16px 0', lineHeight: 1.4 }}>
               {t('profile.changeEmailSubtitle')}
             </p>
-            <button className="auth-btn-primary" style={{ maxWidth: 200 }} onClick={() => { clearMessages(); setEmailChangeStep(1); setShowEmailChange(true); }} disabled={isLoading}>
+            <button className="auth-btn-primary" onClick={() => { clearMessages(); setEmailChangeStep(1); setShowEmailChange(true); }} disabled={isLoading}>
               {t('profile.changeEmail')}
             </button>
           </div>
@@ -359,7 +370,7 @@ export const ProfilePage: React.FC = () => {
             </p>
             
             {!user?.twoFactorEnabled ? (
-              <button className="auth-btn-primary" style={{ maxWidth: 200 }} onClick={handleStartEnable2FA} disabled={isLoading}>{t('profile.enableTwoFactor')}</button>
+              <button className="auth-btn-primary" onClick={handleStartEnable2FA} disabled={isLoading}>{t('profile.enableTwoFactor')}</button>
             ) : (
               <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                 <button className="auth-btn-secondary" style={{ width: 'auto' }} onClick={() => { clearMessages(); setShowViewRecoveryCodes(true); }}>{t('profile.viewRecoveryCodes')}</button>
@@ -382,8 +393,8 @@ export const ProfilePage: React.FC = () => {
               <strong style={{ fontSize: 13.5, color: 'var(--text-primary)' }}>{serverUrl}</strong>
             </div>
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-              <button className="auth-btn-secondary" style={{ width: 'auto' }} onClick={() => { clearServer(); navigate('/server', { replace: true }); }}>{t('profile.changeServer')}</button>
-              <button className="auth-btn-secondary" style={{ width: 'auto', display: 'flex', alignItems: 'center', gap: 8 }} onClick={() => { logout(); navigate('/login', { replace: true }); }}>
+              <button className="auth-btn-secondary" style={{ flex: 1 }} onClick={() => { clearServer(); navigate('/server', { replace: true }); }}>{t('profile.changeServer')}</button>
+              <button className="auth-btn-secondary" style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }} onClick={() => { logout(); navigate('/login', { replace: true }); }}>
                 <LogOut size={16} /> {t('profile.signOut')}
               </button>
             </div>

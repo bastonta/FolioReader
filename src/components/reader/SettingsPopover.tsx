@@ -3,6 +3,7 @@ import { ReaderSettings, ThemeName, ScreenTimeoutOption } from '../../types/read
 import { isMobileDevice } from '../../services/systemUi';
 import { fontManager } from '../../services/fontManager';
 import { LoadedCustomFont } from '../../types/font';
+import { Select } from '../common/Select';
 import {
   BookOpen,
   Scroll,
@@ -328,19 +329,20 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
           <div className="settings-row-between" style={{ marginBottom: 6 }}>
             <label className="settings-label" style={{ marginBottom: 0 }}>{t('reader.screenTimeout')}</label>
           </div>
-          <select
-            className="settings-select"
+          <Select<ScreenTimeoutOption>
             value={settings.screenTimeout || '5'}
-            onChange={(e) => onUpdateSettings({ screenTimeout: e.target.value as ScreenTimeoutOption })}
-          >
-            <option value="system">{t('settings.screenTimeoutSystem')}</option>
-            <option value="2">{t('settings.screenTimeoutMinutes', { count: 2 })}</option>
-            <option value="5">{t('settings.screenTimeoutMinutes', { count: 5 })}</option>
-            <option value="10">{t('settings.screenTimeoutMinutes', { count: 10 })}</option>
-            <option value="15">{t('settings.screenTimeoutMinutes', { count: 15 })}</option>
-            <option value="30">{t('settings.screenTimeoutMinutes', { count: 30 })}</option>
-            <option value="never">{t('settings.screenTimeoutNever')}</option>
-          </select>
+            onChange={(val) => onUpdateSettings({ screenTimeout: val })}
+            options={[
+              { value: 'system', label: t('settings.screenTimeoutSystem') },
+              { value: '2', label: t('settings.screenTimeoutMinutes', { count: 2 }) },
+              { value: '5', label: t('settings.screenTimeoutMinutes', { count: 5 }) },
+              { value: '10', label: t('settings.screenTimeoutMinutes', { count: 10 }) },
+              { value: '15', label: t('settings.screenTimeoutMinutes', { count: 15 }) },
+              { value: '30', label: t('settings.screenTimeoutMinutes', { count: 30 }) },
+              { value: 'never', label: t('settings.screenTimeoutNever') },
+            ]}
+            aria-label={t('reader.screenTimeout')}
+          />
           <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, marginBottom: 0 }}>
             {settings.screenTimeout === 'never'
               ? t('settings.screenTimeoutNeverDesc')
@@ -377,28 +379,33 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
             onChange={handleFontUpload}
           />
 
-          <select
-            className="settings-select"
+          <Select<string>
             value={settings.fontFamily}
-            onChange={(e) => onUpdateSettings({ fontFamily: e.target.value })}
-          >
-            <optgroup label={t('reader.standardFonts')}>
-              {fontOptions.map((f) => (
-                <option key={f.value} value={f.value}>
-                  {f.label}
-                </option>
-              ))}
-            </optgroup>
-            {customFonts.length > 0 && (
-              <optgroup label={t('reader.customFonts')}>
-                {customFonts.map((f) => (
-                  <option key={f.id} value={`'${f.fontFamily}', sans-serif`}>
-                    {f.name}
-                  </option>
-                ))}
-              </optgroup>
-            )}
-          </select>
+            onChange={(val) => onUpdateSettings({ fontFamily: val })}
+            groups={[
+              {
+                label: t('reader.standardFonts'),
+                options: fontOptions.map((f) => ({
+                  value: f.value,
+                  label: f.label,
+                  style: { fontFamily: f.value },
+                })),
+              },
+              ...(customFonts.length > 0
+                ? [
+                    {
+                      label: t('reader.customFonts'),
+                      options: customFonts.map((f) => ({
+                        value: `'${f.fontFamily}', sans-serif`,
+                        label: f.name,
+                        style: { fontFamily: `'${f.fontFamily}', sans-serif` },
+                      })),
+                    },
+                  ]
+                : []),
+            ]}
+            aria-label={t('reader.fontFamily')}
+          />
         </div>
 
         {/* Font Size */}

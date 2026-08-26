@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import React, { useCallback, useEffect, useState } from "react";
 import { BrowseParams, libraryApi } from "../../api/libraryApi";
+import { Select } from "../common/Select";
 import {
   getAccessToken,
   getServerUrl,
@@ -578,88 +579,50 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
 
             <div style={{ display: "flex", gap: 8, flex: "1 1 auto" }}>
               {/* Filter Scope */}
-              <div
-                style={{
-                  flex: 1,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  padding: "0 10px",
-                  height: 38,
-                  backgroundColor: "var(--bg-card)",
-                  border: "1px solid var(--border-color)",
-                  borderRadius: "var(--radius-md)",
-                  fontSize: 12,
-                  minWidth: 100,
-                }}
-              >
-                <Filter
-                  size={14}
-                  style={{ color: "var(--text-muted)", flexShrink: 0 }}
-                />
-                <select
+              <div style={{ flex: 1, minWidth: 100 }}>
+                <Select<'all' | 'title' | 'author' | 'series'>
                   value={searchBy}
-                  onChange={(e) => {
-                    setSearchBy(e.target.value as any);
+                  onChange={(val) => {
+                    setSearchBy(val);
                     setPage(1);
                   }}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    outline: "none",
-                    color: "var(--text-primary)",
+                  icon={<Filter size={14} />}
+                  triggerStyle={{
+                    backgroundColor: "var(--bg-card)",
                     fontSize: 12,
-                    cursor: "pointer",
-                    width: "100%",
+                    height: 38,
                   }}
-                >
-                  <option value="all">{t("browse.allFields")}</option>
-                  <option value="title">{t("browse.byTitle")}</option>
-                  <option value="author">{t("browse.byAuthor")}</option>
-                  <option value="series">{t("browse.bySeries")}</option>
-                </select>
+                  options={[
+                    { value: "all", label: t("browse.allFields") },
+                    { value: "title", label: t("browse.byTitle") },
+                    { value: "author", label: t("browse.byAuthor") },
+                    { value: "series", label: t("browse.bySeries") },
+                  ]}
+                  aria-label={t("browse.allFields")}
+                />
               </div>
 
               {/* Sort Dropdown */}
-              <div
-                style={{
-                  flex: 1,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 6,
-                  padding: "0 10px",
-                  height: 38,
-                  backgroundColor: "var(--bg-card)",
-                  border: "1px solid var(--border-color)",
-                  borderRadius: "var(--radius-md)",
-                  fontSize: 12,
-                  minWidth: 100,
-                }}
-              >
-                <ArrowUpDown
-                  size={14}
-                  style={{ color: "var(--text-muted)", flexShrink: 0 }}
-                />
-                <select
+              <div style={{ flex: 1, minWidth: 100 }}>
+                <Select<'name' | 'recent' | 'sortOrder'>
                   value={sortBy}
-                  onChange={(e) => {
-                    setSortBy(e.target.value as any);
+                  onChange={(val) => {
+                    setSortBy(val);
                     setPage(1);
                   }}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    outline: "none",
-                    color: "var(--text-primary)",
+                  icon={<ArrowUpDown size={14} />}
+                  triggerStyle={{
+                    backgroundColor: "var(--bg-card)",
                     fontSize: 12,
-                    cursor: "pointer",
-                    width: "100%",
+                    height: 38,
                   }}
-                >
-                  <option value="name">{t("browse.byName")}</option>
-                  <option value="recent">{t("browse.newestFirst")}</option>
-                  <option value="sortOrder">{t("browse.bySeriesOrder")}</option>
-                </select>
+                  options={[
+                    { value: "name", label: t("browse.byName") },
+                    { value: "recent", label: t("browse.newestFirst") },
+                    { value: "sortOrder", label: t("browse.bySeriesOrder") },
+                  ]}
+                  aria-label={t("browse.byName")}
+                />
               </div>
 
               {/* View mode toggle (Grid / List) */}

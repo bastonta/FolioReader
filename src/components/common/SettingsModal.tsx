@@ -5,6 +5,7 @@ import { fontManager } from '../../services/fontManager';
 import { LoadedCustomFont } from '../../types/font';
 import { isMobileDevice } from '../../services/systemUi';
 import { useTranslation, Language } from '../../i18n';
+import { Select } from './Select';
 import {
   X,
   Folder,
@@ -664,20 +665,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               {t('settings.screenTimeoutDesc')}
             </p>
 
-            <select
-              className="settings-select"
+            <Select<ScreenTimeoutOption>
               value={settings.screenTimeout || '5'}
-              onChange={(e) => onUpdateSettings({ screenTimeout: e.target.value as ScreenTimeoutOption })}
-              style={{ width: '100%', height: 38, fontSize: 13 }}
-            >
-              <option value="system">{t('settings.screenTimeoutSystem')}</option>
-              <option value="2">{t('settings.screenTimeout2m')}</option>
-              <option value="5">{t('settings.screenTimeout5m')}</option>
-              <option value="10">{t('settings.screenTimeout10m')}</option>
-              <option value="15">{t('settings.screenTimeout15m')}</option>
-              <option value="30">{t('settings.screenTimeout30m')}</option>
-              <option value="never">{t('settings.screenTimeoutNever')}</option>
-            </select>
+              onChange={(val) => onUpdateSettings({ screenTimeout: val })}
+              options={[
+                { value: 'system', label: t('settings.screenTimeoutSystem') },
+                { value: '2', label: t('settings.screenTimeout2m') },
+                { value: '5', label: t('settings.screenTimeout5m') },
+                { value: '10', label: t('settings.screenTimeout10m') },
+                { value: '15', label: t('settings.screenTimeout15m') },
+                { value: '30', label: t('settings.screenTimeout30m') },
+                { value: 'never', label: t('settings.screenTimeoutNever') },
+              ]}
+              aria-label={t('settings.screenTimeoutTitle')}
+            />
           </div>
 
           {/* Custom Reader Fonts Section */}
