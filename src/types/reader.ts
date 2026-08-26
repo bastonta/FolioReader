@@ -60,6 +60,8 @@ export type PageTurnMethod = 'tap' | 'swipe' | 'both';
 
 export type ScreenTimeoutOption = 'system' | '2' | '5' | '10' | '15' | '30' | 'never';
 
+export type Language = 'system' | 'en' | 'ru';
+
 export interface ReaderSettings {
   flow: 'paginated' | 'scrolled';
   columns: 'auto' | 1 | 2;
@@ -71,6 +73,7 @@ export interface ReaderSettings {
   justify: boolean;
   hyphenate: boolean;
   theme: ThemeName;
+  language?: Language;
   pageTurnMethod?: PageTurnMethod;
   volumeKeysPageTurn?: boolean;
   volumeKeysInverted?: boolean;

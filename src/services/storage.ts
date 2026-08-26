@@ -17,6 +17,7 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   justify: true,
   hyphenate: true,
   theme: 'light',
+  language: 'system',
   pageTurnMethod: 'both',
   volumeKeysPageTurn: true,
   volumeKeysInverted: false,

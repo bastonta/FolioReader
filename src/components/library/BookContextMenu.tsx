@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useLayoutEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { CheckCircle2, Circle, RotateCcw, Trash2 } from 'lucide-react';
+import { useTranslation } from '../../i18n';
 
 export interface BookContextMenuProps {
   isOpen: boolean;
@@ -21,6 +22,7 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
   onOpenResetModal,
   onDeleteBook,
 }) => {
+  const { t } = useTranslation();
   const menuRef = useRef<HTMLDivElement>(null);
   const [adjustedPos, setAdjustedPos] = useState<{ top: number; left: number }>({
     top: position.y,
@@ -112,12 +114,12 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
         {isRead ? (
           <>
             <Circle size={16} className="context-menu-icon" />
-            <span>Mark as unread</span>
+            <span>{t('contextMenu.markAsUnread')}</span>
           </>
         ) : (
           <>
             <CheckCircle2 size={16} className="context-menu-icon" style={{ color: 'var(--accent-color)' }} />
-            <span>Mark as read</span>
+            <span>{t('contextMenu.markAsRead')}</span>
           </>
         )}
       </button>
@@ -132,7 +134,7 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
         }}
       >
         <RotateCcw size={16} className="context-menu-icon" />
-        <span>Reset reading progress...</span>
+        <span>{t('contextMenu.resetProgress')}</span>
       </button>
 
       <div className="book-context-menu-divider" />
@@ -147,7 +149,7 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
         }}
       >
         <Trash2 size={16} className="context-menu-icon" />
-        <span>Delete from device</span>
+        <span>{t('contextMenu.deleteFromDevice')}</span>
       </button>
     </div>
   );

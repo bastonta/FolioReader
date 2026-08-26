@@ -1,35 +1,45 @@
-import React, { useState, useEffect, useCallback } from 'react';
 import {
   ArrowLeft,
-  Search,
-  Filter,
   ArrowUpDown,
-  Folder,
   BookOpen,
-  Download,
   Check,
-  Loader2,
-  ChevronRight,
-  Home,
-  RefreshCw,
-  Sparkles,
   CheckCircle2,
+  ChevronRight,
+  Download,
+  Filter,
+  Folder,
+  Home,
   LayoutGrid,
   List as ListIcon,
+  Loader2,
+  RefreshCw,
+  Search,
+  Sparkles,
   WifiOff,
-} from 'lucide-react';
-import { libraryApi, BrowseParams } from '../../api/libraryApi';
-import { fileManager } from '../../services/fileManager';
-import { getAccessToken, getServerUrl, isNetworkError } from '../../api/tokenManager';
-import { BrowseItem } from '../../types/browse';
-import { ReaderSettings } from '../../types/reader';
-import { useBackHandler } from '../../services/backHandler';
-import { useAuth } from '../../context/AuthContext';
+} from "lucide-react";
+import React, { useCallback, useEffect, useState } from "react";
+import { BrowseParams, libraryApi } from "../../api/libraryApi";
+import {
+  getAccessToken,
+  getServerUrl,
+  isNetworkError,
+} from "../../api/tokenManager";
+import { useAuth } from "../../context/AuthContext";
+import { useTranslation } from "../../i18n";
+import { useBackHandler } from "../../services/backHandler";
+import { fileManager } from "../../services/fileManager";
+import { BrowseItem } from "../../types/browse";
+import { ReaderSettings } from "../../types/reader";
 
 interface BrowseViewProps {
   settings: ReaderSettings;
   onBackToLocalLibrary: () => void;
-  onOpenBookFromPath?: (filePath: string, title?: string, author?: string, serverBookId?: string) => void;
+  onOpenBookFromPath?: (
+    filePath: string,
+    title?: string,
+    author?: string,
+    serverBookId?: string,
+  ) => void;
   onBookDownloaded?: () => void;
   onUpdateSettings?: (settings: Partial<ReaderSettings>) => void;
 }
@@ -41,6 +51,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
   onBookDownloaded,
   onUpdateSettings,
 }) => {
+  const { t } = useTranslation();
   const { isOffline, checkOnlineStatus } = useAuth();
   // Navigation & Folder path
   const [currentSeriesPath, setCurrentSeriesPath] = useState<
@@ -48,8 +59,12 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
   >([]);
 
   // View mode: 'grid' | 'list'
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => {
-    return settings.libraryViewMode || (localStorage.getItem('folio_library_view_mode') as 'grid' | 'list') || 'grid';
+  const [viewMode, setViewMode] = useState<"grid" | "list">(() => {
+    return (
+      settings.libraryViewMode ||
+      (localStorage.getItem("folio_library_view_mode") as "grid" | "list") ||
+      "grid"
+    );
   });
 
   useEffect(() => {
@@ -58,24 +73,48 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
     }
   }, [settings.libraryViewMode]);
 
-  const handleToggleViewMode = (mode: 'grid' | 'list') => {
+  const handleToggleViewMode = (mode: "grid" | "list") => {
     setViewMode(mode);
-    localStorage.setItem('folio_library_view_mode', mode);
+    localStorage.setItem("folio_library_view_mode", mode);
     onUpdateSettings?.({ libraryViewMode: mode });
   };
 
   // Search, Filter & Sort
-  const [searchInput, setSearchInput] = useState('');
-  const [search, setSearch] = useState('');
-  const [searchBy, setSearchBy] = useState<'all' | 'title' | 'author' | 'series'>('all');
-  const [sortBy, setSortBy] = useState<'name' | 'recent' | 'sortOrder'>('name');
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
+  const [searchBy, setSearchBy] = useState<
+    "all" | "title" | "author" | "series"
+  >("all");
+  const [sortBy, setSortBy] = useState<"name" | "recent" | "sortOrder">("name");
   const [page, setPage] = useState(1);
   const limit = 20;
 
   // Back button handling in BrowseView (highest to lowest priority)
-  useBackHandler(() => { setCurrentSeriesPath((prev) => prev.slice(0, -1)); return true; }, currentSeriesPath.length > 0, 50);
-  useBackHandler(() => { setSearch(''); setSearchInput(''); return true; }, Boolean(search || searchInput), 40);
-  useBackHandler(() => { onBackToLocalLibrary(); return true; }, true, 20);
+  useBackHandler(
+    () => {
+      setCurrentSeriesPath((prev) => prev.slice(0, -1));
+      return true;
+    },
+    currentSeriesPath.length > 0,
+    50,
+  );
+  useBackHandler(
+    () => {
+      setSearch("");
+      setSearchInput("");
+      return true;
+    },
+    Boolean(search || searchInput),
+    40,
+  );
+  useBackHandler(
+    () => {
+      onBackToLocalLibrary();
+      return true;
+    },
+    true,
+    20,
+  );
 
   // Data & loading states
   const [items, setItems] = useState<BrowseItem[]>([]);
@@ -84,8 +123,12 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
   const [error, setError] = useState<string | null>(null);
 
   // Download states: bookId -> 'downloading' | 'downloaded' | 'error'
-  const [downloadStates, setDownloadStates] = useState<Record<string, 'downloading' | 'downloaded' | 'error'>>({});
-  const [downloadedPaths, setDownloadedPaths] = useState<Record<string, string>>({});
+  const [downloadStates, setDownloadStates] = useState<
+    Record<string, "downloading" | "downloaded" | "error">
+  >({});
+  const [downloadedPaths, setDownloadedPaths] = useState<
+    Record<string, string>
+  >({});
 
   const seriesMapRef = React.useRef<Map<string, any> | null>(null);
 
@@ -100,7 +143,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
       seriesMapRef.current = map;
       return map;
     } catch (err) {
-      console.warn('Failed to load series list:', err);
+      console.warn("Failed to load series list:", err);
       return new Map();
     }
   }, []);
@@ -108,7 +151,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
   const resolveBookSeriesPath = useCallback(
     async (
       bookId: string,
-      activeBreadcrumb: Array<{ id: string; name: string }>
+      activeBreadcrumb: Array<{ id: string; name: string }>,
     ): Promise<string | undefined> => {
       if (settings.createSeriesFolder === false) {
         return undefined;
@@ -122,9 +165,13 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
           getSeriesMap(),
         ]);
 
-        if (!bookDetail || !bookDetail.series || bookDetail.series.length === 0) {
+        if (
+          !bookDetail ||
+          !bookDetail.series ||
+          bookDetail.series.length === 0
+        ) {
           return currentBreadcrumbNames.length > 0
-            ? currentBreadcrumbNames.join('/')
+            ? currentBreadcrumbNames.join("/")
             : undefined;
         }
 
@@ -164,7 +211,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
 
         if (candidatePaths.length === 0) {
           return currentBreadcrumbNames.length > 0
-            ? currentBreadcrumbNames.join('/')
+            ? currentBreadcrumbNames.join("/")
             : undefined;
         }
 
@@ -173,26 +220,27 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
           const activeName = activeBreadcrumb[activeBreadcrumb.length - 1].name;
           const matching = candidatePaths.find((p) => p.includes(activeName));
           if (matching) {
-            return matching.join('/');
+            return matching.join("/");
           }
         }
 
         // Otherwise pick the longest / most specific hierarchy path
         candidatePaths.sort((a, b) => b.length - a.length);
-        return candidatePaths[0].join('/');
+        return candidatePaths[0].join("/");
       } catch (e) {
-        console.warn('Failed to resolve book series path:', e);
+        console.warn("Failed to resolve book series path:", e);
         return currentBreadcrumbNames.length > 0
-          ? currentBreadcrumbNames.join('/')
+          ? currentBreadcrumbNames.join("/")
           : undefined;
       }
     },
-    [settings.createSeriesFolder, getSeriesMap]
+    [settings.createSeriesFolder, getSeriesMap],
   );
 
-  const currentSeriesId = currentSeriesPath.length > 0
-    ? currentSeriesPath[currentSeriesPath.length - 1].id
-    : undefined;
+  const currentSeriesId =
+    currentSeriesPath.length > 0
+      ? currentSeriesPath[currentSeriesPath.length - 1].id
+      : undefined;
 
   // Fetch browse items
   const fetchBrowseItems = useCallback(async () => {
@@ -214,20 +262,25 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
 
       // Check which books are already downloaded locally
       if (settings.downloadPath && res.items) {
-        const bookItems = res.items.filter((i) => i.type === 'book');
+        const bookItems = res.items.filter((i) => i.type === "book");
         const newPaths: Record<string, string> = {};
-        const newStates: Record<string, 'downloading' | 'downloaded' | 'error'> = {};
+        const newStates: Record<
+          string,
+          "downloading" | "downloaded" | "error"
+        > = {};
         for (const book of bookItems) {
-          const seriesPath = currentSeriesPath.map((s) => s.name).join('/') || undefined;
+          const seriesPath =
+            currentSeriesPath.map((s) => s.name).join("/") || undefined;
           const fileName = `${book.name}.epub`;
           const existingPath = await fileManager.checkBookDownloaded({
             baseDir: settings.downloadPath,
             fileName,
-            seriesName: settings.createSeriesFolder !== false ? seriesPath : undefined,
+            seriesName:
+              settings.createSeriesFolder !== false ? seriesPath : undefined,
           });
           if (existingPath) {
             newPaths[book.id] = existingPath;
-            newStates[book.id] = 'downloaded';
+            newStates[book.id] = "downloaded";
           }
         }
         if (Object.keys(newPaths).length > 0) {
@@ -236,12 +289,21 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
         }
       }
     } catch (err: any) {
-      console.error('Failed to browse library:', err);
-      setError(err?.message || 'Failed to load catalog from server');
+      console.error("Failed to browse library:", err);
+      setError(err?.message || "Failed to load catalog from server");
     } finally {
       setIsLoading(false);
     }
-  }, [currentSeriesId, currentSeriesPath, search, searchBy, sortBy, page, settings.downloadPath, settings.createSeriesFolder]);
+  }, [
+    currentSeriesId,
+    currentSeriesPath,
+    search,
+    searchBy,
+    sortBy,
+    page,
+    settings.downloadPath,
+    settings.createSeriesFolder,
+  ]);
 
   useEffect(() => {
     fetchBrowseItems();
@@ -252,11 +314,11 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
     const handleOnline = () => {
       fetchBrowseItems();
     };
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('folio:connection-restored', handleOnline);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("folio:connection-restored", handleOnline);
     return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('folio:connection-restored', handleOnline);
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("folio:connection-restored", handleOnline);
     };
   }, [fetchBrowseItems]);
 
@@ -290,8 +352,8 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
   const handleSearchInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setSearchInput(val);
-    if (val.trim() === '' && search !== '') {
-      setSearch('');
+    if (val.trim() === "" && search !== "") {
+      setSearch("");
       setPage(1);
     }
   };
@@ -299,18 +361,21 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
   // Download book handler
   const handleDownloadBook = async (book: BrowseItem) => {
     if (!settings.downloadPath) {
-      alert('Please configure a download folder in Settings first');
+      alert(t("browse.needDownloadFolderAlert"));
       return;
     }
 
-    setDownloadStates((prev) => ({ ...prev, [book.id]: 'downloading' }));
+    setDownloadStates((prev) => ({ ...prev, [book.id]: "downloading" }));
     try {
       const serverUrl = getServerUrl();
       if (!serverUrl) {
-        throw new Error('Server URL is not configured');
+        throw new Error(t("browse.serverNotConfiguredAlert"));
       }
       const token = getAccessToken() || undefined;
-      const seriesPath = await resolveBookSeriesPath(book.id, currentSeriesPath);
+      const seriesPath = await resolveBookSeriesPath(
+        book.id,
+        currentSeriesPath,
+      );
       const fileName = `${book.name}.epub`;
 
       const savedPath = await fileManager.downloadBookFile({
@@ -323,38 +388,68 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
       });
 
       setDownloadedPaths((prev) => ({ ...prev, [book.id]: savedPath }));
-      setDownloadStates((prev) => ({ ...prev, [book.id]: 'downloaded' }));
+      setDownloadStates((prev) => ({ ...prev, [book.id]: "downloaded" }));
       onBookDownloaded?.();
     } catch (err: any) {
-      console.error('Download error:', err);
-      setDownloadStates((prev) => ({ ...prev, [book.id]: 'error' }));
-      alert(`Failed to download book: ${err?.message || err}`);
+      console.error("Download error:", err);
+      setDownloadStates((prev) => ({ ...prev, [book.id]: "error" }));
+      alert(t("browse.downloadFailedAlert", { error: err?.message || err }));
     }
   };
 
   const totalPages = Math.ceil(totalItems / limit) || 1;
 
   return (
-    <div className="library-view-container" style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden' }}>
+    <div
+      className="library-view-container"
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        minHeight: 0,
+        overflow: "hidden",
+      }}
+    >
       {/* Header */}
       <header className="library-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            minWidth: 0,
+            flex: 1,
+          }}
+        >
           <button
             type="button"
             className="header-pill-btn"
             onClick={onBackToLocalLibrary}
-            style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              flexShrink: 0,
+            }}
           >
             <ArrowLeft size={16} />
-            <span>My Books</span>
+            <span>{t("browse.myBooks")}</span>
           </button>
 
           <div className="library-brand" style={{ minWidth: 0 }}>
             <div>
-              <h1 className="library-title" style={{ fontSize: 16, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                Folio Catalog
+              <h1
+                className="library-title"
+                style={{
+                  fontSize: 16,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {t("browse.title")}
               </h1>
-              <p className="library-subtitle">Online Library</p>
+              <p className="library-subtitle">{t("browse.subtitle")}</p>
             </div>
           </div>
         </div>
@@ -363,28 +458,30 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
           type="button"
           className="header-icon-btn"
           onClick={fetchBrowseItems}
-          title="Refresh"
+          title={t("common.refresh")}
           style={{ flexShrink: 0 }}
         >
-          <RefreshCw size={17} className={isLoading ? 'animate-spin' : ''} />
+          <RefreshCw size={17} className={isLoading ? "animate-spin" : ""} />
         </button>
       </header>
 
       {/* Main Content Area */}
-      <main className="library-main-content" style={{ flex: '1 1 0%', minHeight: 0, overflowY: 'auto' }}>
-        
+      <main
+        className="library-main-content"
+        style={{ flex: "1 1 0%", minHeight: 0, overflowY: "auto" }}
+      >
         {/* Navigation Breadcrumb & Toolbar */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {/* Breadcrumb Navigation */}
           <nav
             style={{
-              display: 'flex',
-              alignItems: 'center',
+              display: "flex",
+              alignItems: "center",
               gap: 6,
               fontSize: 13,
-              color: 'var(--text-secondary)',
-              overflowX: 'auto',
-              whiteSpace: 'nowrap',
+              color: "var(--text-secondary)",
+              overflowX: "auto",
+              whiteSpace: "nowrap",
               paddingBottom: 2,
             }}
           >
@@ -392,35 +489,43 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
               type="button"
               onClick={() => handleNavigateToBreadcrumb(-1)}
               style={{
-                display: 'inline-flex',
-                alignItems: 'center',
+                display: "inline-flex",
+                alignItems: "center",
                 gap: 4,
-                color: currentSeriesPath.length === 0 ? 'var(--accent-color)' : 'var(--text-secondary)',
+                color:
+                  currentSeriesPath.length === 0
+                    ? "var(--accent-color)"
+                    : "var(--text-secondary)",
                 fontWeight: currentSeriesPath.length === 0 ? 700 : 500,
-                cursor: 'pointer',
+                cursor: "pointer",
                 flexShrink: 0,
               }}
             >
               <Home size={15} />
-              <span>Main Catalog</span>
+              <span>{t("browse.mainCatalog")}</span>
             </button>
 
             {currentSeriesPath.map((folder, idx) => {
               const isLast = idx === currentSeriesPath.length - 1;
               return (
                 <React.Fragment key={folder.id}>
-                  <ChevronRight size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+                  <ChevronRight
+                    size={14}
+                    style={{ color: "var(--text-muted)", flexShrink: 0 }}
+                  />
                   <button
                     type="button"
                     onClick={() => handleNavigateToBreadcrumb(idx)}
                     style={{
-                      color: isLast ? 'var(--accent-color)' : 'var(--text-secondary)',
+                      color: isLast
+                        ? "var(--accent-color)"
+                        : "var(--text-secondary)",
                       fontWeight: isLast ? 700 : 500,
-                      cursor: 'pointer',
+                      cursor: "pointer",
                       maxWidth: 160,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
                       flexShrink: 0,
                     }}
                     title={folder.name}
@@ -433,24 +538,35 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
           </nav>
 
           {/* Search & Filters */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              alignItems: "center",
+              gap: 8,
+            }}
+          >
             {/* Search input */}
-            <form onSubmit={handleSearchSubmit} style={{ flex: '1 1 200px', minWidth: 160, position: 'relative' }} autoComplete="off">
+            <form
+              onSubmit={handleSearchSubmit}
+              style={{ flex: "1 1 200px", minWidth: 160, position: "relative" }}
+              autoComplete="off"
+            >
               <Search
                 size={16}
                 style={{
-                  position: 'absolute',
+                  position: "absolute",
                   left: 12,
-                  top: '50%',
-                  transform: 'translateY(-50%)',
-                  color: 'var(--text-muted)',
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  color: "var(--text-muted)",
                 }}
               />
               <input
                 type="text"
                 value={searchInput}
                 onChange={handleSearchInputChange}
-                placeholder="Search books or series..."
+                placeholder={t("browse.searchPlaceholder")}
                 className="auth-input"
                 style={{ paddingLeft: 36, height: 38, fontSize: 13 }}
                 autoComplete="off"
@@ -460,24 +576,27 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
               />
             </form>
 
-            <div style={{ display: 'flex', gap: 8, flex: '1 1 auto' }}>
+            <div style={{ display: "flex", gap: 8, flex: "1 1 auto" }}>
               {/* Filter Scope */}
               <div
                 style={{
                   flex: 1,
-                  display: 'flex',
-                  alignItems: 'center',
+                  display: "flex",
+                  alignItems: "center",
                   gap: 6,
-                  padding: '0 10px',
+                  padding: "0 10px",
                   height: 38,
-                  backgroundColor: 'var(--bg-card)',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: "var(--bg-card)",
+                  border: "1px solid var(--border-color)",
+                  borderRadius: "var(--radius-md)",
                   fontSize: 12,
                   minWidth: 100,
                 }}
               >
-                <Filter size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+                <Filter
+                  size={14}
+                  style={{ color: "var(--text-muted)", flexShrink: 0 }}
+                />
                 <select
                   value={searchBy}
                   onChange={(e) => {
@@ -485,19 +604,19 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                     setPage(1);
                   }}
                   style={{
-                    background: 'none',
-                    border: 'none',
-                    outline: 'none',
-                    color: 'var(--text-primary)',
+                    background: "none",
+                    border: "none",
+                    outline: "none",
+                    color: "var(--text-primary)",
                     fontSize: 12,
-                    cursor: 'pointer',
-                    width: '100%',
+                    cursor: "pointer",
+                    width: "100%",
                   }}
                 >
-                  <option value="all">All Fields</option>
-                  <option value="title">By Title</option>
-                  <option value="author">By Author</option>
-                  <option value="series">By Series</option>
+                  <option value="all">{t("browse.allFields")}</option>
+                  <option value="title">{t("browse.byTitle")}</option>
+                  <option value="author">{t("browse.byAuthor")}</option>
+                  <option value="series">{t("browse.bySeries")}</option>
                 </select>
               </div>
 
@@ -505,19 +624,22 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
               <div
                 style={{
                   flex: 1,
-                  display: 'flex',
-                  alignItems: 'center',
+                  display: "flex",
+                  alignItems: "center",
                   gap: 6,
-                  padding: '0 10px',
+                  padding: "0 10px",
                   height: 38,
-                  backgroundColor: 'var(--bg-card)',
-                  border: '1px solid var(--border-color)',
-                  borderRadius: 'var(--radius-md)',
+                  backgroundColor: "var(--bg-card)",
+                  border: "1px solid var(--border-color)",
+                  borderRadius: "var(--radius-md)",
                   fontSize: 12,
                   minWidth: 100,
                 }}
               >
-                <ArrowUpDown size={14} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+                <ArrowUpDown
+                  size={14}
+                  style={{ color: "var(--text-muted)", flexShrink: 0 }}
+                />
                 <select
                   value={sortBy}
                   onChange={(e) => {
@@ -525,18 +647,18 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                     setPage(1);
                   }}
                   style={{
-                    background: 'none',
-                    border: 'none',
-                    outline: 'none',
-                    color: 'var(--text-primary)',
+                    background: "none",
+                    border: "none",
+                    outline: "none",
+                    color: "var(--text-primary)",
                     fontSize: 12,
-                    cursor: 'pointer',
-                    width: '100%',
+                    cursor: "pointer",
+                    width: "100%",
                   }}
                 >
-                  <option value="name">By Name</option>
-                  <option value="recent">Newest First</option>
-                  <option value="sortOrder">By Series Order</option>
+                  <option value="name">{t("browse.byName")}</option>
+                  <option value="recent">{t("browse.newestFirst")}</option>
+                  <option value="sortOrder">{t("browse.bySeriesOrder")}</option>
                 </select>
               </div>
 
@@ -544,19 +666,19 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
               <div className="view-mode-toggle-group">
                 <button
                   type="button"
-                  className={`view-mode-btn ${viewMode === 'grid' ? 'active' : ''}`}
-                  onClick={() => handleToggleViewMode('grid')}
-                  title="Grid View"
-                  aria-label="Grid View"
+                  className={`view-mode-btn ${viewMode === "grid" ? "active" : ""}`}
+                  onClick={() => handleToggleViewMode("grid")}
+                  title={t("settings.viewGrid")}
+                  aria-label={t("settings.viewGrid")}
                 >
                   <LayoutGrid size={16} />
                 </button>
                 <button
                   type="button"
-                  className={`view-mode-btn ${viewMode === 'list' ? 'active' : ''}`}
-                  onClick={() => handleToggleViewMode('list')}
-                  title="List View"
-                  aria-label="List View"
+                  className={`view-mode-btn ${viewMode === "list" ? "active" : ""}`}
+                  onClick={() => handleToggleViewMode("list")}
+                  title={t("settings.viewList")}
+                  aria-label={t("settings.viewList")}
                 >
                   <ListIcon size={16} />
                 </button>
@@ -567,33 +689,94 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
 
         {/* Content list / grid */}
         {isLoading ? (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '60px 0', gap: 12 }}>
-            <Loader2 size={32} className="animate-spin" style={{ color: 'var(--accent-color)' }} />
-            <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>Loading catalog from server...</p>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "60px 0",
+              gap: 12,
+            }}
+          >
+            <Loader2
+              size={32}
+              className="animate-spin"
+              style={{ color: "var(--accent-color)" }}
+            />
+            <p style={{ fontSize: 13, color: "var(--text-muted)" }}>
+              {t("browse.loadingCatalog")}
+            </p>
           </div>
         ) : isOffline || (error && isNetworkError(error)) ? (
-          <div className="library-empty-box" style={{ borderColor: 'rgba(234, 179, 8, 0.4)', padding: '36px 20px' }}>
-            <WifiOff size={36} style={{ color: '#eab308', marginBottom: 8 }} />
-            <p style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: 15, marginBottom: 4 }}>
-              Offline Mode
+          <div
+            className="library-empty-box"
+            style={{
+              borderColor: "rgba(234, 179, 8, 0.4)",
+              padding: "36px 20px",
+            }}
+          >
+            <WifiOff size={36} style={{ color: "#eab308", marginBottom: 8 }} />
+            <p
+              style={{
+                color: "var(--text-primary)",
+                fontWeight: 600,
+                fontSize: 15,
+                marginBottom: 4,
+              }}
+            >
+              {t("browse.offlineTitle")}
             </p>
-            <p style={{ color: 'var(--text-secondary)', fontSize: 13, maxWidth: 380, margin: '0 auto 16px', lineHeight: 1.5 }}>
-              The online catalog is unavailable without an internet connection. You can read all downloaded books in your library.
+            <p
+              style={{
+                color: "var(--text-secondary)",
+                fontSize: 13,
+                maxWidth: 380,
+                margin: "0 auto 16px",
+                lineHeight: 1.5,
+              }}
+            >
+              {t("browse.offlineDesc")}
             </p>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
-              <button type="button" className="auth-btn-secondary" onClick={onBackToLocalLibrary}>
-                Back to My Library
+            <div
+              style={{
+                display: "flex",
+                gap: 10,
+                justifyContent: "center",
+                flexWrap: "wrap",
+              }}
+            >
+              <button
+                type="button"
+                className="auth-btn-secondary"
+                onClick={onBackToLocalLibrary}
+              >
+                {t("browse.backToLibrary")}
               </button>
-              <button type="button" className="auth-btn-primary" onClick={handleTryAgain}>
-                Try Again
+              <button
+                type="button"
+                className="auth-btn-primary"
+                onClick={handleTryAgain}
+              >
+                {t("browse.tryAgain")}
               </button>
             </div>
           </div>
         ) : error ? (
-          <div className="library-empty-box" style={{ borderColor: 'var(--danger-color)' }}>
-            <p style={{ color: 'var(--danger-color)', fontWeight: 600 }}>{error}</p>
-            <button type="button" className="auth-btn-primary" onClick={handleTryAgain} style={{ marginTop: 8 }}>
-              Try Again
+          <div
+            className="library-empty-box"
+            style={{ borderColor: "var(--danger-color)" }}
+          >
+            <p style={{ color: "var(--danger-color)", fontWeight: 600 }}>
+              {error}
+            </p>
+            <button
+              type="button"
+              className="auth-btn-primary"
+              onClick={handleTryAgain}
+              style={{ marginTop: 8 }}
+            >
+              {t("browse.tryAgain")}
             </button>
           </div>
         ) : items.length === 0 ? (
@@ -601,34 +784,35 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
             <Sparkles size={32} className="empty-box-icon" />
             <p>
               {search
-                ? 'No items found matching your query.'
+                ? t("browse.noItemsQuery")
                 : currentSeriesPath.length > 0
-                ? 'No books in this series yet.'
-                : 'Catalog on server is empty.'}
+                  ? t("browse.noBooksSeries")
+                  : t("browse.catalogEmpty")}
             </p>
           </div>
-        ) : viewMode === 'grid' ? (
+        ) : viewMode === "grid" ? (
           <div className="books-grid" style={{ marginTop: 8 }}>
             {items.map((item) => {
-              if (item.type === 'series') {
+              if (item.type === "series") {
                 return (
                   <div
                     key={item.id}
                     className="book-card"
                     onClick={() => handleOpenFolder(item)}
                     style={{
-                      borderColor: 'rgba(168, 85, 247, 0.3)',
-                      background: 'linear-gradient(to bottom right, rgba(168, 85, 247, 0.05), transparent)',
+                      borderColor: "rgba(168, 85, 247, 0.3)",
+                      background:
+                        "linear-gradient(to bottom right, rgba(168, 85, 247, 0.05), transparent)",
                     }}
                   >
                     <div
                       className="book-card-cover-wrap"
                       style={{
-                        backgroundColor: 'rgba(168, 85, 247, 0.1)',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        alignItems: 'center',
-                        justifyContent: 'center',
+                        backgroundColor: "rgba(168, 85, 247, 0.1)",
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        justifyContent: "center",
                         gap: 8,
                       }}
                     >
@@ -636,12 +820,12 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                         style={{
                           width: 56,
                           height: 56,
-                          borderRadius: 'var(--radius-lg)',
-                          backgroundColor: 'rgba(168, 85, 247, 0.2)',
-                          color: '#a855f7',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
+                          borderRadius: "var(--radius-lg)",
+                          backgroundColor: "rgba(168, 85, 247, 0.2)",
+                          color: "#a855f7",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
                         }}
                       >
                         <Folder size={28} />
@@ -650,12 +834,12 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                         style={{
                           fontSize: 10,
                           fontWeight: 700,
-                          color: '#a855f7',
-                          letterSpacing: '0.05em',
-                          textTransform: 'uppercase',
+                          color: "#a855f7",
+                          letterSpacing: "0.05em",
+                          textTransform: "uppercase",
                         }}
                       >
-                        Book Series
+                        {t("browse.bookSeries")}
                       </span>
                     </div>
 
@@ -663,8 +847,16 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                       <h4 className="book-card-title" title={item.name}>
                         {item.name}
                       </h4>
-                      <p className="book-card-author" style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#a855f7' }}>
-                        <span>Open folder</span>
+                      <p
+                        className="book-card-author"
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 4,
+                          color: "#a855f7",
+                        }}
+                      >
+                        <span>{t("browse.openFolder")}</span>
                         <ChevronRight size={12} />
                       </p>
                     </div>
@@ -674,8 +866,10 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
 
               // Book Item Card
               const downloadStatus = downloadStates[item.id];
-              const isDownloaded = downloadStatus === 'downloaded' || Boolean(downloadedPaths[item.id]);
-              const isDownloading = downloadStatus === 'downloading';
+              const isDownloaded =
+                downloadStatus === "downloaded" ||
+                Boolean(downloadedPaths[item.id]);
+              const isDownloading = downloadStatus === "downloading";
               const coverUrl = libraryApi.getBookCoverUrl(item.id);
               const progressPct = item.progress?.progressPercent ?? 0;
 
@@ -694,71 +888,72 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                       className="book-card-cover"
                       loading="lazy"
                       onError={(e) => {
-                        (e.target as HTMLElement).style.display = 'none';
+                        (e.target as HTMLElement).style.display = "none";
                       }}
                     />
 
                     {/* Badges and Progress */}
-                    {item.sortOrder !== undefined && item.sortOrder !== null && (
-                      <span
-                        style={{
-                          position: 'absolute',
-                          top: 6,
-                          left: 6,
-                          backgroundColor: 'rgba(0, 0, 0, 0.75)',
-                          color: '#c084fc',
-                          fontSize: 11,
-                          fontWeight: 700,
-                          fontFamily: 'monospace',
-                          padding: '2px 6px',
-                          borderRadius: 6,
-                          zIndex: 5,
-                        }}
-                      >
-                        #{item.sortOrder}
-                      </span>
-                    )}
+                    {item.sortOrder !== undefined &&
+                      item.sortOrder !== null && (
+                        <span
+                          style={{
+                            position: "absolute",
+                            top: 6,
+                            left: 6,
+                            backgroundColor: "rgba(0, 0, 0, 0.75)",
+                            color: "#c084fc",
+                            fontSize: 11,
+                            fontWeight: 700,
+                            fontFamily: "monospace",
+                            padding: "2px 6px",
+                            borderRadius: 6,
+                            zIndex: 5,
+                          }}
+                        >
+                          #{item.sortOrder}
+                        </span>
+                      )}
 
                     {isDownloaded && (
                       <span
                         style={{
-                          position: 'absolute',
+                          position: "absolute",
                           top: 6,
                           right: 6,
-                          backgroundColor: '#22c55e',
-                          color: '#ffffff',
+                          backgroundColor: "#22c55e",
+                          color: "#ffffff",
                           fontSize: 10,
                           fontWeight: 700,
-                          padding: '2px 6px',
+                          padding: "2px 6px",
                           borderRadius: 6,
                           zIndex: 5,
-                          display: 'flex',
-                          alignItems: 'center',
+                          display: "flex",
+                          alignItems: "center",
                           gap: 3,
                         }}
                       >
                         <Check size={11} />
-                        <span>Downloaded</span>
+                        <span>{t("browse.downloaded")}</span>
                       </span>
                     )}
 
                     {progressPct > 0 && (
                       <div
                         style={{
-                          position: 'absolute',
+                          position: "absolute",
                           bottom: 0,
                           left: 0,
                           right: 0,
                           height: 4,
-                          backgroundColor: 'rgba(0, 0, 0, 0.4)',
+                          backgroundColor: "rgba(0, 0, 0, 0.4)",
                           zIndex: 5,
                         }}
                       >
                         <div
                           style={{
-                            height: '100%',
+                            height: "100%",
                             width: `${Math.min(100, Math.max(3, progressPct))}%`,
-                            backgroundColor: 'var(--accent-color)',
+                            backgroundColor: "var(--accent-color)",
                           }}
                         />
                       </div>
@@ -770,21 +965,23 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                       {item.name}
                     </h4>
                     <p className="book-card-author" title={item.author}>
-                      {item.author || 'Unknown Author'}
+                      {item.author || t("common.unknownAuthor")}
                     </p>
 
-                    <div style={{ marginTop: 8, display: 'flex', gap: 6 }}>
-                      {isDownloaded && downloadedPaths[item.id] && onOpenBookFromPath ? (
+                    <div style={{ marginTop: 8, display: "flex", gap: 6 }}>
+                      {isDownloaded &&
+                      downloadedPaths[item.id] &&
+                      onOpenBookFromPath ? (
                         <button
                           type="button"
                           className="auth-btn-primary"
                           style={{
                             flex: 1,
-                            padding: '6px 10px',
+                            padding: "6px 10px",
                             fontSize: 12,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
                             gap: 4,
                           }}
                           onClick={() =>
@@ -792,24 +989,28 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                               downloadedPaths[item.id],
                               item.name,
                               item.author,
-                              item.id
+                              item.id,
                             )
                           }
                         >
                           <BookOpen size={13} />
-                          <span>Read</span>
+                          <span>{t("browse.read")}</span>
                         </button>
                       ) : (
                         <button
                           type="button"
-                          className={isDownloaded ? 'auth-btn-secondary' : 'auth-btn-primary'}
+                          className={
+                            isDownloaded
+                              ? "auth-btn-secondary"
+                              : "auth-btn-primary"
+                          }
                           style={{
                             flex: 1,
-                            padding: '6px 10px',
+                            padding: "6px 10px",
                             fontSize: 12,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
                             gap: 4,
                           }}
                           onClick={() => handleDownloadBook(item)}
@@ -818,17 +1019,20 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                           {isDownloading ? (
                             <>
                               <Loader2 size={13} className="animate-spin" />
-                              <span>Downloading...</span>
+                              <span>{t("browse.downloading")}</span>
                             </>
                           ) : isDownloaded ? (
                             <>
-                              <CheckCircle2 size={13} style={{ color: '#22c55e' }} />
-                              <span>Re-download</span>
+                              <CheckCircle2
+                                size={13}
+                                style={{ color: "#22c55e" }}
+                              />
+                              <span>{t("browse.download")}</span>
                             </>
                           ) : (
                             <>
                               <Download size={13} />
-                              <span>Download</span>
+                              <span>{t("browse.download")}</span>
                             </>
                           )}
                         </button>
@@ -842,7 +1046,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
         ) : (
           <div className="books-list" style={{ marginTop: 8 }}>
             {items.map((item) => {
-              if (item.type === 'series') {
+              if (item.type === "series") {
                 return (
                   <div
                     key={item.id}
@@ -854,12 +1058,12 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                         style={{
                           width: 44,
                           height: 44,
-                          borderRadius: 'var(--radius-md)',
-                          backgroundColor: 'rgba(168, 85, 247, 0.15)',
-                          color: '#a855f7',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
+                          borderRadius: "var(--radius-md)",
+                          backgroundColor: "rgba(168, 85, 247, 0.15)",
+                          color: "#a855f7",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
                         }}
                       >
                         <Folder size={22} />
@@ -874,21 +1078,28 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                         <span
                           className="folder-list-badge"
                           style={{
-                            backgroundColor: 'rgba(168, 85, 247, 0.15)',
-                            color: '#a855f7',
-                            border: '1px solid rgba(168, 85, 247, 0.25)',
+                            backgroundColor: "rgba(168, 85, 247, 0.15)",
+                            color: "#a855f7",
+                            border: "1px solid rgba(168, 85, 247, 0.25)",
                           }}
                         >
-                          Series
+                          {t("browse.bookSeries")}
                         </span>
                       </div>
-                      <p className="folder-list-hint" style={{ color: '#a855f7' }}>
-                        Book series • Click to open folder
+                      <p
+                        className="folder-list-hint"
+                        style={{ color: "#a855f7" }}
+                      >
+                        {t("library.collectionFolderHint")}
                       </p>
                     </div>
 
                     <div className="folder-list-right">
-                      <ChevronRight size={18} className="folder-list-arrow" style={{ color: '#a855f7' }} />
+                      <ChevronRight
+                        size={18}
+                        className="folder-list-arrow"
+                        style={{ color: "#a855f7" }}
+                      />
                     </div>
                   </div>
                 );
@@ -896,26 +1107,51 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
 
               // Book Item in List View
               const downloadStatus = downloadStates[item.id];
-              const isDownloaded = downloadStatus === 'downloaded' || Boolean(downloadedPaths[item.id]);
-              const isDownloading = downloadStatus === 'downloading';
+              const isDownloaded =
+                downloadStatus === "downloaded" ||
+                Boolean(downloadedPaths[item.id]);
+              const isDownloading = downloadStatus === "downloading";
               const coverUrl = libraryApi.getBookCoverUrl(item.id);
               const progressPct = item.progress?.progressPercent ?? 0;
               const isRead = Boolean(item.progress?.isRead);
-              const readingStatus = isRead ? 'Completed' : progressPct > 0 ? `${Math.round(progressPct)}%` : 'Unread';
+              const readingStatus = isRead
+                ? t("common.completed")
+                : progressPct > 0
+                  ? `${Math.round(progressPct)}%`
+                  : t("common.notStarted");
 
               return (
                 <div
                   key={item.id}
                   className="book-list-item"
-                  style={{ cursor: isDownloaded && downloadedPaths[item.id] && onOpenBookFromPath ? 'pointer' : 'default' }}
+                  style={{
+                    cursor:
+                      isDownloaded &&
+                      downloadedPaths[item.id] &&
+                      onOpenBookFromPath
+                        ? "pointer"
+                        : "default",
+                  }}
                   onClick={() => {
-                    if (isDownloaded && downloadedPaths[item.id] && onOpenBookFromPath) {
-                      onOpenBookFromPath(downloadedPaths[item.id], item.name, item.author, item.id);
+                    if (
+                      isDownloaded &&
+                      downloadedPaths[item.id] &&
+                      onOpenBookFromPath
+                    ) {
+                      onOpenBookFromPath(
+                        downloadedPaths[item.id],
+                        item.name,
+                        item.author,
+                        item.id,
+                      );
                     }
                   }}
                 >
                   {/* Cover thumbnail */}
-                  <div className="book-list-thumbnail-wrap" style={{ position: 'relative' }}>
+                  <div
+                    className="book-list-thumbnail-wrap"
+                    style={{ position: "relative" }}
+                  >
                     <div className="book-list-thumbnail-placeholder">
                       <BookOpen size={20} />
                     </div>
@@ -925,52 +1161,84 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                       className="book-list-thumbnail"
                       loading="lazy"
                       onError={(e) => {
-                        (e.target as HTMLElement).style.display = 'none';
+                        (e.target as HTMLElement).style.display = "none";
                       }}
-                      style={{ position: 'absolute', inset: 0 }}
+                      style={{ position: "absolute", inset: 0 }}
                     />
                   </div>
 
                   {/* Book Info */}
                   <div className="book-list-details">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                        flexWrap: "wrap",
+                      }}
+                    >
                       <h4 className="book-list-title" title={item.name}>
                         {item.name}
                       </h4>
-                      {item.sortOrder !== undefined && item.sortOrder !== null && (
-                        <span
-                          style={{
-                            backgroundColor: 'rgba(168, 85, 247, 0.15)',
-                            color: '#c084fc',
-                            fontSize: 10,
-                            fontWeight: 700,
-                            fontFamily: 'monospace',
-                            padding: '1px 5px',
-                            borderRadius: 4,
-                          }}
-                        >
-                          #{item.sortOrder}
-                        </span>
-                      )}
+                      {item.sortOrder !== undefined &&
+                        item.sortOrder !== null && (
+                          <span
+                            style={{
+                              backgroundColor: "rgba(168, 85, 247, 0.15)",
+                              color: "#c084fc",
+                              fontSize: 10,
+                              fontWeight: 700,
+                              fontFamily: "monospace",
+                              padding: "1px 5px",
+                              borderRadius: 4,
+                            }}
+                          >
+                            #{item.sortOrder}
+                          </span>
+                        )}
                     </div>
 
                     <p className="book-list-author" title={item.author}>
-                      {item.author || 'Unknown Author'}
+                      {item.author || t("common.unknownAuthor")}
                     </p>
 
                     {progressPct > 0 && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2, maxWidth: 160 }}>
-                        <div style={{ flex: 1, height: 4, backgroundColor: 'var(--bg-tertiary)', borderRadius: 2, overflow: 'hidden' }}>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                          marginTop: 2,
+                          maxWidth: 160,
+                        }}
+                      >
+                        <div
+                          style={{
+                            flex: 1,
+                            height: 4,
+                            backgroundColor: "var(--bg-tertiary)",
+                            borderRadius: 2,
+                            overflow: "hidden",
+                          }}
+                        >
                           <div
                             style={{
-                              height: '100%',
+                              height: "100%",
                               width: `${Math.min(100, Math.max(5, progressPct))}%`,
-                              backgroundColor: isRead ? '#22c55e' : 'var(--accent-color)',
+                              backgroundColor: isRead
+                                ? "#22c55e"
+                                : "var(--accent-color)",
                               borderRadius: 2,
                             }}
                           />
                         </div>
-                        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)' }}>
+                        <span
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 600,
+                            color: "var(--text-secondary)",
+                          }}
+                        >
                           {Math.round(progressPct)}%
                         </span>
                       </div>
@@ -982,16 +1250,16 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                     {isDownloaded ? (
                       <span
                         style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
+                          display: "inline-flex",
+                          alignItems: "center",
                           gap: 3,
-                          color: '#22c55e',
+                          color: "#22c55e",
                           fontSize: 11,
                           fontWeight: 600,
                         }}
                       >
                         <Check size={12} />
-                        <span>Downloaded</span>
+                        <span>{t("browse.downloaded")}</span>
                       </span>
                     ) : (
                       <span className="book-list-status">{readingStatus}</span>
@@ -999,42 +1267,51 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                   </div>
 
                   {/* Action button */}
-                  <div className="book-list-actions" onClick={(e) => e.stopPropagation()}>
-                    {isDownloaded && downloadedPaths[item.id] && onOpenBookFromPath ? (
+                  <div
+                    className="book-list-actions"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {isDownloaded &&
+                    downloadedPaths[item.id] &&
+                    onOpenBookFromPath ? (
                       <button
                         type="button"
                         className="auth-btn-primary"
                         style={{
-                          padding: '6px 12px',
+                          padding: "6px 12px",
                           fontSize: 12,
-                          display: 'inline-flex',
-                          alignItems: 'center',
+                          display: "inline-flex",
+                          alignItems: "center",
                           gap: 4,
-                          whiteSpace: 'nowrap',
+                          whiteSpace: "nowrap",
                         }}
                         onClick={() =>
                           onOpenBookFromPath(
                             downloadedPaths[item.id],
                             item.name,
                             item.author,
-                            item.id
+                            item.id,
                           )
                         }
                       >
                         <BookOpen size={13} />
-                        <span>Read</span>
+                        <span>{t("browse.read")}</span>
                       </button>
                     ) : (
                       <button
                         type="button"
-                        className={isDownloaded ? 'auth-btn-secondary' : 'auth-btn-primary'}
+                        className={
+                          isDownloaded
+                            ? "auth-btn-secondary"
+                            : "auth-btn-primary"
+                        }
                         style={{
-                          padding: '6px 12px',
+                          padding: "6px 12px",
                           fontSize: 12,
-                          display: 'inline-flex',
-                          alignItems: 'center',
+                          display: "inline-flex",
+                          alignItems: "center",
                           gap: 4,
-                          whiteSpace: 'nowrap',
+                          whiteSpace: "nowrap",
                         }}
                         onClick={() => handleDownloadBook(item)}
                         disabled={isDownloading}
@@ -1042,17 +1319,20 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                         {isDownloading ? (
                           <>
                             <Loader2 size={13} className="animate-spin" />
-                            <span>Downloading...</span>
+                            <span>{t("browse.downloading")}</span>
                           </>
                         ) : isDownloaded ? (
                           <>
-                            <CheckCircle2 size={13} style={{ color: '#22c55e' }} />
-                            <span>Re-download</span>
+                            <CheckCircle2
+                              size={13}
+                              style={{ color: "#22c55e" }}
+                            />
+                            <span>{t("browse.download")}</span>
                           </>
                         ) : (
                           <>
                             <Download size={13} />
-                            <span>Download</span>
+                            <span>{t("browse.download")}</span>
                           </>
                         )}
                       </button>
@@ -1068,36 +1348,37 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
         {totalPages > 1 && !isLoading && (
           <div
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '16px 0 24px 0',
-              borderTop: '1px solid var(--border-color)',
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "16px 0 24px 0",
+              borderTop: "1px solid var(--border-color)",
               marginTop: 20,
               flexShrink: 0,
             }}
           >
-            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-              Page {page} of {totalPages} ({totalItems} total)
+            <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+              {t("reader.pageLabel", { label: `${page} / ${totalPages}` })} (
+              {totalItems})
             </span>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: "flex", gap: 8 }}>
               <button
                 type="button"
                 className="auth-btn-secondary"
-                style={{ padding: '6px 12px', fontSize: 12 }}
+                style={{ padding: "6px 12px", fontSize: 12 }}
                 disabled={page <= 1}
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
               >
-                Previous
+                {t("common.prev")}
               </button>
               <button
                 type="button"
                 className="auth-btn-secondary"
-                style={{ padding: '6px 12px', fontSize: 12 }}
+                style={{ padding: "6px 12px", fontSize: 12 }}
                 disabled={page >= totalPages}
                 onClick={() => setPage((p) => p + 1)}
               >
-                Next
+                {t("common.next")}
               </button>
             </div>
           </div>

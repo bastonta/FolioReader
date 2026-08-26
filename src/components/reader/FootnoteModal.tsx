@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { X, ExternalLink } from 'lucide-react';
 import { FootnoteData } from '../../types/reader';
+import { useTranslation } from '../../i18n';
 
 interface FootnoteModalProps {
   footnote: FootnoteData | null;
@@ -13,6 +14,8 @@ export const FootnoteModal: React.FC<FootnoteModalProps> = ({
   onClose,
   onNavigate,
 }) => {
+  const { t } = useTranslation();
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
@@ -38,14 +41,14 @@ export const FootnoteModal: React.FC<FootnoteModalProps> = ({
       >
         <div className="footnote-modal-header">
           <h4 id="footnote-title" className="footnote-modal-title">
-            {footnote.title || 'Note'}
+            {footnote.title || t('reader.note')}
           </h4>
           <button
             type="button"
             className="footnote-close-btn"
             onClick={onClose}
-            title="Close (Esc)"
-            aria-label="Close"
+            title={t('common.close')}
+            aria-label={t('common.close')}
           >
             <X size={16} />
           </button>
@@ -62,7 +65,7 @@ export const FootnoteModal: React.FC<FootnoteModalProps> = ({
             className="footnote-btn footnote-btn-secondary"
             onClick={onClose}
           >
-            Close
+            {t('common.close')}
           </button>
           {footnote.href && (
             <button
@@ -72,10 +75,10 @@ export const FootnoteModal: React.FC<FootnoteModalProps> = ({
                 onClose();
                 onNavigate(footnote.href);
               }}
-              title="Jump to note section in book"
+              title={t('reader.goToNote')}
             >
               <ExternalLink size={14} style={{ marginRight: 6 }} />
-              Go to Note
+              {t('reader.goToNote')}
             </button>
           )}
         </div>
@@ -83,3 +86,4 @@ export const FootnoteModal: React.FC<FootnoteModalProps> = ({
     </div>
   );
 };
+

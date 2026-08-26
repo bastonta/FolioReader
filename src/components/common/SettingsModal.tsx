@@ -4,6 +4,7 @@ import { fileManager } from '../../services/fileManager';
 import { fontManager } from '../../services/fontManager';
 import { LoadedCustomFont } from '../../types/font';
 import { isMobileDevice } from '../../services/systemUi';
+import { useTranslation, Language } from '../../i18n';
 import {
   X,
   Folder,
@@ -24,6 +25,7 @@ import {
   Calendar,
   Volume2,
   Clock,
+  Globe,
 } from 'lucide-react';
 import { APP_VERSION, BUILD_TIME, formatBuildTime } from '../../constants/buildInfo';
 
@@ -41,6 +43,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   settings,
   onUpdateSettings,
 }) => {
+  const { t, setLanguage } = useTranslation();
   const [isPicking, setIsPicking] = useState(false);
   const [hasPermission, setHasPermission] = useState(true);
   const [customFonts, setCustomFonts] = useState<LoadedCustomFont[]>(() => fontManager.getCachedFonts());
@@ -90,12 +93,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   if (!isOpen) return null;
 
+  const languages: { id: Language; label: string }[] = [
+    { id: 'system', label: t('language.system') },
+    { id: 'ru', label: t('language.ru') },
+    { id: 'en', label: t('language.en') },
+  ];
+
   const themes: { id: ThemeName; label: string; bg: string; color: string; border: string }[] = [
-    { id: 'light', label: 'Light', bg: '#ffffff', color: '#2e3436', border: '#deddda' },
-    { id: 'sepia', label: 'Sepia', bg: '#fbf0d9', color: '#5f4b32', border: '#ebd5ab' },
-    { id: 'solarized', label: 'Solarized', bg: '#fdf6e3', color: '#657b83', border: '#eee8d5' },
-    { id: 'gray', label: 'Gray', bg: '#2e3440', color: '#eceff4', border: '#4c566a' },
-    { id: 'dark', label: 'Dark', bg: '#1e1e1e', color: '#dedede', border: '#444444' },
+    { id: 'light', label: t('theme.light'), bg: '#ffffff', color: '#2e3436', border: '#deddda' },
+    { id: 'sepia', label: t('theme.sepia'), bg: '#fbf0d9', color: '#5f4b32', border: '#ebd5ab' },
+    { id: 'solarized', label: t('theme.solarized'), bg: '#fdf6e3', color: '#657b83', border: '#eee8d5' },
+    { id: 'gray', label: t('theme.gray'), bg: '#2e3440', color: '#eceff4', border: '#4c566a' },
+    { id: 'dark', label: t('theme.dark'), bg: '#1e1e1e', color: '#dedede', border: '#444444' },
   ];
 
   const androidPresets = [
@@ -140,8 +149,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         <div className="modal-drag-handle" />
         <div className="modal-header">
           <div className="modal-header-title-row">
-            <span className="modal-title">App Settings</span>
-            <button className="modal-close-btn" onClick={onClose} aria-label="Close">
+            <span className="modal-title">{t('settings.title')}</span>
+            <button className="modal-close-btn" onClick={onClose} aria-label={t('common.close')}>
               <X size={18} />
             </button>
           </div>
@@ -149,8 +158,69 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         <div className="modal-body" style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
           
-          {/* Theme Settings */}
+          {/* Language Settings */}
           <div className="settings-block">
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontSize: 14,
+                fontWeight: 600,
+                color: 'var(--text-primary)',
+                marginBottom: 6,
+              }}
+            >
+              <Globe size={18} style={{ color: 'var(--accent-color)' }} />
+              <span>{t('language.title')}</span>
+            </label>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+              {t('language.desc')}
+            </p>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+                gap: 8,
+              }}
+            >
+              {languages.map((l) => {
+                const isActive = (settings.language || 'system') === l.id;
+                return (
+                  <button
+                    key={l.id}
+                    type="button"
+                    className={`theme-pill ${isActive ? 'active' : ''}`}
+                    style={{
+                      borderColor: isActive ? 'var(--accent-color)' : 'var(--border-color)',
+                      borderWidth: isActive ? 2 : 1,
+                      borderStyle: 'solid',
+                      padding: '0 12px',
+                      borderRadius: 'var(--radius-md)',
+                      fontSize: 13,
+                      fontWeight: isActive ? 700 : 500,
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      height: 42,
+                      gap: 8,
+                    }}
+                    onClick={() => {
+                      onUpdateSettings({ language: l.id });
+                      setLanguage(l.id);
+                    }}
+                  >
+                    <span>{l.label}</span>
+                    {isActive && <Check size={16} style={{ color: 'var(--accent-color)', flexShrink: 0 }} />}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Theme Settings */}
+          <div className="settings-block" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 16 }}>
             <label
               style={{
                 display: 'flex',
@@ -163,7 +233,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               }}
             >
               <Palette size={18} style={{ color: 'var(--accent-color)' }} />
-              <span>Theme</span>
+              <span>{t('theme.title')}</span>
             </label>
             <div
               style={{
@@ -172,17 +242,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 gap: 8,
               }}
             >
-              {themes.map((t) => {
-                const isActive = settings.theme === t.id;
+              {themes.map((tItem) => {
+                const isActive = settings.theme === tItem.id;
                 return (
                   <button
-                    key={t.id}
+                    key={tItem.id}
                     type="button"
                     className={`theme-pill ${isActive ? 'active' : ''}`}
                     style={{
-                      backgroundColor: t.bg,
-                      color: t.color,
-                      borderColor: isActive ? 'var(--accent-color)' : t.border,
+                      backgroundColor: tItem.bg,
+                      color: tItem.color,
+                      borderColor: isActive ? 'var(--accent-color)' : tItem.border,
                       borderWidth: isActive ? 2 : 1,
                       borderStyle: 'solid',
                       padding: '0 12px',
@@ -198,9 +268,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       boxSizing: 'border-box',
                       gap: 8,
                     }}
-                    onClick={() => onUpdateSettings({ theme: t.id })}
+                    onClick={() => onUpdateSettings({ theme: tItem.id })}
                   >
-                    <span>{t.label}</span>
+                    <span>{tItem.label}</span>
                     {isActive && <Check size={16} style={{ color: 'var(--accent-color)', flexShrink: 0 }} />}
                   </button>
                 );
@@ -225,10 +295,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <ShieldAlert size={20} style={{ color: '#eab308', flexShrink: 0, marginTop: 2 }} />
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: '#ca8a04' }}>
-                  Storage Access Required
+                  {t('common.storageRequired')}
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2, marginBottom: 8 }}>
-                  To download, save, and scan local books on Android, storage permission is required.
+                  {t('common.storageRequiredDesc')}
                 </div>
                 <button
                   type="button"
@@ -236,7 +306,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   style={{ padding: '6px 12px', fontSize: 12 }}
                   onClick={handleRequestPermission}
                 >
-                  Grant Permission
+                  {t('common.grantPermission')}
                 </button>
               </div>
             </div>
@@ -256,10 +326,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               }}
             >
               <Folder size={18} style={{ color: 'var(--accent-color)' }} />
-              <span>Download & Books Folder</span>
+              <span>{t('settings.downloadFolder')}</span>
             </label>
             <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
-              The app automatically scans all books in this folder and saves new downloads into it.
+              {t('settings.downloadFolderDesc')}
             </p>
 
             <div
@@ -281,7 +351,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             >
               <FolderOpen size={18} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
               <span style={{ flex: 1, wordBreak: 'break-all', overflowWrap: 'anywhere' }}>
-                {settings.downloadPath || 'No folder selected'}
+                {settings.downloadPath || t('settings.noFolderSelected')}
               </span>
             </div>
 
@@ -294,7 +364,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 disabled={isPicking}
               >
                 <FolderOpen size={15} />
-                <span>{isPicking ? 'Selecting...' : 'Select Folder'}</span>
+                <span>{isPicking ? t('common.selecting') : t('settings.selectFolder')}</span>
               </button>
 
               <button
@@ -304,7 +374,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 onClick={handleResetToDefault}
               >
                 <RotateCcw size={14} />
-                <span>Default</span>
+                <span>{t('common.default')}</span>
               </button>
             </div>
 
@@ -312,7 +382,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             {isMobile && (
               <div style={{ marginTop: 10 }}>
                 <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 6 }}>
-                  Quick Android Folder Presets:
+                  {t('settings.quickAndroidPresets')}
                 </span>
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   {androidPresets.map((preset) => (
@@ -369,10 +439,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
-                    Automatically Create Series Folders
+                    {t('settings.seriesFolderTitle')}
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2, lineHeight: 1.35 }}>
-                    Books belonging to a series will be saved inside a subfolder named after the series
+                    {t('settings.seriesFolderDesc')}
                   </div>
                 </div>
               </div>
@@ -386,7 +456,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 }}
                 role="switch"
                 aria-checked={settings.createSeriesFolder !== false}
-                aria-label="Toggle automatic series folders creation"
+                aria-label={t('settings.seriesFolderTitle')}
               >
                 <span className="toggle-thumb" />
               </button>
@@ -407,10 +477,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               }}
             >
               <LayoutGrid size={18} style={{ color: 'var(--accent-color)' }} />
-              <span>Library & Catalog View</span>
+              <span>{t('settings.libraryViewTitle')}</span>
             </label>
             <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
-              Choose how books and folders are displayed by default in your library and catalog.
+              {t('settings.libraryViewDesc')}
             </p>
 
             <div className="segmented-control" style={{ width: '100%', height: 38 }}>
@@ -424,7 +494,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 style={{ height: '100%', fontSize: 13, gap: 8 }}
               >
                 <LayoutGrid size={16} />
-                <span>Grid</span>
+                <span>{t('settings.viewGrid')}</span>
               </button>
               <button
                 type="button"
@@ -436,7 +506,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 style={{ height: '100%', fontSize: 13, gap: 8 }}
               >
                 <ListIcon size={16} />
-                <span>List</span>
+                <span>{t('settings.viewList')}</span>
               </button>
             </div>
           </div>
@@ -456,10 +526,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 }}
               >
                 <Smartphone size={18} style={{ color: 'var(--accent-color)' }} />
-                <span>Mobile Page Turn Gestures</span>
+                <span>{t('settings.mobileGesturesTitle')}</span>
               </label>
               <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
-                Choose how pages are turned on mobile devices. Tap uses 30% left to go back and 70% right to advance.
+                {t('settings.mobileGesturesDesc')}
               </p>
 
               <div className="segmented-control" style={{ width: '100%', height: 38 }}>
@@ -469,7 +539,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   onClick={() => onUpdateSettings({ pageTurnMethod: 'tap' })}
                   style={{ height: '100%', fontSize: 13 }}
                 >
-                  Tap
+                  {t('settings.gestureTap')}
                 </button>
                 <button
                   type="button"
@@ -477,7 +547,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   onClick={() => onUpdateSettings({ pageTurnMethod: 'swipe' })}
                   style={{ height: '100%', fontSize: 13 }}
                 >
-                  Swipe
+                  {t('settings.gestureSwipe')}
                 </button>
                 <button
                   type="button"
@@ -485,7 +555,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   onClick={() => onUpdateSettings({ pageTurnMethod: 'both' })}
                   style={{ height: '100%', fontSize: 13 }}
                 >
-                  Both
+                  {t('settings.gestureBoth')}
                 </button>
               </div>
             </div>
@@ -506,10 +576,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 }}
               >
                 <Volume2 size={18} style={{ color: 'var(--accent-color)' }} />
-                <span>Volume Buttons Navigation</span>
+                <span>{t('settings.volumeButtonsTitle')}</span>
               </label>
               <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
-                Use hardware volume buttons to turn pages forward and backward while reading.
+                {t('settings.volumeButtonsDesc')}
               </p>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -520,10 +590,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 >
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                     <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
-                      Turn Pages with Volume Buttons
+                      {t('settings.turnPagesWithVolume')}
                     </span>
                     <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                      {settings.volumeKeysInverted ? 'Volume Up: Next, Volume Down: Prev' : 'Volume Down: Next, Volume Up: Prev'}
+                      {settings.volumeKeysInverted ? t('settings.volumeKeysInvertedHint') : t('settings.volumeKeysNormalHint')}
                     </span>
                   </div>
                   <button
@@ -535,7 +605,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     }}
                     role="switch"
                     aria-checked={settings.volumeKeysPageTurn !== false}
-                    aria-label="Toggle Volume Buttons Navigation"
+                    aria-label={t('settings.turnPagesWithVolume')}
                   >
                     <span className="toggle-thumb" />
                   </button>
@@ -549,10 +619,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   >
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                       <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
-                        Invert Volume Buttons
+                        {t('settings.invertVolumeButtons')}
                       </span>
                       <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                        Swap buttons (Volume Up to advance, Volume Down to go back)
+                        {t('settings.invertVolumeHint')}
                       </span>
                     </div>
                     <button
@@ -564,7 +634,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       }}
                       role="switch"
                       aria-checked={Boolean(settings.volumeKeysInverted)}
-                      aria-label="Toggle Invert Volume Buttons"
+                      aria-label={t('settings.invertVolumeButtons')}
                     >
                       <span className="toggle-thumb" />
                     </button>
@@ -588,10 +658,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               }}
             >
               <Clock size={18} style={{ color: 'var(--accent-color)' }} />
-              <span>Screen Timeout & Sleep</span>
+              <span>{t('settings.screenTimeoutTitle')}</span>
             </label>
             <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
-              Keep the screen awake while reading or let it turn off automatically after inactivity.
+              {t('settings.screenTimeoutDesc')}
             </p>
 
             <select
@@ -600,13 +670,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               onChange={(e) => onUpdateSettings({ screenTimeout: e.target.value as ScreenTimeoutOption })}
               style={{ width: '100%', height: 38, fontSize: 13 }}
             >
-              <option value="system">System Default (Device settings)</option>
-              <option value="2">2 minutes of inactivity</option>
-              <option value="5">5 minutes of inactivity</option>
-              <option value="10">10 minutes of inactivity</option>
-              <option value="15">15 minutes of inactivity</option>
-              <option value="30">30 minutes of inactivity</option>
-              <option value="never">Never turn off (Always on while reading)</option>
+              <option value="system">{t('settings.screenTimeoutSystem')}</option>
+              <option value="2">{t('settings.screenTimeout2m')}</option>
+              <option value="5">{t('settings.screenTimeout5m')}</option>
+              <option value="10">{t('settings.screenTimeout10m')}</option>
+              <option value="15">{t('settings.screenTimeout15m')}</option>
+              <option value="30">{t('settings.screenTimeout30m')}</option>
+              <option value="never">{t('settings.screenTimeoutNever')}</option>
             </select>
           </div>
 
@@ -625,7 +695,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 }}
               >
                 <Type size={18} style={{ color: 'var(--accent-color)' }} />
-                <span>Custom Reader Fonts</span>
+                <span>{t('settings.customFontsTitle')}</span>
               </label>
               <div style={{ display: 'flex', gap: 6 }}>
                 {!isMobile && (
@@ -633,10 +703,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     type="button"
                     className="settings-font-folder-btn"
                     onClick={handleOpenFontsFolder}
-                    title="Open local fonts folder in file explorer"
+                    title={t('settings.openFontFolder')}
                   >
                     <FolderOpen size={13} />
-                    <span>Open Folder</span>
+                    <span>{t('settings.openFontFolder')}</span>
                   </button>
                 )}
                 <button
@@ -644,10 +714,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   className="settings-font-add-btn"
                   onClick={() => fontInputRef.current?.click()}
                   disabled={isUploadingFont}
-                  title="Add custom font (.ttf, .otf, .woff, .woff2)"
+                  title={t('settings.addFont')}
                 >
                   <Plus size={13} />
-                  <span>{isUploadingFont ? 'Adding...' : 'Add Font'}</span>
+                  <span>{isUploadingFont ? t('settings.addingFont') : t('settings.addFont')}</span>
                 </button>
               </div>
             </div>
@@ -662,7 +732,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             />
 
             <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
-              Add font files (.ttf, .otf, .woff, .woff2) to use in the reader. Fonts are stored permanently on your device.
+              {t('settings.customFontsDesc')}
             </p>
 
             {fontError && (
@@ -683,7 +753,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   fontSize: 12,
                 }}
               >
-                No custom fonts added yet. Click &quot;Add Font&quot; to load your favorite fonts.
+                {t('settings.noCustomFonts')}
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -748,7 +818,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       type="button"
                       className="btn-icon"
                       onClick={() => handleDeleteFont(font.fileName)}
-                      title={`Delete font ${font.name}`}
+                      title={t('settings.deleteFontConfirm', { name: font.name })}
                       style={{
                         padding: 6,
                         borderRadius: 'var(--radius-sm)',
@@ -781,7 +851,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               }}
             >
               <Info size={18} style={{ color: 'var(--accent-color)' }} />
-              <span>About Folio</span>
+              <span>{t('settings.aboutFolio')}</span>
             </label>
             <div
               style={{
@@ -796,7 +866,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Application Version</span>
+                <span style={{ color: 'var(--text-muted)' }}>{t('settings.appVersion')}</span>
                 <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'monospace' }}>
                   v{APP_VERSION}
                 </span>
@@ -804,16 +874,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
                   <Calendar size={13} />
-                  <span>Build Date</span>
+                  <span>{t('common.buildDate')}</span>
                 </span>
                 <span style={{ color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
                   {formatBuildTime(BUILD_TIME)}
                 </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Platform</span>
+                <span style={{ color: 'var(--text-muted)' }}>{t('common.platform')}</span>
                 <span style={{ color: 'var(--text-secondary)' }}>
-                  {isMobile ? 'Android (Mobile)' : 'Desktop'}
+                  {isMobile ? t('common.mobile') : t('common.desktop')}
                 </span>
               </div>
             </div>
@@ -837,7 +907,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <span>{formatBuildTime(BUILD_TIME)}</span>
           </div>
           <button type="button" className="auth-btn-primary" onClick={onClose} style={{ minWidth: 100 }}>
-            Done
+            {t('common.done')}
           </button>
         </div>
       </div>

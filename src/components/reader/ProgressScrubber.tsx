@@ -1,5 +1,6 @@
 import React from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { useTranslation } from '../../i18n';
 
 interface ProgressScrubberProps {
   fraction: number; // 0 to 1
@@ -22,6 +23,7 @@ export const ProgressScrubber: React.FC<ProgressScrubberProps> = ({
   onMouseEnter,
   onMouseLeave,
 }) => {
+  const { t } = useTranslation();
   const percent = Math.round(fraction * 100);
 
   return (
@@ -34,8 +36,8 @@ export const ProgressScrubber: React.FC<ProgressScrubberProps> = ({
         type="button"
         className="footer-nav-btn footer-nav-prev"
         onClick={onPrev}
-        title="Previous Page (Left Arrow)"
-        aria-label="Previous Page"
+        title={t('reader.prevPage')}
+        aria-label={t('reader.prevPage')}
       >
         <ChevronLeft size={18} />
       </button>
@@ -71,11 +73,12 @@ export const ProgressScrubber: React.FC<ProgressScrubberProps> = ({
         type="button"
         className="footer-nav-btn footer-nav-next"
         onClick={onNext}
-        title="Next Page (Right Arrow)"
-        aria-label="Next Page"
+        title={t('reader.nextPage')}
+        aria-label={t('reader.nextPage')}
       >
         <ChevronRight size={18} />
       </button>
     </footer>
   );
 };
+

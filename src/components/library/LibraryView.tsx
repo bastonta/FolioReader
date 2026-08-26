@@ -45,6 +45,7 @@ import {
   setBookReadStatus,
 } from '../../services/readerDb';
 import { useBackHandler } from '../../services/backHandler';
+import { useTranslation, formatPluralRussian } from '../../i18n';
 
 interface LibraryViewProps {
   settings: ReaderSettings;
@@ -63,6 +64,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   onOpenProfile,
   onUpdateSettings,
 }) => {
+  const { t, resolvedLanguage } = useTranslation();
   const { isOffline, checkOnlineStatus } = useAuth();
   const [localBooks, setLocalBooks] = useState<LocalBookFile[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -72,6 +74,13 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   const [recentBooks, setRecentBooks] = useState<RecentBook[]>(() => loadRecentBooks().slice(0, 3));
   const [dbProgressMap, setDbProgressMap] = useState<Record<string, { fraction: number; isRead?: boolean }>>({});
   const isMobile = isMobileDevice();
+
+  const getBookPluralLabel = useCallback((count: number) => {
+    if (resolvedLanguage === 'ru') {
+      return formatPluralRussian(count, t('library.book_one'), 'книги', t('library.book_other'));
+    }
+    return count === 1 ? t('library.book_one') : t('library.book_other');
+  }, [resolvedLanguage, t]);
 
   // Context menu state
   const [menuState, setMenuState] = useState<{
@@ -391,7 +400,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   const handleDeleteBook = async (book: LocalBookFile, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     const name = metaCache[book.id]?.title || book.fileName;
-    if (confirm(`Delete book "${name}" from device?`)) {
+    if (confirm(t('library.deleteBookConfirm', { name }))) {
       await fileManager.deleteBookFile(book.filePath);
       await scanFolder();
       refreshRecentProgress();
@@ -419,7 +428,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       return targetPrefix.every((p, idx) => segs[idx] === p);
     });
 
-    if (confirm(`Delete folder "${folderName}" and all ${booksInFolder.length} books inside?`)) {
+    if (confirm(t('library.deleteFolderConfirm', { name: folderName, count: booksInFolder.length }))) {
       for (const book of booksInFolder) {
         await fileManager.deleteBookFile(book.filePath);
       }
@@ -515,15 +524,15 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           </div>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <h1 className="library-title">Folio</h1>
+              <h1 className="library-title">{t('library.title')}</h1>
               {isOffline && (
-                <span className="library-offline-badge" title="No internet connection. Operating in offline mode.">
+                <span className="library-offline-badge" title={t('browse.offlineDesc')}>
                   <WifiOff size={11} />
-                  Offline
+                  {t('common.offline')}
                 </span>
               )}
             </div>
-            <p className="library-subtitle">My Library</p>
+            <p className="library-subtitle">{t('library.subtitle')}</p>
           </div>
         </div>
 
@@ -534,10 +543,10 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
               type="button"
               className="library-open-btn library-resume-header-btn"
               onClick={() => handleResumeBook(recentBooks[0])}
-              title={`Continue reading "${recentBooks[0].title}" (${Math.round((recentBooks[0].progressFraction || 0) * 100)}%)`}
+              title={`${t('library.continueReading')} "${recentBooks[0].title}" (${Math.round((recentBooks[0].progressFraction || 0) * 100)}%)`}
             >
               <BookOpen size={16} />
-              <span className="library-open-btn-text">Continue Reading</span>
+              <span className="library-open-btn-text">{t('library.continueReading')}</span>
             </button>
           )}
 
@@ -546,10 +555,10 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             type="button"
             className="library-open-btn library-catalog-btn"
             onClick={onOpenBrowse}
-            title="Folio Catalog (Online Library)"
+            title={t('browse.title')}
           >
             <Globe size={17} />
-            <span className="library-open-btn-text">Catalog</span>
+            <span className="library-open-btn-text">{t('library.catalog')}</span>
           </button>
 
           {/* Refresh Folder & Connectivity */}
@@ -557,7 +566,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             type="button"
             className="header-icon-btn"
             onClick={handleRefresh}
-            title="Refresh books list & sync"
+            title={t('library.refreshSync')}
           >
             <RefreshCw size={17} className={isLoading ? 'animate-spin' : ''} />
           </button>
@@ -567,7 +576,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             type="button"
             className="header-icon-btn"
             onClick={onOpenSettings}
-            title="Folder & Theme Settings"
+            title={t('library.settings')}
           >
             <SettingsIcon size={17} />
           </button>
@@ -577,7 +586,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             type="button"
             className="header-icon-btn"
             onClick={onOpenProfile}
-            title="Profile & Account"
+            title={t('library.profile')}
           >
             <UserCircle size={20} />
           </button>
@@ -606,7 +615,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 200 }}>
               <ShieldAlert size={20} style={{ color: '#eab308', flexShrink: 0 }} />
               <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>
-                Storage permission is required to download and read books on Android.
+                {t('common.storageRequiredDesc')}
               </span>
             </div>
             <button
@@ -615,7 +624,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
               style={{ padding: '6px 14px', fontSize: 12 }}
               onClick={handleRequestPermission}
             >
-              Grant Permission
+              {t('common.grantPermission')}
             </button>
           </div>
         )}
@@ -640,7 +649,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search downloaded books & folders..."
+                  placeholder={t('library.searchPlaceholder')}
                   className="auth-input"
                   style={{ paddingLeft: 36, paddingRight: searchQuery ? 32 : 12, height: 38, fontSize: 13 }}
                   autoComplete="off"
@@ -660,7 +669,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                       color: 'var(--text-muted)',
                       padding: 2,
                     }}
-                    title="Clear search"
+                    title={t('library.clearSearch')}
                   >
                     <X size={14} />
                   </button>
@@ -673,8 +682,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                   type="button"
                   className={`view-mode-btn ${viewMode === 'grid' ? 'active' : ''}`}
                   onClick={() => handleToggleViewMode('grid')}
-                  title="Grid View"
-                  aria-label="Grid View"
+                  title={t('settings.viewGrid')}
+                  aria-label={t('settings.viewGrid')}
                 >
                   <LayoutGrid size={16} />
                 </button>
@@ -682,8 +691,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                   type="button"
                   className={`view-mode-btn ${viewMode === 'list' ? 'active' : ''}`}
                   onClick={() => handleToggleViewMode('list')}
-                  title="List View"
-                  aria-label="List View"
+                  title={t('settings.viewList')}
+                  aria-label={t('settings.viewList')}
                 >
                   <ListIcon size={16} />
                 </button>
@@ -709,7 +718,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                   onClick={() => setCurrentFolderPath([])}
                 >
                   <ArrowLeft size={15} />
-                  <span>All Books</span>
+                  <span>{t('library.allBooks')}</span>
                 </button>
                 {currentFolderPath.map((folder, idx) => {
                   const isLast = idx === currentFolderPath.length - 1;
@@ -739,7 +748,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                         </span>
                         {isLast && (
                           <span className="breadcrumb-count" style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                            ({allNestedCount} {allNestedCount === 1 ? 'book' : 'books'})
+                            ({allNestedCount} {getBookPluralLabel(allNestedCount)})
                           </span>
                         )}
                       </button>
@@ -757,11 +766,11 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             <div className="continue-reading-section-header">
               <div className="continue-reading-tag">
                 <Clock size={13} />
-                <span>CONTINUE READING</span>
+                <span>{t('library.continueReadingTag')}</span>
               </div>
               {recentBooks.length > 1 && (
                 <span className="continue-reading-count-badge">
-                  {recentBooks.length} books
+                  {t('library.continueReadingCount', { count: recentBooks.length })}
                 </span>
               )}
             </div>
@@ -775,7 +784,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                     key={book.id}
                     className="continue-reading-card"
                     onClick={() => handleResumeBook(book)}
-                    title={`Continue reading "${book.title}" (${pct}%)`}
+                    title={`${t('library.continueReading')} "${book.title}" (${pct}%)`}
                   >
                     <div className="continue-reading-cover-wrap">
                       {cover ? (
@@ -825,10 +834,10 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                             e.stopPropagation();
                             handleResumeBook(book);
                           }}
-                          title="Continue reading"
-                          aria-label="Continue reading"
+                          title={t('library.continueReading')}
+                          aria-label={t('library.continueReading')}
                         >
-                          <span>Resume</span>
+                          <span>{t('library.resume')}</span>
                           <ChevronRight size={16} />
                         </button>
                       </div>
@@ -847,16 +856,16 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             <div className="recent-section-header">
               <h2 className="recent-section-title">
                 {isSearching
-                  ? `Search: "${searchQuery}"`
+                  ? t('library.searchHeading', { query: searchQuery })
                   : currentFolderPath.length > 0
                   ? currentFolderPath[currentFolderPath.length - 1]
-                  : 'Books & Collections'}
+                  : t('library.booksAndCollections')}
               </h2>
               <span className="recent-section-count">
                 {isSearching
-                  ? `${filteredSearchBooks.length} found`
-                  : `${allNestedCount} ${allNestedCount === 1 ? 'book' : 'books'}${
-                      directSubfolderNames.length > 0 ? ` in ${directSubfolderNames.length} folders` : ''
+                  ? t('library.foundCount', { count: filteredSearchBooks.length })
+                  : `${allNestedCount} ${getBookPluralLabel(allNestedCount)}${
+                      directSubfolderNames.length > 0 ? ` ${t('library.inFolders', { count: directSubfolderNames.length })}` : ''
                     }`}
               </span>
             </div>
@@ -866,10 +875,10 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             <div className="library-empty-box">
               <FolderOpen size={40} className="empty-box-icon" />
               <h3 style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)' }}>
-                Books folder not configured
+                {t('library.booksFolderNotConfigured')}
               </h3>
               <p style={{ maxWidth: 400 }}>
-                Select a folder on your device to automatically scan and save books.
+                {t('library.configureFolderPrompt')}
               </p>
               <button
                 type="button"
@@ -877,17 +886,17 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                 onClick={onOpenSettings}
                 style={{ marginTop: 8 }}
               >
-                Configure Folder
+                {t('library.configureFolder')}
               </button>
             </div>
           ) : localBooks.length === 0 ? (
             <div className="library-empty-box">
               <Sparkles size={40} className="empty-box-icon" />
               <h3 style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)' }}>
-                No books in folder yet
+                {t('library.noBooksInFolder')}
               </h3>
               <p style={{ maxWidth: 420, width: '100%', wordBreak: 'break-all', overflowWrap: 'anywhere' }}>
-                Folder: <code style={{ fontSize: 12, wordBreak: 'break-all', overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' }}>{settings.downloadPath}</code>
+                {t('library.folderLabel')} <code style={{ fontSize: 12, wordBreak: 'break-all', overflowWrap: 'anywhere', whiteSpace: 'pre-wrap' }}>{settings.downloadPath}</code>
               </p>
               <div style={{ display: 'flex', gap: 10, marginTop: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
                 <button
@@ -897,14 +906,14 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                   style={{ display: 'flex', alignItems: 'center', gap: 6 }}
                 >
                   <Globe size={16} />
-                  <span>Folio Catalog</span>
+                  <span>{t('library.catalog')}</span>
                 </button>
                 <button
                   type="button"
                   className="auth-btn-secondary"
                   onClick={scanFolder}
                 >
-                  Refresh
+                  {t('common.refresh')}
                 </button>
               </div>
             </div>
@@ -912,7 +921,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             /* Search results view */
             filteredSearchBooks.length === 0 ? (
               <div className="library-empty-box">
-                <p>No books found matching &ldquo;{searchQuery}&rdquo;.</p>
+                <p>{t('library.noSearchResults', { query: searchQuery })}</p>
               </div>
             ) : viewMode === 'grid' ? (
               <div className="books-grid">
@@ -925,7 +934,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             )
           ) : currentLevelBooks.length === 0 && directSubfolderNames.length === 0 ? (
             <div className="library-empty-box">
-              <p>No books in this folder.</p>
+              <p>{t('library.noBooksInThisFolder')}</p>
             </div>
           ) : (
             /* Active level view: folders & direct books */
@@ -939,9 +948,9 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                       key={`folder-${folderName}`}
                       className="folder-grid-card"
                       onClick={() => setCurrentFolderPath((prev) => [...prev, folderName])}
-                      title={`Open folder: ${folderName}`}
+                      title={t('library.openFolderTitle', { name: folderName })}
                     >
-                      {/* Top folder title header (as in screenshot) */}
+                      {/* Top folder title header */}
                       <div className="folder-grid-header">
                         <span className="folder-grid-title" title={folderName}>
                           {folderName}
@@ -959,8 +968,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                           type="button"
                           className="folder-delete-btn"
                           onClick={(e) => handleDeleteFolder(folderName, e)}
-                          title={`Delete folder "${folderName}"`}
-                          aria-label="Delete folder"
+                          title={t('library.deleteFolder')}
+                          aria-label={t('library.deleteFolder')}
                         >
                           <Trash2 size={13} />
                         </button>
@@ -970,11 +979,11 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                       <div className="folder-grid-footer">
                         <div className="folder-footer-info">
                           <span className="folder-footer-count">
-                            {booksInFolder.length} {booksInFolder.length === 1 ? 'book' : 'books'}
+                            {booksInFolder.length} {getBookPluralLabel(booksInFolder.length)}
                           </span>
                         </div>
                         <span className="folder-open-action">
-                          <span>Open</span>
+                          <span>{t('common.open')}</span>
                           <ChevronRight size={13} />
                         </span>
                       </div>
@@ -995,7 +1004,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                     new Set(
                       booksInFolder
                         .map((b) => metaCache[b.id]?.author)
-                        .filter((a) => a && a !== 'Unknown Author')
+                        .filter((a) => a && a !== 'Unknown Author' && a !== t('common.unknownAuthor'))
                     )
                   ).slice(0, 2).join(', ');
 
@@ -1017,7 +1026,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                             {folderName}
                           </h4>
                           <span className="folder-list-badge">
-                            {booksInFolder.length} {booksInFolder.length === 1 ? 'book' : 'books'}
+                            {booksInFolder.length} {getBookPluralLabel(booksInFolder.length)}
                           </span>
                         </div>
 
@@ -1027,7 +1036,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                           </p>
                         )}
                         <p className="folder-list-hint">
-                          Collection folder • Click to open
+                          {t('library.collectionFolderHint')}
                         </p>
                       </div>
 
@@ -1037,8 +1046,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                           type="button"
                           className="list-delete-btn"
                           onClick={(e) => handleDeleteFolder(folderName, e)}
-                          title="Delete folder"
-                          aria-label="Delete folder"
+                          title={t('library.deleteFolder')}
+                          aria-label={t('library.deleteFolder')}
                         >
                           <Trash2 size={15} />
                         </button>
@@ -1103,7 +1112,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   function renderBookCardGrid(book: LocalBookFile) {
     const meta = metaCache[book.id];
     const title = meta?.title || book.fileName.replace(/\.[^/.]+$/, '');
-    const author = meta?.author || 'Unknown Author';
+    const author = meta?.author || t('common.unknownAuthor');
     const folderName = book.folderName;
 
     // Reading location & progress
@@ -1180,8 +1189,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             type="button"
             className="book-card-menu-btn"
             onClick={(e) => handleOpenBookMenu(book, e, isRead)}
-            title="Book options"
-            aria-label="Book options"
+            title={t('library.bookOptions')}
+            aria-label={t('library.bookOptions')}
           >
             <MoreVertical size={16} />
           </button>
@@ -1242,7 +1251,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   function renderBookItemRow(book: LocalBookFile) {
     const meta = metaCache[book.id];
     const title = meta?.title || book.fileName.replace(/\.[^/.]+$/, '');
-    const author = meta?.author || 'Unknown Author';
+    const author = meta?.author || t('common.unknownAuthor');
     const folderName = book.folderName;
 
     // Reading location & progress
@@ -1251,7 +1260,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     const fraction = dbLoc?.fraction ?? recentLoc?.fraction ?? 0;
     const percent = Math.round(fraction * 100);
     const isRead = dbLoc?.isRead ?? (percent >= 100);
-    const readingStatus = isRead ? 'Completed' : percent > 0 ? 'Reading' : 'Not started';
+    const readingStatus = isRead ? t('common.completed') : percent > 0 ? t('common.reading') : t('common.notStarted');
 
     return (
       <div
@@ -1309,8 +1318,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
             type="button"
             className="list-menu-btn"
             onClick={(e) => handleOpenBookMenu(book, e, isRead)}
-            title="Book options"
-            aria-label="Book options"
+            title={t('library.bookOptions')}
+            aria-label={t('library.bookOptions')}
           >
             <MoreVertical size={16} />
           </button>

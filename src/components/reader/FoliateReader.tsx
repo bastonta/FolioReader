@@ -42,6 +42,7 @@ import {
 } from '../../services/readerDb';
 import { fontManager } from '../../services/fontManager';
 import { LoadedCustomFont } from '../../types/font';
+import { useTranslation } from '../../i18n';
 
 interface FoliateReaderProps {
   bookId: string;
@@ -287,6 +288,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   onUpdateSettings,
   onBackToLibrary,
 }) => {
+  const { t } = useTranslation();
   const viewerContainerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<any>(null);
   const settingsRef = useRef(settings);
@@ -353,13 +355,17 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
 
   const [footnote, setFootnote] = useState<FootnoteData | null>(null);
   const [selection, setSelection] = useState<SelectionInfo | null>(null);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isBookInfoOpen, setIsBookInfoOpen] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [syncToast, setSyncToast] = useState<{ message: string; type?: 'info' | 'success' | 'error' } | null>(null);
-  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const selectionRef = useRef<SelectionInfo | null>(null);
+  selectionRef.current = selection;
+
+  const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+  const [isBookInfoOpen, setIsBookInfoOpen] = useState<boolean>(false);
   const [customFonts, setCustomFonts] = useState<LoadedCustomFont[]>(() => fontManager.getCachedFonts());
-  const isInitialLoadRef = useRef(true);
+  const isInitialLoadRef = useRef<boolean>(true);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [syncToast, setSyncToast] = useState<{ message: string; type?: 'info' | 'success' | 'error' } | null>(null);
+
   const settingsBtnRef = useRef<HTMLButtonElement>(null);
 
   // Subscribe to custom fonts updates
@@ -402,11 +408,11 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         if (viewRef.current) {
           await viewRef.current.goTo(progressResult.location);
         }
-        showSyncToast(`Progress downloaded from server: ${pct}%`, 'success');
+        showSyncToast(t('reader.syncSuccess', { percent: pct }), 'success');
       } else if (progressResult?.message) {
         showSyncToast(progressResult.message, progressResult.success ? 'success' : 'info');
       } else {
-        showSyncToast('Book progress is up to date', 'info');
+        showSyncToast(t('reader.syncUpToDate'), 'info');
       }
 
       // Refresh annotations & bookmarks if synced
@@ -425,11 +431,11 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
       }
     } catch (err: any) {
       console.error('Failed to sync progress:', err);
-      showSyncToast(`Sync failed: ${err?.message || err}`, 'error');
+      showSyncToast(t('reader.syncFailed', { error: err?.message || err }), 'error');
     } finally {
       setIsSyncing(false);
     }
-  }, [bookId, isSyncing, showSyncToast, updateAnnotations, updateBookmarks]);
+  }, [bookId, isSyncing, showSyncToast, t, updateAnnotations, updateBookmarks]);
 
   // Automatically sync book when reconnecting online
   useEffect(() => {
@@ -459,11 +465,6 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   useEffect(() => {
     footnoteRef.current = footnote;
   }, [footnote]);
-
-  const selectionRef = useRef(selection);
-  useEffect(() => {
-    selectionRef.current = selection;
-  }, [selection]);
 
   const isHoveringControlsRef = useRef(false);
   const autoHideTimerRef = useRef<number | null>(null);
@@ -1334,7 +1335,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
               if (remoteLoc !== savedLoc?.cfi && (remotePct >= localPct || !savedLoc?.cfi)) {
                 if (viewRef.current) {
                   await viewRef.current.goTo(remoteLoc);
-                  showSyncToast(`Synced latest progress from server: ${remotePct}%`, 'success');
+                  showSyncToast(t('reader.syncSuccess', { percent: remotePct }), 'success');
                 }
               }
             }

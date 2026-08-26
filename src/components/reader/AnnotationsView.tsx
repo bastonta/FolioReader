@@ -1,6 +1,7 @@
 import React from 'react';
 import { Annotation, getAnnotationColor } from '../../types/reader';
 import { Trash2, Highlighter } from 'lucide-react';
+import { useTranslation } from '../../i18n';
 
 interface AnnotationsViewProps {
   annotations: Annotation[];
@@ -13,13 +14,15 @@ export const AnnotationsView: React.FC<AnnotationsViewProps> = ({
   onSelectAnnotation,
   onDeleteAnnotation,
 }) => {
+  const { t } = useTranslation();
+
   return (
     <div className="annotations-view-container">
       <div className="annotations-list-scroll">
         {annotations.length === 0 ? (
           <div className="sidebar-empty-state">
             <Highlighter size={28} className="empty-state-icon" />
-            <p>No annotations yet. Select text in the book to highlight or add notes.</p>
+            <p>{t('reader.noAnnotations')}</p>
           </div>
         ) : (
           <div className="annotations-cards-list">
@@ -60,8 +63,8 @@ export const AnnotationsView: React.FC<AnnotationsViewProps> = ({
                       e.stopPropagation();
                       onDeleteAnnotation(ann.value);
                     }}
-                    title="Delete annotation"
-                    aria-label="Delete annotation"
+                    title={t('reader.deleteAnnotation')}
+                    aria-label={t('reader.deleteAnnotation')}
                   >
                     <Trash2 size={14} />
                   </button>
@@ -74,3 +77,4 @@ export const AnnotationsView: React.FC<AnnotationsViewProps> = ({
     </div>
   );
 };
+

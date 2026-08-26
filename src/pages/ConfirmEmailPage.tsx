@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { authApi } from '../api/authApi';
 import { MailCheck, KeyRound, AlertCircle, RefreshCw, ArrowLeft, CheckCircle2, Loader } from 'lucide-react';
 import { ThemeToggle } from '../components/common/ThemeToggle';
+import { useTranslation } from '../i18n';
 
 interface ConfirmEmailPageProps {
   theme?: string;
@@ -11,6 +12,7 @@ interface ConfirmEmailPageProps {
 }
 
 export const ConfirmEmailPage: React.FC<ConfirmEmailPageProps> = ({ theme, onToggleTheme }) => {
+  const { t } = useTranslation();
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -58,7 +60,7 @@ export const ConfirmEmailPage: React.FC<ConfirmEmailPageProps> = ({ theme, onTog
     setError('');
 
     if (!code || code.length !== 6) {
-      setError('Please enter a valid 6-digit code');
+      setError(t('auth.enterValid6DigitCode'));
       return;
     }
 
@@ -68,7 +70,7 @@ export const ConfirmEmailPage: React.FC<ConfirmEmailPageProps> = ({ theme, onTog
       setSuccess(true);
       setTimeout(() => navigate('/', { replace: true }), 1500);
     } catch (err) {
-      setError((err as any)?.message || 'Invalid confirmation code');
+      setError((err as any)?.message || t('auth.invalidConfirmationCode'));
     } finally {
       setLoading(false);
     }
@@ -87,7 +89,7 @@ export const ConfirmEmailPage: React.FC<ConfirmEmailPageProps> = ({ theme, onTog
         setCountdown(60);
       }
     } catch (err) {
-      setError((err as any)?.message || 'Failed to resend code');
+      setError((err as any)?.message || t('auth.resendFailed'));
     } finally {
       setLoading(false);
     }
@@ -102,8 +104,8 @@ export const ConfirmEmailPage: React.FC<ConfirmEmailPageProps> = ({ theme, onTog
             <div className="auth-icon-badge success">
               <CheckCircle2 size={24} />
             </div>
-            <h1 className="auth-title">Email Confirmed!</h1>
-            <p className="auth-subtitle">Your account is ready. Redirecting...</p>
+            <h1 className="auth-title">{t('auth.emailConfirmedTitle')}</h1>
+            <p className="auth-subtitle">{t('auth.emailConfirmedSubtitle')}</p>
           </div>
         </div>
       </div>
@@ -120,9 +122,9 @@ export const ConfirmEmailPage: React.FC<ConfirmEmailPageProps> = ({ theme, onTog
           <div className="auth-icon-badge">
             <MailCheck size={24} />
           </div>
-          <h1 className="auth-title">Confirm Email</h1>
+          <h1 className="auth-title">{t('auth.confirmEmailTitle')}</h1>
           <p className="auth-subtitle">
-            We sent a code to <strong>{email}</strong>
+            {t('auth.codeSentTo')} <strong>{email}</strong>
           </p>
         </div>
 
@@ -135,7 +137,7 @@ export const ConfirmEmailPage: React.FC<ConfirmEmailPageProps> = ({ theme, onTog
 
         <form className="auth-form" onSubmit={handleSubmit} autoComplete="off">
           <div className="auth-field">
-            <label className="auth-label" htmlFor="code">Confirmation Code</label>
+            <label className="auth-label" htmlFor="code">{t('auth.confirmationCodeLabel')}</label>
             <div className="auth-input-wrapper">
               <div className="auth-input-icon">
                 <KeyRound size={18} />
@@ -159,7 +161,7 @@ export const ConfirmEmailPage: React.FC<ConfirmEmailPageProps> = ({ theme, onTog
 
           <button type="submit" className="auth-btn-primary" disabled={loading || code.length !== 6} tabIndex={2}>
             {loading ? <Loader size={18} className="spinner" /> : <CheckCircle2 size={18} />}
-            <span>{loading ? 'Confirming...' : 'Confirm Email'}</span>
+            <span>{loading ? t('auth.confirming') : t('auth.confirmEmailTitle')}</span>
           </button>
 
           <button 
@@ -171,13 +173,13 @@ export const ConfirmEmailPage: React.FC<ConfirmEmailPageProps> = ({ theme, onTog
           >
             <RefreshCw size={16} className={countdown > 0 ? '' : 'spin-on-hover'} />
             <span>
-              {countdown > 0 ? `Resend code in ${countdown}s` : 'Resend code'}
+              {countdown > 0 ? t('auth.resendCodeIn', { count: countdown }) : t('auth.resendCode')}
             </span>
           </button>
 
           <div className="auth-footer-text">
             <Link to="/login" className="auth-link" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }} tabIndex={4}>
-              <ArrowLeft size={16} /> Back to Sign In
+              <ArrowLeft size={16} /> {t('auth.backToSignIn')}
             </Link>
           </div>
         </form>
@@ -187,3 +189,4 @@ export const ConfirmEmailPage: React.FC<ConfirmEmailPageProps> = ({ theme, onTog
 };
 
 export default ConfirmEmailPage;
+

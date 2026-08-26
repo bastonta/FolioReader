@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { TOCItem } from '../../types/reader';
 import { ChevronRight, ChevronDown } from 'lucide-react';
+import { useTranslation } from '../../i18n';
 
 interface TOCViewProps {
   toc: TOCItem[];
@@ -79,16 +80,18 @@ const TOCNode: React.FC<TOCNodeProps> = ({ item, currentHref, onSelect, depth })
 };
 
 export const TOCView: React.FC<TOCViewProps> = ({ toc, currentHref, onSelect }) => {
+  const { t } = useTranslation();
+
   if (!toc || toc.length === 0) {
     return (
       <div className="sidebar-empty-state">
-        <p>No table of contents available.</p>
+        <p>{t('reader.noTOC')}</p>
       </div>
     );
   }
 
   return (
-    <nav className="toc-container" aria-label="Table of contents">
+    <nav className="toc-container" aria-label={t('reader.contentsTab')}>
       <ol className="toc-list" role="tree">
         {toc.map((item, idx) => (
           <TOCNode
@@ -103,3 +106,4 @@ export const TOCView: React.FC<TOCViewProps> = ({ toc, currentHref, onSelect }) 
     </nav>
   );
 };
+

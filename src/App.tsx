@@ -22,6 +22,7 @@ import { setStatusBarVisible, setStatusBarTheme, isMobileDevice } from './servic
 import { useBackHandler } from './services/backHandler';
 import { SplashScreen } from './components/common/SplashScreen';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { I18nProvider, useTranslation } from './i18n';
 import { APP_VERSION, BUILD_TIME } from './constants/buildInfo';
 
 // Auth pages
@@ -88,6 +89,7 @@ function GuestOnly({ children, theme }: { children: React.ReactNode; theme?: str
 
 function AppRoutes() {
   const { isAuthenticated, isLoading } = useAuth();
+  const { t, setLanguage } = useTranslation();
   const [settings, setSettings] = useState<ReaderSettings>(() => loadSettings());
   const [activeBook, setActiveBook] = useState<ActiveBookState | null>(null);
   const [currentView, setCurrentView] = useState<'library' | 'browse'>('library');
@@ -98,6 +100,13 @@ function AppRoutes() {
   useEffect(() => {
     console.info(`[Folio] Version: ${APP_VERSION}, Build: ${BUILD_TIME}`);
   }, []);
+
+  // Sync document title with localized app name & subtitle
+  useEffect(() => {
+    if (!activeBook) {
+      document.title = `${t('common.appName')} — ${t('common.appSubtitle')}`;
+    }
+  }, [t, activeBook]);
 
   // Reset active book and reload settings when auth state changes (e.g. login/logout)
   useEffect(() => {
@@ -163,6 +172,9 @@ function AppRoutes() {
     if (newSettings.theme) {
       setStatusBarTheme(newSettings.theme);
     }
+    if (newSettings.language) {
+      setLanguage(newSettings.language);
+    }
     setSettings((prev) => {
       const updated = { ...prev, ...newSettings };
       saveSettings(updated);
@@ -184,7 +196,7 @@ function AppRoutes() {
       const file = await fileManager.readBookFile(filePath);
 
       let title = cachedMeta?.title || fileName.replace(/\.[^/.]+$/, '');
-      let author = cachedMeta?.author || 'Unknown Author';
+      let author = cachedMeta?.author || t('common.unknownAuthor');
 
       // If not cached or previously incomplete, extract metadata eagerly
       if (!cachedMeta?.title || !cachedMeta?.extracted || (cachedMeta?.author === 'Unknown Author' && !cachedMeta?.coverUrl)) {
@@ -264,7 +276,7 @@ function AppRoutes() {
       saveRecentBook({
         id: bookId,
         title: title || fileName.replace(/\.[^/.]+$/, ''),
-        author: author || 'Unknown Author',
+        author: author || t('common.unknownAuthor'),
         filePath,
         progressFraction: lastLoc?.fraction || 0,
         lastOpenedAt: new Date().toISOString(),
@@ -275,7 +287,7 @@ function AppRoutes() {
         id: bookId,
         source: file,
         title: title || fileName.replace(/\.[^/.]+$/, ''),
-        author: author || 'Unknown Author',
+        author: author || t('common.unknownAuthor'),
       });
     } catch (err) {
       console.error('Failed to open book from path:', err);
@@ -291,7 +303,7 @@ function AppRoutes() {
       handleUpdateSettings({ sidebarOpen: false });
     }
     setActiveBook(null);
-    document.title = 'Folio — E-Book Reader';
+    document.title = `${t('common.appName')} — ${t('common.appSubtitle')}`;
   };
 
   // Navigate to profile
@@ -401,10 +413,15 @@ function AppRoutes() {
 // ─── Root component ──────────────────────────────────────────────────────
 
 export function App() {
+  const initialSettings = loadSettings();
+  const [lang, setLang] = useState(initialSettings.language || 'system');
+
   return (
-    <AuthProvider>
-      <AppRoutes />
-    </AuthProvider>
+    <I18nProvider language={lang} onLanguageChange={setLang}>
+      <AuthProvider>
+        <AppRoutes />
+      </AuthProvider>
+    </I18nProvider>
   );
 }
 

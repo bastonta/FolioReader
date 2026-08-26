@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Annotation, ANNOTATION_COLORS, getAnnotationColorKey } from '../../types/reader';
 import { Copy, Trash2, Check, MessageSquare, MoreHorizontal } from 'lucide-react';
 import { showOriginalContextMenu, isMobileDevice } from '../../services/systemUi';
+import { useTranslation } from '../../i18n';
 
 export interface SelectionInfo {
   text: string;
@@ -33,6 +34,7 @@ export const AnnotationPopover: React.FC<AnnotationPopoverProps> = ({
   onSave,
   onDelete,
 }) => {
+  const { t } = useTranslation();
   const [selectedColor, setSelectedColor] = useState<string>('yellow');
   const [showNoteInput, setShowNoteInput] = useState<boolean>(false);
   const [noteText, setNoteText] = useState<string>('');
@@ -158,8 +160,8 @@ export const AnnotationPopover: React.FC<AnnotationPopoverProps> = ({
           type="button"
           className={`popover-action-btn ${showNoteInput ? 'active' : ''}`}
           onClick={() => setShowNoteInput(!showNoteInput)}
-          title="Add Note"
-          aria-label="Add Note"
+          title={t('reader.addNote')}
+          aria-label={t('reader.addNote')}
         >
           <MessageSquare size={16} />
         </button>
@@ -169,8 +171,8 @@ export const AnnotationPopover: React.FC<AnnotationPopoverProps> = ({
           type="button"
           className="popover-action-btn"
           onClick={handleCopy}
-          title="Copy Text"
-          aria-label="Copy Text"
+          title={t('reader.copyText')}
+          aria-label={t('reader.copyText')}
         >
           {copied ? <Check size={16} className="text-success" /> : <Copy size={16} />}
         </button>
@@ -181,8 +183,8 @@ export const AnnotationPopover: React.FC<AnnotationPopoverProps> = ({
             type="button"
             className="popover-action-btn"
             onClick={handleShowOriginalMenu}
-            title="Original Context Menu"
-            aria-label="Original Context Menu"
+            title={t('reader.originalMenu')}
+            aria-label={t('reader.originalMenu')}
           >
             <MoreHorizontal size={16} />
           </button>
@@ -197,8 +199,8 @@ export const AnnotationPopover: React.FC<AnnotationPopoverProps> = ({
               onDelete(selection.existingAnnotation!.value);
               onClose();
             }}
-            title="Delete Annotation"
-            aria-label="Delete Annotation"
+            title={t('reader.deleteAnnotation')}
+            aria-label={t('reader.deleteAnnotation')}
           >
             <Trash2 size={16} />
           </button>
@@ -211,7 +213,7 @@ export const AnnotationPopover: React.FC<AnnotationPopoverProps> = ({
           <textarea
             className="annotation-note-input"
             rows={2}
-            placeholder="Add a note..."
+            placeholder={t('reader.addNotePlaceholder')}
             value={noteText}
             onChange={(e) => setNoteText(e.target.value)}
             onKeyDown={(e) => {
@@ -231,7 +233,7 @@ export const AnnotationPopover: React.FC<AnnotationPopoverProps> = ({
               className="note-action-btn note-save-btn"
               onClick={() => handleSave()}
             >
-              Save Note
+              {t('reader.saveNote')}
             </button>
           </div>
         </div>
@@ -239,3 +241,4 @@ export const AnnotationPopover: React.FC<AnnotationPopoverProps> = ({
     </div>
   );
 };
+

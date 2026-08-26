@@ -10,6 +10,7 @@ import {
   Plus,
   X,
 } from 'lucide-react';
+import { useTranslation } from '../../i18n';
 
 interface SettingsPopoverProps {
   isOpen: boolean;
@@ -26,6 +27,7 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
   onUpdateSettings,
   triggerRef,
 }) => {
+  const { t } = useTranslation();
   const popoverRef = useRef<HTMLDivElement>(null);
   const fontInputRef = useRef<HTMLInputElement>(null);
   const isMobile = isMobileDevice();
@@ -88,11 +90,11 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
   if (!isOpen) return null;
 
   const themes: { id: ThemeName; label: string; bg: string; color: string; border: string }[] = [
-    { id: 'light', label: 'Light', bg: '#ffffff', color: '#2e3436', border: '#deddda' },
-    { id: 'sepia', label: 'Sepia', bg: '#fbf0d9', color: '#5f4b32', border: '#ebd5ab' },
-    { id: 'solarized', label: 'Solarized', bg: '#fdf6e3', color: '#657b83', border: '#eee8d5' },
-    { id: 'gray', label: 'Gray', bg: '#2e3440', color: '#eceff4', border: '#4c566a' },
-    { id: 'dark', label: 'Dark', bg: '#1e1e1e', color: '#dedede', border: '#444444' },
+    { id: 'light', label: t('reader.themeLight'), bg: '#ffffff', color: '#2e3436', border: '#deddda' },
+    { id: 'sepia', label: t('reader.themeSepia'), bg: '#fbf0d9', color: '#5f4b32', border: '#ebd5ab' },
+    { id: 'solarized', label: t('reader.themeSolarized'), bg: '#fdf6e3', color: '#657b83', border: '#eee8d5' },
+    { id: 'gray', label: t('reader.themeGray'), bg: '#2e3440', color: '#eceff4', border: '#4c566a' },
+    { id: 'dark', label: t('reader.themeDark'), bg: '#1e1e1e', color: '#dedede', border: '#444444' },
   ];
 
   const fontOptions = [
@@ -140,7 +142,7 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
         ref={popoverRef}
         role="dialog"
         aria-modal="true"
-        aria-label="Appearance & Reader Settings"
+        aria-label={t('reader.appearance')}
         onClick={(e) => e.stopPropagation()}
         onPointerDown={(e) => e.stopPropagation()}
       >
@@ -148,13 +150,13 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
         <div className="settings-header-bar">
           <div className="settings-drag-handle" />
           <div className="settings-header-title-row">
-            <h3 className="settings-title">Appearance</h3>
+            <h3 className="settings-title">{t('reader.appearance')}</h3>
             <button
               type="button"
               className="settings-close-btn"
               onClick={onClose}
-              title="Close Settings"
-              aria-label="Close Settings"
+              title={t('common.close')}
+              aria-label={t('common.close')}
             >
               <X size={18} />
             </button>
@@ -163,7 +165,7 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
 
         {/* Theme Selection */}
         <div className="settings-section">
-          <label className="settings-label">Theme</label>
+          <label className="settings-label">{t('reader.theme')}</label>
           <div className="theme-selector-grid">
             {themes.map((t) => (
               <button
@@ -184,7 +186,7 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
 
         {/* Layout / Flow Mode */}
         <div className="settings-section">
-          <label className="settings-label">Layout</label>
+          <label className="settings-label">{t('reader.layout')}</label>
           <div className="segmented-control">
             <button
               type="button"
@@ -192,7 +194,7 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
               onClick={() => onUpdateSettings({ flow: 'paginated' })}
             >
               <BookOpen size={16} />
-              <span>Paginated</span>
+              <span>{t('reader.flowPaginated')}</span>
             </button>
             <button
               type="button"
@@ -200,21 +202,21 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
               onClick={() => onUpdateSettings({ flow: 'scrolled' })}
             >
               <Scroll size={16} />
-              <span>Scrolled</span>
+              <span>{t('reader.flowScrolled')}</span>
             </button>
           </div>
         </div>
 
         {settings.flow === 'paginated' && (
           <div className="settings-section">
-            <label className="settings-label">Columns</label>
+            <label className="settings-label">{t('reader.columns')}</label>
             <div className="segmented-control">
               <button
                 type="button"
                 className={`segmented-btn ${settings.columns === 'auto' ? 'active' : ''}`}
                 onClick={() => onUpdateSettings({ columns: 'auto' })}
               >
-                Auto
+                {t('reader.columnsAuto')}
               </button>
               <button
                 type="button"
@@ -240,13 +242,13 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
             <div className="settings-divider" />
             <div className="settings-section">
               <div className="settings-row-between" style={{ marginBottom: 6 }}>
-                <label className="settings-label">Page Turn (Mobile)</label>
+                <label className="settings-label">{t('reader.pageTurnMobile')}</label>
                 <span className="settings-val-text">
                   {(!settings.pageTurnMethod || settings.pageTurnMethod === 'both')
-                    ? 'Tap & Swipe'
+                    ? t('reader.pageTurnTapSwipe')
                     : settings.pageTurnMethod === 'tap'
-                    ? 'Tap only'
-                    : 'Swipe only'}
+                    ? t('reader.pageTurnTapOnly')
+                    : t('reader.pageTurnSwipeOnly')}
                 </span>
               </div>
               <div className="segmented-control">
@@ -255,27 +257,27 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
                   className={`segmented-btn ${settings.pageTurnMethod === 'tap' ? 'active' : ''}`}
                   onClick={() => onUpdateSettings({ pageTurnMethod: 'tap' })}
                 >
-                  <span>Tap</span>
+                  <span>{t('reader.tap')}</span>
                 </button>
                 <button
                   type="button"
                   className={`segmented-btn ${settings.pageTurnMethod === 'swipe' ? 'active' : ''}`}
                   onClick={() => onUpdateSettings({ pageTurnMethod: 'swipe' })}
                 >
-                  <span>Swipe</span>
+                  <span>{t('reader.swipe')}</span>
                 </button>
                 <button
                   type="button"
                   className={`segmented-btn ${(!settings.pageTurnMethod || settings.pageTurnMethod === 'both') ? 'active' : ''}`}
                   onClick={() => onUpdateSettings({ pageTurnMethod: 'both' })}
                 >
-                  <span>Both</span>
+                  <span>{t('reader.both')}</span>
                 </button>
               </div>
               <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, marginBottom: 0 }}>
                 {settings.pageTurnMethod === 'swipe'
-                  ? 'Swipe horizontally to turn pages'
-                  : 'Tap: 30% left to go back, 70% right to advance'}
+                  ? t('reader.swipeDesc')
+                  : t('reader.tapDesc')}
               </p>
             </div>
 
@@ -284,32 +286,32 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
             {/* Volume Buttons Page Turn (Mobile) */}
             <div className="settings-section">
               <div className="settings-toggle-row">
-                <span className="settings-label" style={{ marginBottom: 0 }}>Volume Buttons Page Turn</span>
+                <span className="settings-label" style={{ marginBottom: 0 }}>{t('reader.volumeKeysTitle')}</span>
                 <button
                   type="button"
                   className={`toggle-switch ${settings.volumeKeysPageTurn !== false ? 'checked' : ''}`}
                   onClick={() => onUpdateSettings({ volumeKeysPageTurn: settings.volumeKeysPageTurn === false ? true : false })}
                   role="switch"
                   aria-checked={settings.volumeKeysPageTurn !== false}
-                  aria-label="Toggle Volume Buttons Page Turn"
+                  aria-label={t('reader.volumeKeysTitle')}
                 >
                   <span className="toggle-thumb" />
                 </button>
               </div>
               <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, marginBottom: settings.volumeKeysPageTurn !== false ? 8 : 0 }}>
-                {settings.volumeKeysInverted ? 'Volume Up: Next, Volume Down: Prev' : 'Volume Down: Next, Volume Up: Prev'}
+                {settings.volumeKeysInverted ? t('reader.volumeKeysInvertedDesc') : t('reader.volumeKeysDesc')}
               </p>
 
               {settings.volumeKeysPageTurn !== false && (
                 <div className="settings-toggle-row" style={{ paddingTop: 6, borderTop: '1px dashed var(--border-subtle)' }}>
-                  <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Invert Buttons</span>
+                  <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t('reader.invertButtons')}</span>
                   <button
                     type="button"
                     className={`toggle-switch ${settings.volumeKeysInverted ? 'checked' : ''}`}
                     onClick={() => onUpdateSettings({ volumeKeysInverted: !settings.volumeKeysInverted })}
                     role="switch"
                     aria-checked={Boolean(settings.volumeKeysInverted)}
-                    aria-label="Toggle Invert Volume Buttons"
+                    aria-label={t('reader.invertButtons')}
                   >
                     <span className="toggle-thumb" />
                   </button>
@@ -324,27 +326,27 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
         {/* Screen Timeout & Sleep */}
         <div className="settings-section">
           <div className="settings-row-between" style={{ marginBottom: 6 }}>
-            <label className="settings-label" style={{ marginBottom: 0 }}>Screen Timeout</label>
+            <label className="settings-label" style={{ marginBottom: 0 }}>{t('reader.screenTimeout')}</label>
           </div>
           <select
             className="settings-select"
             value={settings.screenTimeout || '5'}
             onChange={(e) => onUpdateSettings({ screenTimeout: e.target.value as ScreenTimeoutOption })}
           >
-            <option value="system">System Default</option>
-            <option value="2">2 minutes</option>
-            <option value="5">5 minutes</option>
-            <option value="10">10 minutes</option>
-            <option value="15">15 minutes</option>
-            <option value="30">30 minutes</option>
-            <option value="never">Never turn off (Always on)</option>
+            <option value="system">{t('settings.screenTimeoutSystem')}</option>
+            <option value="2">{t('settings.screenTimeoutMinutes', { count: 2 })}</option>
+            <option value="5">{t('settings.screenTimeoutMinutes', { count: 5 })}</option>
+            <option value="10">{t('settings.screenTimeoutMinutes', { count: 10 })}</option>
+            <option value="15">{t('settings.screenTimeoutMinutes', { count: 15 })}</option>
+            <option value="30">{t('settings.screenTimeoutMinutes', { count: 30 })}</option>
+            <option value="never">{t('settings.screenTimeoutNever')}</option>
           </select>
           <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, marginBottom: 0 }}>
             {settings.screenTimeout === 'never'
-              ? 'Screen will stay on while reading'
+              ? t('settings.screenTimeoutNeverDesc')
               : settings.screenTimeout === 'system'
-              ? 'Follows device screen timeout'
-              : `Turns off after ${settings.screenTimeout || 5} min of inactivity`}
+              ? t('settings.screenTimeoutSystemDesc')
+              : t('settings.screenTimeoutMinutesDesc', { count: settings.screenTimeout || 5 })}
           </p>
         </div>
 
@@ -353,7 +355,7 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
         {/* Font Family */}
         <div className="settings-section">
           <div className="settings-row-between" style={{ marginBottom: 6 }}>
-            <label className="settings-label" style={{ marginBottom: 0 }}>Font Family</label>
+            <label className="settings-label" style={{ marginBottom: 0 }}>{t('reader.fontFamily')}</label>
             <button
               type="button"
               className="settings-font-add-btn"
@@ -362,7 +364,7 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
               title="Add custom font (.ttf, .otf, .woff, .woff2)"
             >
               <Plus size={12} />
-              <span>{isUploadingFont ? 'Adding...' : 'Add Font'}</span>
+              <span>{isUploadingFont ? '...' : t('reader.addFont')}</span>
             </button>
           </div>
 
@@ -380,7 +382,7 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
             value={settings.fontFamily}
             onChange={(e) => onUpdateSettings({ fontFamily: e.target.value })}
           >
-            <optgroup label="Standard Fonts">
+            <optgroup label={t('reader.standardFonts')}>
               {fontOptions.map((f) => (
                 <option key={f.value} value={f.value}>
                   {f.label}
@@ -388,7 +390,7 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
               ))}
             </optgroup>
             {customFonts.length > 0 && (
-              <optgroup label="Custom Fonts">
+              <optgroup label={t('reader.customFonts')}>
                 {customFonts.map((f) => (
                   <option key={f.id} value={`'${f.fontFamily}', sans-serif`}>
                     {f.name}
@@ -402,7 +404,7 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
         {/* Font Size */}
         <div className="settings-section">
           <div className="settings-row-between">
-            <label className="settings-label">Font Size</label>
+            <label className="settings-label">{t('reader.fontSize')}</label>
             <span className="settings-val-text">{settings.fontSize}px</span>
           </div>
           <div className="stepper-control">
@@ -410,8 +412,8 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
               type="button"
               className="stepper-btn"
               onClick={() => onUpdateSettings({ fontSize: Math.max(12, settings.fontSize - 1) })}
-              title="Decrease Font Size"
-              aria-label="Decrease Font Size"
+              title={t('reader.fontSize')}
+              aria-label={t('reader.fontSize')}
             >
               <Minus size={16} />
             </button>
@@ -423,14 +425,14 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
               value={settings.fontSize}
               onChange={(e) => onUpdateSettings({ fontSize: Number(e.target.value) })}
               className="settings-slider"
-              aria-label="Font Size Slider"
+              aria-label={t('reader.fontSize')}
             />
             <button
               type="button"
               className="stepper-btn"
               onClick={() => onUpdateSettings({ fontSize: Math.min(36, settings.fontSize + 1) })}
-              title="Increase Font Size"
-              aria-label="Increase Font Size"
+              title={t('reader.fontSize')}
+              aria-label={t('reader.fontSize')}
             >
               <Plus size={16} />
             </button>
@@ -440,7 +442,7 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
         {/* Font Weight */}
         <div className="settings-section">
           <div className="settings-row-between">
-            <label className="settings-label">Font Weight</label>
+            <label className="settings-label">{t('reader.fontWeight')}</label>
             <span className="settings-val-text">{getFontWeightLabel(settings.fontWeight || 400)}</span>
           </div>
           <div className="stepper-control">
@@ -448,8 +450,8 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
               type="button"
               className="stepper-btn"
               onClick={() => onUpdateSettings({ fontWeight: Math.max(300, (settings.fontWeight || 400) - 100) })}
-              title="Decrease Font Weight"
-              aria-label="Decrease Font Weight"
+              title={t('reader.fontWeight')}
+              aria-label={t('reader.fontWeight')}
             >
               <Minus size={16} />
             </button>
@@ -461,14 +463,14 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
               value={settings.fontWeight || 400}
               onChange={(e) => onUpdateSettings({ fontWeight: Number(e.target.value) })}
               className="settings-slider"
-              aria-label="Font Weight Slider"
+              aria-label={t('reader.fontWeight')}
             />
             <button
               type="button"
               className="stepper-btn"
               onClick={() => onUpdateSettings({ fontWeight: Math.min(900, (settings.fontWeight || 400) + 100) })}
-              title="Increase Font Weight"
-              aria-label="Increase Font Weight"
+              title={t('reader.fontWeight')}
+              aria-label={t('reader.fontWeight')}
             >
               <Plus size={16} />
             </button>
@@ -478,7 +480,7 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
         {/* Line Spacing */}
         <div className="settings-section">
           <div className="settings-row-between">
-            <label className="settings-label">Line Spacing</label>
+            <label className="settings-label">{t('reader.lineSpacing')}</label>
             <span className="settings-val-text">{settings.spacing.toFixed(1)}</span>
           </div>
           <div className="stepper-control">
@@ -486,8 +488,8 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
               type="button"
               className="stepper-btn"
               onClick={() => onUpdateSettings({ spacing: Math.max(1.0, Math.round((settings.spacing - 0.1) * 10) / 10) })}
-              title="Decrease Line Spacing"
-              aria-label="Decrease Line Spacing"
+              title={t('reader.lineSpacing')}
+              aria-label={t('reader.lineSpacing')}
             >
               <Minus size={16} />
             </button>
@@ -499,14 +501,14 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
               value={settings.spacing}
               onChange={(e) => onUpdateSettings({ spacing: parseFloat(e.target.value) })}
               className="settings-slider"
-              aria-label="Line Spacing Slider"
+              aria-label={t('reader.lineSpacing')}
             />
             <button
               type="button"
               className="stepper-btn"
               onClick={() => onUpdateSettings({ spacing: Math.min(2.4, Math.round((settings.spacing + 0.1) * 10) / 10) })}
-              title="Increase Line Spacing"
-              aria-label="Increase Line Spacing"
+              title={t('reader.lineSpacing')}
+              aria-label={t('reader.lineSpacing')}
             >
               <Plus size={16} />
             </button>
@@ -516,7 +518,7 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
         {/* Margins */}
         <div className="settings-section">
           <div className="settings-row-between">
-            <label className="settings-label">Margins</label>
+            <label className="settings-label">{t('reader.margins')}</label>
             <span className="settings-val-text">{settings.margin}px</span>
           </div>
           <div className="stepper-control">
@@ -524,8 +526,8 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
               type="button"
               className="stepper-btn"
               onClick={() => onUpdateSettings({ margin: Math.max(8, settings.margin - 4) })}
-              title="Decrease Margins"
-              aria-label="Decrease Margins"
+              title={t('reader.margins')}
+              aria-label={t('reader.margins')}
             >
               <Minus size={16} />
             </button>
@@ -537,14 +539,14 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
               value={settings.margin}
               onChange={(e) => onUpdateSettings({ margin: Number(e.target.value) })}
               className="settings-slider"
-              aria-label="Margin Slider"
+              aria-label={t('reader.margins')}
             />
             <button
               type="button"
               className="stepper-btn"
               onClick={() => onUpdateSettings({ margin: Math.min(120, settings.margin + 4) })}
-              title="Increase Margins"
-              aria-label="Increase Margins"
+              title={t('reader.margins')}
+              aria-label={t('reader.margins')}
             >
               <Plus size={16} />
             </button>
@@ -556,27 +558,27 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
         {/* Text Alignment & Hyphenation Toggles */}
         <div className="settings-section">
           <div className="settings-toggle-row">
-            <span>Justify Text</span>
+            <span>{t('reader.justifyText')}</span>
             <button
               type="button"
               className={`toggle-switch ${settings.justify ? 'checked' : ''}`}
               onClick={() => onUpdateSettings({ justify: !settings.justify })}
               role="switch"
               aria-checked={settings.justify}
-              aria-label="Toggle Text Justification"
+              aria-label={t('reader.justifyText')}
             >
               <span className="toggle-thumb" />
             </button>
           </div>
           <div className="settings-toggle-row">
-            <span>Hyphenation</span>
+            <span>{t('reader.hyphenation')}</span>
             <button
               type="button"
               className={`toggle-switch ${settings.hyphenate ? 'checked' : ''}`}
               onClick={() => onUpdateSettings({ hyphenate: !settings.hyphenate })}
               role="switch"
               aria-checked={settings.hyphenate}
-              aria-label="Toggle Hyphenation"
+              aria-label={t('reader.hyphenation')}
             >
               <span className="toggle-thumb" />
             </button>

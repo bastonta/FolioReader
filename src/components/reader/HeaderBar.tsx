@@ -1,5 +1,6 @@
 import { Library, PanelLeft, Pin, PinOff, Sliders } from "lucide-react";
 import React from "react";
+import { useTranslation } from "../../i18n";
 
 interface HeaderBarProps {
   onBackToLibrary: () => void;
@@ -28,6 +29,8 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   onMouseEnter,
   onMouseLeave,
 }) => {
+  const { t } = useTranslation();
+
   return (
     <header
       className="reader-header-bar"
@@ -36,30 +39,34 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
     >
       {/* Left Header Controls */}
       <div className="header-left-actions">
-        {/* Back to Library - Simple Icon Button without highlight */}
+        {/* Back to Library */}
         <button
           type="button"
           className="header-icon-btn header-library-btn"
           onClick={onBackToLibrary}
-          title="Back to Library"
-          aria-label="Back to Library"
+          title={t('reader.backToLibrary')}
+          aria-label={t('reader.backToLibrary')}
         >
           <Library size={16} />
         </button>
 
         <div className="header-separator" />
 
-        {/* Sidebar Toggle & Pin Controls grouped together */}
+        {/* Sidebar Toggle & Pin Controls */}
         <button
           type="button"
           className={`header-icon-btn ${isSidebarOpen ? "active" : ""}`}
           onClick={onToggleSidebar}
           title={
             isSidebarOpen
-              ? "Hide Sidebar (Contents & Annotations)"
-              : "Show Sidebar (Contents & Annotations)"
+              ? t('reader.hideSidebar')
+              : t('reader.showSidebar')
           }
-          aria-label="Toggle Sidebar"
+          aria-label={
+            isSidebarOpen
+              ? t('reader.hideSidebar')
+              : t('reader.showSidebar')
+          }
         >
           <PanelLeft size={16} />
         </button>
@@ -69,8 +76,8 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             type="button"
             className={`header-icon-btn header-pin-btn ${isPinned ? "active" : ""}`}
             onClick={onTogglePin}
-            title={isPinned ? "Unpin Sidebar" : "Pin Sidebar"}
-            aria-label={isPinned ? "Unpin Sidebar" : "Pin Sidebar"}
+            title={isPinned ? t('reader.unpinSidebar') : t('reader.pinSidebar')}
+            aria-label={isPinned ? t('reader.unpinSidebar') : t('reader.pinSidebar')}
           >
             {isPinned ? <Pin size={16} /> : <PinOff size={16} />}
           </button>
@@ -92,8 +99,8 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             ref={settingsBtnRef}
             className={`header-icon-btn ${isSettingsOpen ? "active" : ""}`}
             onClick={onToggleSettings}
-            title="Appearance & Settings"
-            aria-label="Appearance & Settings"
+            title={t('reader.appearance')}
+            aria-label={t('reader.appearance')}
           >
             <Sliders size={16} />
           </button>
@@ -102,5 +109,6 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
     </header>
   );
 };
+
 
 

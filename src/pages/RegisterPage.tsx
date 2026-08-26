@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { BookOpen, UserPlus, User, Mail, Lock, AlertCircle, Loader, Server } from 'lucide-react';
 import { ThemeToggle } from '../components/common/ThemeToggle';
+import { useTranslation } from '../i18n';
 
 interface RegisterPageProps {
   theme?: string;
@@ -10,6 +11,7 @@ interface RegisterPageProps {
 }
 
 export const RegisterPage: React.FC<RegisterPageProps> = ({ theme, onToggleTheme }) => {
+  const { t } = useTranslation();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -24,7 +26,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ theme, onToggleTheme
     setError('');
 
     if (!name || !email || !password) {
-      setError('Please fill in all fields');
+      setError(t('auth.fillAllFields'));
       return;
     }
 
@@ -41,7 +43,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ theme, onToggleTheme
         } 
       });
     } catch (err) {
-      setError((err as any)?.message || 'Registration failed');
+      setError((err as any)?.message || t('auth.registrationFailed'));
     } finally {
       setLoading(false);
     }
@@ -70,7 +72,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ theme, onToggleTheme
             }}
             tabIndex={7}
             role="button"
-            title="Change server"
+            title={t('auth.changeServer')}
           >
             <Server size={14} />
             <span>{new URL(serverUrl).host}</span>
@@ -81,8 +83,8 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ theme, onToggleTheme
           <div className="auth-icon-badge">
             <BookOpen size={24} />
           </div>
-          <h1 className="auth-title">Create Account</h1>
-          <p className="auth-subtitle">Join Folio to build your digital library</p>
+          <h1 className="auth-title">{t('auth.createAccount')}</h1>
+          <p className="auth-subtitle">{t('auth.joinFolioSubtitle')}</p>
         </div>
 
         {error && (
@@ -94,7 +96,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ theme, onToggleTheme
 
         <form className="auth-form" onSubmit={handleSubmit}>
           <div className="auth-field">
-            <label className="auth-label" htmlFor="name">Full Name</label>
+            <label className="auth-label" htmlFor="name">{t('auth.fullNameLabel')}</label>
             <div className="auth-input-wrapper">
               <div className="auth-input-icon">
                 <User size={18} />
@@ -104,7 +106,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ theme, onToggleTheme
                 name="name"
                 type="text"
                 className="auth-input"
-                placeholder="John Doe"
+                placeholder={t('auth.namePlaceholder')}
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 disabled={loading}
@@ -116,7 +118,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ theme, onToggleTheme
           </div>
 
           <div className="auth-field">
-            <label className="auth-label" htmlFor="email">Email Address</label>
+            <label className="auth-label" htmlFor="email">{t('auth.emailLabel')}</label>
             <div className="auth-input-wrapper">
               <div className="auth-input-icon">
                 <Mail size={18} />
@@ -126,7 +128,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ theme, onToggleTheme
                 name="email"
                 type="email"
                 className="auth-input"
-                placeholder="name@example.com"
+                placeholder={t('auth.emailPlaceholder')}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 disabled={loading}
@@ -140,7 +142,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ theme, onToggleTheme
           </div>
 
           <div className="auth-field">
-            <label className="auth-label" htmlFor="password">Password</label>
+            <label className="auth-label" htmlFor="password">{t('auth.passwordLabel')}</label>
             <div className="auth-input-wrapper">
               <div className="auth-input-icon">
                 <Lock size={18} />
@@ -150,7 +152,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ theme, onToggleTheme
                 name="password"
                 type="password"
                 className="auth-input"
-                placeholder="••••••••"
+                placeholder={t('auth.passwordPlaceholder')}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={loading}
@@ -162,12 +164,12 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ theme, onToggleTheme
 
           <button type="submit" className="auth-btn-primary" disabled={loading || !name || !email || !password} tabIndex={4}>
             {loading ? <Loader size={18} className="spinner" /> : <UserPlus size={18} />}
-            <span>{loading ? 'Creating account...' : 'Create Account'}</span>
+            <span>{loading ? t('auth.creatingAccount') : t('auth.createAccount')}</span>
           </button>
 
           <div className="auth-footer-text">
-            Already have an account?{' '}
-            <Link to="/login" className="auth-link" tabIndex={5}>Sign in here</Link>
+            {t('auth.alreadyHaveAccount')}{' '}
+            <Link to="/login" className="auth-link" tabIndex={5}>{t('auth.signInHere')}</Link>
           </div>
         </form>
       </div>
@@ -176,3 +178,4 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ theme, onToggleTheme
 };
 
 export default RegisterPage;
+

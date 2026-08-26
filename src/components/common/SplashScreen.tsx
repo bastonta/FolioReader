@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from '../../i18n';
 
 export interface SplashScreenProps {
   theme?: string;
@@ -11,13 +12,15 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({
   message,
   showSpinner = true,
 }) => {
+  const { t } = useTranslation();
+
   return (
-    <div className={`android-splash-container theme-${theme}`} aria-label="Loading Folio">
+    <div className={`android-splash-container theme-${theme}`} aria-label={t('common.loading')}>
       <div className="android-splash-center">
         <div className="android-splash-icon-wrapper">
           <img
             src="/icon.png"
-            alt="Folio"
+            alt={t('common.appName')}
             className="android-splash-icon"
             draggable={false}
           />
@@ -50,8 +53,8 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({
       </div>
 
       <div className="android-splash-footer">
-        <span className="android-splash-title">Folio</span>
-        <span className="android-splash-subtitle">E-Book Reader</span>
+        <span className="android-splash-title">{t('common.appName')}</span>
+        <span className="android-splash-subtitle">{t('common.appSubtitle')}</span>
       </div>
     </div>
   );

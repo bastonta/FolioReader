@@ -1,6 +1,7 @@
 import React from 'react';
 import { Modal } from '../common/Modal';
 import { Smartphone, Globe, RotateCcw, AlertCircle } from 'lucide-react';
+import { useTranslation } from '../../i18n';
 
 export interface ResetProgressModalProps {
   isOpen: boolean;
@@ -19,11 +20,13 @@ export const ResetProgressModal: React.FC<ResetProgressModalProps> = ({
   onClose,
   onConfirmReset,
 }) => {
+  const { t } = useTranslation();
+
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Reset Book Progress"
+      title={t('resetModal.title')}
       maxWidth="480px"
       footer={
         <div style={{ display: 'flex', justifyContent: 'flex-end', width: '100%' }}>
@@ -32,7 +35,7 @@ export const ResetProgressModal: React.FC<ResetProgressModalProps> = ({
             className="auth-btn-secondary"
             onClick={onClose}
           >
-            Cancel
+            {t('common.cancel')}
           </button>
         </div>
       }
@@ -43,13 +46,13 @@ export const ResetProgressModal: React.FC<ResetProgressModalProps> = ({
           <div>
             <h4 className="reset-modal-book-title">{bookTitle}</h4>
             {currentPercent !== undefined && (
-              <p className="reset-modal-book-meta">Current progress: {currentPercent}%</p>
+              <p className="reset-modal-book-meta">{t('resetModal.currentProgress', { percent: currentPercent })}</p>
             )}
           </div>
         </div>
 
         <p className="reset-modal-description">
-          Choose where to reset your reading position and progress status:
+          {t('resetModal.description')}
         </p>
 
         <div className="reset-modal-options">
@@ -66,9 +69,9 @@ export const ResetProgressModal: React.FC<ResetProgressModalProps> = ({
               <Smartphone size={22} />
             </div>
             <div className="reset-option-text">
-              <span className="reset-option-title">On this device only</span>
+              <span className="reset-option-title">{t('resetModal.deviceOnlyTitle')}</span>
               <span className="reset-option-subtitle">
-                Resets reading progress locally. Data on the Folio server will remain unchanged.
+                {t('resetModal.deviceOnlyDesc')}
               </span>
             </div>
           </button>
@@ -86,9 +89,9 @@ export const ResetProgressModal: React.FC<ResetProgressModalProps> = ({
               <Globe size={22} />
             </div>
             <div className="reset-option-text">
-              <span className="reset-option-title">Everywhere (device & server)</span>
+              <span className="reset-option-title">{t('resetModal.serverTitle')}</span>
               <span className="reset-option-subtitle">
-                Resets reading progress locally and deletes saved progress from the Folio server.
+                {t('resetModal.serverDesc')}
               </span>
             </div>
           </button>
@@ -97,7 +100,7 @@ export const ResetProgressModal: React.FC<ResetProgressModalProps> = ({
         {isOffline && (
           <div className="reset-modal-offline-hint">
             <AlertCircle size={14} />
-            <span>Device is offline. Server reset will take effect once connection is restored.</span>
+            <span>{t('resetModal.offlineHint')}</span>
           </div>
         )}
       </div>

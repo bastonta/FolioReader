@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { BookOpen, LogIn, Lock, Mail, AlertCircle, ShieldCheck, KeyRound, ArrowLeft, Server, Loader } from 'lucide-react';
 import { ThemeToggle } from '../components/common/ThemeToggle';
 import { useBackHandler } from '../services/backHandler';
+import { useTranslation } from '../i18n';
 
 interface LoginPageProps {
   theme?: string;
@@ -11,6 +12,7 @@ interface LoginPageProps {
 }
 
 export const LoginPage: React.FC<LoginPageProps> = ({ theme, onToggleTheme }) => {
+  const { t } = useTranslation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -28,7 +30,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ theme, onToggleTheme }) =>
     setError('');
     
     if (!email || !password) {
-      setError('Please enter both email and password');
+      setError(t('auth.enterEmailAndPassword'));
       return;
     }
 
@@ -41,7 +43,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ theme, onToggleTheme }) =>
         navigate('/', { replace: true });
       }
     } catch (err) {
-      setError((err as any)?.message || 'Invalid email or password');
+      setError((err as any)?.message || t('auth.invalidCredentials'));
     } finally {
       setLoading(false);
     }
@@ -52,7 +54,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ theme, onToggleTheme }) =>
     setError('');
 
     if (!twoFactorCode) {
-      setError('Please enter the code');
+      setError(t('auth.enterCode'));
       return;
     }
 
@@ -61,7 +63,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ theme, onToggleTheme }) =>
       await login2fa(twoFactorData!.userId, twoFactorData!.token, twoFactorCode, isRecovery ? 'recovery' : 'code');
       navigate('/', { replace: true });
     } catch (err) {
-      setError((err as any)?.message || 'Invalid code');
+      setError((err as any)?.message || t('auth.invalidCode'));
     } finally {
       setLoading(false);
     }
@@ -104,7 +106,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ theme, onToggleTheme }) =>
             }}
             tabIndex={twoFactorData ? 6 : 7}
             role="button"
-            title="Change server"
+            title={t('auth.changeServer')}
           >
             <Server size={14} />
             <span>{new URL(serverUrl).host}</span>
@@ -116,12 +118,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({ theme, onToggleTheme }) =>
             {twoFactorData ? <ShieldCheck size={24} /> : <BookOpen size={24} />}
           </div>
           <h1 className="auth-title">
-            {twoFactorData ? 'Two-Factor Authentication' : 'Welcome Back'}
+            {twoFactorData ? t('auth.twoFactorTitle') : t('auth.welcomeBack')}
           </h1>
           <p className="auth-subtitle">
             {twoFactorData 
-              ? (isRecovery ? 'Enter one of your recovery codes to sign in' : 'Enter the 6-digit code from your authenticator app')
-              : 'Sign in to your Folio digital library'}
+              ? (isRecovery ? t('auth.twoFactorRecoverySubtitle') : t('auth.twoFactorSubtitle'))
+              : t('auth.signInSubtitle')}
           </p>
         </div>
 
@@ -135,7 +137,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ theme, onToggleTheme }) =>
         {!twoFactorData ? (
           <form className="auth-form" onSubmit={handleLoginSubmit}>
             <div className="auth-field">
-              <label className="auth-label" htmlFor="email">Email Address</label>
+              <label className="auth-label" htmlFor="email">{t('auth.emailLabel')}</label>
               <div className="auth-input-wrapper">
                 <div className="auth-input-icon">
                   <Mail size={18} />
@@ -145,7 +147,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ theme, onToggleTheme }) =>
                   name="email"
                   type="email"
                   className="auth-input"
-                  placeholder="name@example.com"
+                  placeholder={t('auth.emailPlaceholder')}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   disabled={loading}
@@ -161,8 +163,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ theme, onToggleTheme }) =>
 
             <div className="auth-field">
               <div className="auth-label-row">
-                <label className="auth-label" htmlFor="password">Password</label>
-                <Link to="/forgot-password" className="auth-link-sm" tabIndex={4}>Forgot password?</Link>
+                <label className="auth-label" htmlFor="password">{t('auth.passwordLabel')}</label>
+                <Link to="/forgot-password" className="auth-link-sm" tabIndex={4}>{t('auth.forgotPassword')}</Link>
               </div>
               <div className="auth-input-wrapper">
                 <div className="auth-input-icon">
@@ -173,7 +175,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ theme, onToggleTheme }) =>
                   name="password"
                   type="password"
                   className="auth-input"
-                  placeholder="••••••••"
+                  placeholder={t('auth.passwordPlaceholder')}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   disabled={loading}
@@ -185,19 +187,19 @@ export const LoginPage: React.FC<LoginPageProps> = ({ theme, onToggleTheme }) =>
 
             <button type="submit" className="auth-btn-primary" disabled={loading || !email || !password} tabIndex={3}>
               {loading ? <Loader size={18} className="spinner" /> : <LogIn size={18} />}
-              <span>{loading ? 'Signing in...' : 'Sign In'}</span>
+              <span>{loading ? t('auth.signingIn') : t('auth.signIn')}</span>
             </button>
 
             <div className="auth-footer-text">
-              Don't have an account?{' '}
-              <Link to="/register" className="auth-link" tabIndex={5}>Register here</Link>
+              {t('auth.noAccount')}{' '}
+              <Link to="/register" className="auth-link" tabIndex={5}>{t('auth.registerHere')}</Link>
             </div>
           </form>
         ) : (
           <form className="auth-form" onSubmit={handle2faSubmit} autoComplete="off">
             <div className="auth-field">
               <label className="auth-label" htmlFor="code">
-                {isRecovery ? 'Recovery Code' : '6-Digit TOTP Code'}
+                {isRecovery ? t('auth.recoveryCodeLabel') : t('auth.totpCodeLabel')}
               </label>
               <div className="auth-input-wrapper">
                 <div className="auth-input-icon">
@@ -222,7 +224,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ theme, onToggleTheme }) =>
 
             <button type="submit" className="auth-btn-primary" disabled={loading || !twoFactorCode} tabIndex={2}>
               {loading ? <Loader size={18} className="spinner" /> : <ShieldCheck size={18} />}
-              <span>{loading ? 'Verifying...' : 'Verify & Sign In'}</span>
+              <span>{loading ? t('auth.verifying') : t('auth.verifySignIn')}</span>
             </button>
 
             <button 
@@ -236,7 +238,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ theme, onToggleTheme }) =>
               disabled={loading}
               tabIndex={3}
             >
-              {isRecovery ? 'Use authenticator app code' : 'Use recovery code instead'}
+              {isRecovery ? t('auth.useAuthenticatorCode') : t('auth.useRecoveryCode')}
             </button>
             
             <button 
@@ -247,7 +249,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ theme, onToggleTheme }) =>
               tabIndex={4}
             >
               <ArrowLeft size={16} />
-              <span>Back to Sign In</span>
+              <span>{t('auth.backToSignIn')}</span>
             </button>
           </form>
         )}
@@ -257,3 +259,4 @@ export const LoginPage: React.FC<LoginPageProps> = ({ theme, onToggleTheme }) =>
 };
 
 export default LoginPage;
+

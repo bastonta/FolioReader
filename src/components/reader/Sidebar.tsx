@@ -13,6 +13,7 @@ import {
   PinOff,
   RefreshCw,
 } from 'lucide-react';
+import { useTranslation } from '../../i18n';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -57,17 +58,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSyncProgress,
   isSyncing = false,
 }) => {
+  const { t } = useTranslation();
+
   if (!isOpen) return null;
 
   return (
     <aside className={`sidebar-container ${isPinned ? 'pinned' : 'floating'}`}>
-      {/* Book Metadata Header matching Screenshot 1 */}
+      {/* Book Metadata Header */}
       <div className="sidebar-book-header">
         <div className="sidebar-book-cover-wrap">
           {metadata?.coverUrl ? (
             <img
               src={metadata.coverUrl}
-              alt={metadata.title || 'Book Cover'}
+              alt={metadata.title || t('common.untitledBook')}
               className="sidebar-book-cover"
             />
           ) : (
@@ -79,10 +82,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         <div className="sidebar-book-info">
           <h4 className="sidebar-book-title" title={metadata?.title}>
-            {metadata?.title || 'Untitled'}
+            {metadata?.title || t('common.untitledBook')}
           </h4>
           <p className="sidebar-book-author" title={metadata?.author}>
-            {metadata?.author || 'Unknown Author'}
+            {metadata?.author || t('common.unknownAuthor')}
           </p>
         </div>
 
@@ -93,8 +96,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               className="sidebar-info-btn sidebar-sync-btn"
               onClick={onSyncProgress}
               disabled={isSyncing}
-              title={isSyncing ? 'Syncing progress...' : 'Sync Progress with Server'}
-              aria-label="Sync Progress with Server"
+              title={isSyncing ? t('reader.syncing') : t('reader.syncProgress')}
+              aria-label={t('reader.syncProgress')}
             >
               <RefreshCw size={15} className={isSyncing ? 'animate-spin' : ''} />
             </button>
@@ -104,8 +107,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             type="button"
             className="sidebar-info-btn"
             onClick={onOpenBookInfo}
-            title="Book Details"
-            aria-label="Book Details"
+            title={t('reader.bookDetails')}
+            aria-label={t('reader.bookDetails')}
           >
             <Info size={16} />
           </button>
@@ -115,8 +118,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               type="button"
               className={`sidebar-info-btn sidebar-pin-btn ${isPinned ? 'active' : ''}`}
               onClick={onTogglePin}
-              title={isPinned ? 'Unpin Sidebar' : 'Pin Sidebar'}
-              aria-label={isPinned ? 'Unpin Sidebar' : 'Pin Sidebar'}
+              title={isPinned ? t('reader.unpinSidebar') : t('reader.pinSidebar')}
+              aria-label={isPinned ? t('reader.unpinSidebar') : t('reader.pinSidebar')}
             >
               {isPinned ? <Pin size={16} /> : <PinOff size={16} />}
             </button>
@@ -152,7 +155,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         )}
       </div>
 
-      {/* Bottom Tabs Switcher matching Screenshots 1 & 3 */}
+      {/* Bottom Tabs Switcher */}
       <nav className="sidebar-bottom-nav" aria-label="Sidebar navigation">
         <button
           type="button"
@@ -160,7 +163,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           onClick={() => onTabChange('contents')}
         >
           <List size={16} />
-          <span>Contents</span>
+          <span>{t('reader.contentsTab')}</span>
         </button>
 
         <button
@@ -169,7 +172,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           onClick={() => onTabChange('annotations')}
         >
           <Edit3 size={16} />
-          <span>Annotations</span>
+          <span>{t('reader.annotationsTab')}</span>
         </button>
 
         <button
@@ -178,9 +181,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
           onClick={() => onTabChange('bookmarks')}
         >
           <BookmarkIcon size={16} />
-          <span>Bookmarks</span>
+          <span>{t('reader.bookmarksTab')}</span>
         </button>
       </nav>
     </aside>
   );
 };
+

@@ -14,6 +14,7 @@ import {
   AlignLeft,
   BookmarkCheck,
 } from 'lucide-react';
+import { useTranslation } from '../../i18n';
 
 interface BookInfoModalProps {
   isOpen: boolean;
@@ -29,20 +30,20 @@ interface BookInfoModalProps {
 const formatLanguage = (lang?: string): string => {
   if (!lang) return '';
   const map: Record<string, string> = {
-    ru: 'Russian (ru)',
+    ru: 'Русский (ru)',
     en: 'English (en)',
-    es: 'Spanish (es)',
-    fr: 'French (fr)',
-    de: 'German (de)',
-    it: 'Italian (it)',
-    zh: 'Chinese (zh)',
-    ja: 'Japanese (ja)',
-    ko: 'Korean (ko)',
-    uk: 'Ukrainian (uk)',
-    pl: 'Polish (pl)',
-    pt: 'Portuguese (pt)',
-    tr: 'Turkish (tr)',
-    kk: 'Kazakh (kk)',
+    es: 'Español (es)',
+    fr: 'Français (fr)',
+    de: 'Deutsch (de)',
+    it: 'Italiano (it)',
+    zh: '中文 (zh)',
+    ja: '日本語 (ja)',
+    ko: '한국어 (ko)',
+    uk: 'Українська (uk)',
+    pl: 'Polski (pl)',
+    pt: 'Português (pt)',
+    tr: 'Türkçe (tr)',
+    kk: 'Қазақша (kk)',
   };
   const code = lang.toLowerCase().trim();
   return map[code] || lang;
@@ -66,6 +67,7 @@ export const BookInfoModal: React.FC<BookInfoModalProps> = ({
   isSyncing = false,
   syncMessage,
 }) => {
+  const { t } = useTranslation();
   const [copiedId, setCopiedId] = useState(false);
 
   if (!metadata) return null;
@@ -80,7 +82,7 @@ export const BookInfoModal: React.FC<BookInfoModalProps> = ({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Book Details" maxWidth="580px">
+    <Modal isOpen={isOpen} onClose={onClose} title={t('reader.bookDetails')} maxWidth="580px">
       <div className="book-info-layout">
         {/* Book Cover */}
         <div className="book-info-cover-wrap">
@@ -102,14 +104,14 @@ export const BookInfoModal: React.FC<BookInfoModalProps> = ({
 
         {/* Core Metadata */}
         <div className="book-info-details">
-          <h3 className="book-info-title">{metadata.title || 'Untitled Book'}</h3>
-          <p className="book-info-author">{metadata.author || 'Unknown Author'}</p>
+          <h3 className="book-info-title">{metadata.title || t('common.untitledBook')}</h3>
+          <p className="book-info-author">{metadata.author || t('common.unknownAuthor')}</p>
 
           <div className="book-info-meta-list">
             {metadata.publisher && (
               <div className="book-info-meta-item">
                 <Building size={15} className="book-info-icon" />
-                <span className="book-info-meta-label">Publisher:</span>
+                <span className="book-info-meta-label">{t('reader.publisher')}:</span>
                 <span className="book-info-meta-val">{metadata.publisher}</span>
               </div>
             )}
@@ -117,7 +119,7 @@ export const BookInfoModal: React.FC<BookInfoModalProps> = ({
             {metadata.published && (
               <div className="book-info-meta-item">
                 <Calendar size={15} className="book-info-icon" />
-                <span className="book-info-meta-label">Published:</span>
+                <span className="book-info-meta-label">{t('reader.published')}:</span>
                 <span className="book-info-meta-val">{metadata.published}</span>
               </div>
             )}
@@ -125,7 +127,7 @@ export const BookInfoModal: React.FC<BookInfoModalProps> = ({
             {metadata.language && (
               <div className="book-info-meta-item">
                 <Globe size={15} className="book-info-icon" />
-                <span className="book-info-meta-label">Language:</span>
+                <span className="book-info-meta-label">{t('reader.language')}:</span>
                 <span className="book-info-meta-val">{formatLanguage(metadata.language)}</span>
               </div>
             )}
@@ -133,7 +135,7 @@ export const BookInfoModal: React.FC<BookInfoModalProps> = ({
             {metadata.identifier && (
               <div className="book-info-meta-item" style={{ alignItems: 'flex-start' }}>
                 <Hash size={15} className="book-info-icon" style={{ marginTop: 2 }} />
-                <span className="book-info-meta-label">ID:</span>
+                <span className="book-info-meta-label">{t('reader.bookId')}:</span>
                 <div className="book-info-id-wrapper">
                   <span className="book-info-id-badge" title={metadata.identifier}>
                     {metadata.identifier}
@@ -142,8 +144,8 @@ export const BookInfoModal: React.FC<BookInfoModalProps> = ({
                     type="button"
                     className="book-info-copy-btn"
                     onClick={handleCopyIdentifier}
-                    title="Copy Identifier"
-                    aria-label="Copy Identifier"
+                    title={t('reader.copyIdentifier')}
+                    aria-label={t('reader.copyIdentifier')}
                   >
                     {copiedId ? <Check size={12} style={{ color: '#22c55e' }} /> : <Copy size={12} />}
                   </button>
@@ -159,7 +161,7 @@ export const BookInfoModal: React.FC<BookInfoModalProps> = ({
         <div className="book-info-section book-info-tags-section">
           <div className="book-info-section-header">
             <Tag size={14} className="book-info-icon" />
-            <span className="book-info-section-title">Subjects & Genres</span>
+            <span className="book-info-section-title">{t('reader.subjectsGenres')}</span>
           </div>
           <div className="book-info-chips-list">
             {subjects.map((sub, idx) => (
@@ -178,7 +180,7 @@ export const BookInfoModal: React.FC<BookInfoModalProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <BookmarkCheck size={16} className="book-info-icon" />
               <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
-                Reading Progress
+                {t('reader.readingProgress')}
               </span>
             </div>
             {progressPercent !== undefined && (
@@ -197,7 +199,7 @@ export const BookInfoModal: React.FC<BookInfoModalProps> = ({
 
           {currentChapter && (
             <p className="book-info-progress-chapter" title={currentChapter}>
-              Current: {currentChapter}
+              {t('reader.currentChapter', { chapter: currentChapter })}
             </p>
           )}
 
@@ -208,10 +210,10 @@ export const BookInfoModal: React.FC<BookInfoModalProps> = ({
                 className="book-info-sync-btn"
                 onClick={onSyncProgress}
                 disabled={isSyncing}
-                title="Fetch latest reading progress from server"
+                title={t('reader.syncProgress')}
               >
                 <RefreshCw size={14} className={isSyncing ? 'animate-spin' : ''} />
-                <span>{isSyncing ? 'Syncing...' : 'Sync Progress with Server'}</span>
+                <span>{isSyncing ? t('reader.syncing') : t('reader.syncProgress')}</span>
               </button>
               {syncMessage && (
                 <span className="book-info-sync-msg">{syncMessage}</span>
@@ -226,7 +228,7 @@ export const BookInfoModal: React.FC<BookInfoModalProps> = ({
         <div className="book-info-section book-info-description">
           <div className="book-info-section-header">
             <AlignLeft size={14} className="book-info-icon" />
-            <h4 className="book-info-desc-heading">Description</h4>
+            <h4 className="book-info-desc-heading">{t('reader.description')}</h4>
           </div>
           <div
             className="book-info-desc-body"
@@ -237,4 +239,5 @@ export const BookInfoModal: React.FC<BookInfoModalProps> = ({
     </Modal>
   );
 };
+
 

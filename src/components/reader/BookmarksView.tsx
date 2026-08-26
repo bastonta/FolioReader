@@ -1,6 +1,7 @@
 import React from 'react';
 import { Bookmark } from '../../types/reader';
 import { Bookmark as BookmarkIcon, Plus, Trash2 } from 'lucide-react';
+import { useTranslation } from '../../i18n';
 
 interface BookmarksViewProps {
   bookmarks: Bookmark[];
@@ -15,6 +16,8 @@ export const BookmarksView: React.FC<BookmarksViewProps> = ({
   onDeleteBookmark,
   onAddCurrentBookmark,
 }) => {
+  const { t } = useTranslation();
+
   return (
     <div className="bookmarks-view-container">
       <div className="bookmarks-action-bar">
@@ -24,7 +27,7 @@ export const BookmarksView: React.FC<BookmarksViewProps> = ({
           onClick={onAddCurrentBookmark}
         >
           <Plus size={16} />
-          <span>Bookmark Current Page</span>
+          <span>{t('reader.bookmarkCurrentPage')}</span>
         </button>
       </div>
 
@@ -32,7 +35,7 @@ export const BookmarksView: React.FC<BookmarksViewProps> = ({
         {bookmarks.length === 0 ? (
           <div className="sidebar-empty-state">
             <BookmarkIcon size={28} className="empty-state-icon" />
-            <p>No bookmarks saved yet. Click the button above to bookmark your current reading page.</p>
+            <p>{t('reader.noBookmarks')}</p>
           </div>
         ) : (
           <div className="bookmarks-cards-list">
@@ -46,7 +49,7 @@ export const BookmarksView: React.FC<BookmarksViewProps> = ({
                   <BookmarkIcon size={16} className="bookmark-icon-accent" />
                   <div className="bookmark-card-text">
                     <h5 className="bookmark-chapter-title">
-                      {bm.chapterTitle || bm.locationLabel || 'Page Bookmark'}
+                      {bm.chapterTitle || bm.locationLabel || t('reader.pageBookmark')}
                     </h5>
                     {bm.textSnippet && (
                       <p className="bookmark-snippet">{bm.textSnippet}</p>
@@ -73,8 +76,8 @@ export const BookmarksView: React.FC<BookmarksViewProps> = ({
                       e.stopPropagation();
                       onDeleteBookmark(bm.id);
                     }}
-                    title="Delete bookmark"
-                    aria-label="Delete bookmark"
+                    title={t('reader.deleteBookmark')}
+                    aria-label={t('reader.deleteBookmark')}
                   >
                     <Trash2 size={14} />
                   </button>
@@ -87,3 +90,4 @@ export const BookmarksView: React.FC<BookmarksViewProps> = ({
     </div>
   );
 };
+

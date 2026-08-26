@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { authApi } from '../api/authApi';
 import { KeyRound, Mail, Lock, AlertCircle, CheckCircle2, ArrowLeft, RefreshCw, ShieldCheck, Loader } from 'lucide-react';
 import { ThemeToggle } from '../components/common/ThemeToggle';
+import { useTranslation } from '../i18n';
 
 interface ForgotPasswordPageProps {
   theme?: string;
@@ -10,6 +11,7 @@ interface ForgotPasswordPageProps {
 }
 
 export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, onToggleTheme }) => {
+  const { t } = useTranslation();
   const [step, setStep] = useState<'REQUEST' | 'VERIFY' | 'RESET' | 'SUCCESS'>('REQUEST');
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
@@ -34,7 +36,7 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
     setError('');
 
     if (!email) {
-      setError('Please enter your email');
+      setError(t('auth.enterEmail'));
       return;
     }
 
@@ -44,7 +46,7 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
       setStep('VERIFY');
       setCountdown(60);
     } catch (err) {
-      setError((err as any)?.message || 'Failed to send reset code');
+      setError((err as any)?.message || t('auth.sendResetCodeFailed'));
     } finally {
       setLoading(false);
     }
@@ -55,7 +57,7 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
     setError('');
 
     if (!code) {
-      setError('Please enter the code');
+      setError(t('auth.enterCode'));
       return;
     }
 
@@ -65,7 +67,7 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
       setToken(res.token);
       setStep('RESET');
     } catch (err) {
-      setError((err as any)?.message || 'Invalid code');
+      setError((err as any)?.message || t('auth.invalidCode'));
     } finally {
       setLoading(false);
     }
@@ -76,12 +78,12 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
     setError('');
 
     if (password !== confirmPassword) {
-      setError('Passwords do not match');
+      setError(t('auth.passwordsDoNotMatch'));
       return;
     }
 
     if (password.length < 8) {
-      setError('Password must be at least 8 characters');
+      setError(t('auth.passwordMinLength'));
       return;
     }
 
@@ -90,7 +92,7 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
       await authApi.passwordReset(email, token, password);
       setStep('SUCCESS');
     } catch (err) {
-      setError((err as any)?.message || 'Failed to reset password');
+      setError((err as any)?.message || t('auth.resetPasswordFailed'));
     } finally {
       setLoading(false);
     }
@@ -103,7 +105,7 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
       await authApi.passwordForgot(email);
       setCountdown(60);
     } catch (err) {
-      setError((err as any)?.message || 'Failed to resend code');
+      setError((err as any)?.message || t('auth.resendFailed'));
     } finally {
       setLoading(false);
     }
@@ -121,8 +123,8 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
               <div className="auth-icon-badge">
                 <KeyRound size={24} />
               </div>
-              <h1 className="auth-title">Forgot Password</h1>
-              <p className="auth-subtitle">Enter your email to receive a reset code</p>
+              <h1 className="auth-title">{t('auth.forgotPasswordTitle')}</h1>
+              <p className="auth-subtitle">{t('auth.forgotPasswordSubtitle')}</p>
             </div>
 
             {error && (
@@ -134,7 +136,7 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
 
             <form className="auth-form" onSubmit={handleRequest}>
               <div className="auth-field">
-                <label className="auth-label" htmlFor="email">Email Address</label>
+                <label className="auth-label" htmlFor="email">{t('auth.emailLabel')}</label>
                 <div className="auth-input-wrapper">
                   <div className="auth-input-icon">
                     <Mail size={18} />
@@ -144,7 +146,7 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
                     name="email"
                     type="email"
                     className="auth-input"
-                    placeholder="name@example.com"
+                    placeholder={t('auth.emailPlaceholder')}
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     disabled={loading}
@@ -160,7 +162,7 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
 
               <button type="submit" className="auth-btn-primary" disabled={loading || !email} tabIndex={2}>
                 {loading ? <Loader size={18} className="spinner" /> : <Mail size={18} />}
-                <span>{loading ? 'Sending...' : 'Send Reset Code'}</span>
+                <span>{loading ? t('auth.sending') : t('auth.sendResetCode')}</span>
               </button>
             </form>
           </>
@@ -172,8 +174,8 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
               <div className="auth-icon-badge">
                 <ShieldCheck size={24} />
               </div>
-              <h1 className="auth-title">Verify Code</h1>
-              <p className="auth-subtitle">Enter the 6-digit code sent to {email}</p>
+              <h1 className="auth-title">{t('auth.verifyCodeTitle')}</h1>
+              <p className="auth-subtitle">{t('auth.verifyCodeSubtitle', { email })}</p>
             </div>
 
             {error && (
@@ -185,7 +187,7 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
 
             <form className="auth-form" onSubmit={handleVerify} autoComplete="off">
               <div className="auth-field">
-                <label className="auth-label" htmlFor="code">Reset Code</label>
+                <label className="auth-label" htmlFor="code">{t('auth.resetCodeLabel')}</label>
                 <div className="auth-input-wrapper">
                   <div className="auth-input-icon">
                     <KeyRound size={18} />
@@ -209,7 +211,7 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
 
               <button type="submit" className="auth-btn-primary" disabled={loading || code.length !== 6} tabIndex={2}>
                 {loading ? <Loader size={18} className="spinner" /> : <ShieldCheck size={18} />}
-                <span>{loading ? 'Verifying...' : 'Verify Code'}</span>
+                <span>{loading ? t('auth.verifying') : t('auth.verifyCodeTitle')}</span>
               </button>
 
               <button 
@@ -221,7 +223,7 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
               >
                 <RefreshCw size={16} className={countdown > 0 ? '' : 'spin-on-hover'} />
                 <span>
-                  {countdown > 0 ? `Resend code in ${countdown}s` : 'Resend code'}
+                  {countdown > 0 ? t('auth.resendCodeIn', { count: countdown }) : t('auth.resendCode')}
                 </span>
               </button>
             </form>
@@ -234,8 +236,8 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
               <div className="auth-icon-badge">
                 <Lock size={24} />
               </div>
-              <h1 className="auth-title">New Password</h1>
-              <p className="auth-subtitle">Enter your new password below</p>
+              <h1 className="auth-title">{t('auth.newPasswordTitle')}</h1>
+              <p className="auth-subtitle">{t('auth.newPasswordSubtitle')}</p>
             </div>
 
             {error && (
@@ -247,7 +249,7 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
 
             <form className="auth-form" onSubmit={handleReset}>
               <div className="auth-field">
-                <label className="auth-label" htmlFor="password">New Password</label>
+                <label className="auth-label" htmlFor="password">{t('auth.newPasswordLabel')}</label>
                 <div className="auth-input-wrapper">
                   <div className="auth-input-icon">
                     <Lock size={18} />
@@ -257,7 +259,7 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
                     name="password"
                     type="password"
                     className="auth-input"
-                    placeholder="••••••••"
+                    placeholder={t('auth.passwordPlaceholder')}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     disabled={loading}
@@ -268,7 +270,7 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
               </div>
 
               <div className="auth-field">
-                <label className="auth-label" htmlFor="confirmPassword">Confirm Password</label>
+                <label className="auth-label" htmlFor="confirmPassword">{t('auth.confirmPasswordLabel')}</label>
                 <div className="auth-input-wrapper">
                   <div className="auth-input-icon">
                     <Lock size={18} />
@@ -278,7 +280,7 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
                     name="confirmPassword"
                     type="password"
                     className="auth-input"
-                    placeholder="••••••••"
+                    placeholder={t('auth.passwordPlaceholder')}
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     disabled={loading}
@@ -290,7 +292,7 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
 
               <button type="submit" className="auth-btn-primary" disabled={loading || !password || !confirmPassword} tabIndex={3}>
                 {loading ? <Loader size={18} className="spinner" /> : <Lock size={18} />}
-                <span>{loading ? 'Resetting...' : 'Reset Password'}</span>
+                <span>{loading ? t('auth.resetting') : t('auth.resetPasswordBtn')}</span>
               </button>
             </form>
           </>
@@ -301,11 +303,11 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
             <div className="auth-icon-badge success">
               <CheckCircle2 size={24} />
             </div>
-            <h1 className="auth-title">Password Reset</h1>
-            <p className="auth-subtitle">Your password has been successfully reset.</p>
+            <h1 className="auth-title">{t('auth.passwordResetSuccessTitle')}</h1>
+            <p className="auth-subtitle">{t('auth.passwordResetSuccessSubtitle')}</p>
             <br />
             <Link to="/login" className="auth-btn-primary" style={{ textDecoration: 'none' }} tabIndex={1}>
-              Back to Sign In
+              {t('auth.backToSignIn')}
             </Link>
           </div>
         )}
@@ -313,7 +315,7 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
         {step !== 'SUCCESS' && (
           <div className="auth-footer-text">
             <Link to="/login" className="auth-link" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }} tabIndex={step === 'RESET' ? 4 : (step === 'VERIFY' ? 4 : 3)}>
-              <ArrowLeft size={16} /> Back to Sign In
+              <ArrowLeft size={16} /> {t('auth.backToSignIn')}
             </Link>
           </div>
         )}
@@ -324,3 +326,4 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
 };
 
 export default ForgotPasswordPage;
+

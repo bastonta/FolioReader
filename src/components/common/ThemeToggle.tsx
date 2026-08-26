@@ -1,5 +1,6 @@
 import React from 'react';
 import { Sun, Moon } from 'lucide-react';
+import { useTranslation } from '../../i18n';
 
 interface ThemeToggleProps {
   theme?: string;
@@ -14,6 +15,7 @@ export const ThemeToggle: React.FC<ThemeToggleProps> = ({
   className = '',
   tabIndex,
 }) => {
+  const { t } = useTranslation();
   const isDark = theme === 'dark' || theme === 'gray';
 
   return (
@@ -21,18 +23,18 @@ export const ThemeToggle: React.FC<ThemeToggleProps> = ({
       type="button"
       onClick={onToggle}
       className={`auth-theme-toggle ${className}`}
-      title={isDark ? 'Switch to Light Theme' : 'Switch to Dark Theme'}
+      title={isDark ? t('theme.switchToLight') : t('theme.switchToDark')}
       tabIndex={tabIndex}
     >
       {isDark ? (
         <>
           <Sun size={16} className="theme-toggle-sun" />
-          <span className="theme-toggle-label">Light Mode</span>
+          <span className="theme-toggle-label">{t('theme.lightMode')}</span>
         </>
       ) : (
         <>
           <Moon size={16} className="theme-toggle-moon" />
-          <span className="theme-toggle-label">Dark Mode</span>
+          <span className="theme-toggle-label">{t('theme.darkMode')}</span>
         </>
       )}
     </button>

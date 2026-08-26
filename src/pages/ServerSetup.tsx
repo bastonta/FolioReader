@@ -10,6 +10,7 @@ import { useNavigate } from "react-router-dom";
 import { fetch } from "@tauri-apps/plugin-http";
 import { useAuth } from "../context/AuthContext";
 import { ThemeToggle } from "../components/common/ThemeToggle";
+import { useTranslation } from "../i18n";
 
 interface ServerSetupProps {
   theme?: string;
@@ -17,6 +18,7 @@ interface ServerSetupProps {
 }
 
 export const ServerSetup: React.FC<ServerSetupProps> = ({ theme, onToggleTheme }) => {
+  const { t } = useTranslation();
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -28,7 +30,7 @@ export const ServerSetup: React.FC<ServerSetupProps> = ({ theme, onToggleTheme }
     setError("");
 
     if (!url) {
-      setError("Server URL is required");
+      setError(t('auth.serverUrlRequired'));
       return;
     }
 
@@ -58,7 +60,7 @@ export const ServerSetup: React.FC<ServerSetupProps> = ({ theme, onToggleTheme }
     } catch (err) {
       setError(
         (err as any)?.message ||
-          "Failed to connect to server. Please check the URL.",
+          t('auth.serverConnectFailed'),
       );
     } finally {
       setLoading(false);
@@ -75,8 +77,8 @@ export const ServerSetup: React.FC<ServerSetupProps> = ({ theme, onToggleTheme }
           <div className="auth-icon-badge">
             <BookOpen size={24} />
           </div>
-          <h1 className="auth-title">Connect to Server</h1>
-          <p className="auth-subtitle">Enter your Folio server address</p>
+          <h1 className="auth-title">{t('auth.connectToServer')}</h1>
+          <p className="auth-subtitle">{t('auth.enterServerAddress')}</p>
         </div>
 
         {error && (
@@ -89,7 +91,7 @@ export const ServerSetup: React.FC<ServerSetupProps> = ({ theme, onToggleTheme }
         <form className="auth-form" onSubmit={handleSubmit} autoComplete="off">
           <div className="auth-field">
             <label className="auth-label" htmlFor="serverUrl">
-              Server URL
+              {t('auth.serverUrlLabel')}
             </label>
             <div className="auth-input-wrapper">
               <div className="auth-input-icon">
@@ -125,7 +127,7 @@ export const ServerSetup: React.FC<ServerSetupProps> = ({ theme, onToggleTheme }
             ) : (
               <ArrowRight size={18} />
             )}
-            <span>{loading ? "Connecting..." : "Connect"}</span>
+            <span>{loading ? t('auth.connecting') : t('auth.connect')}</span>
           </button>
         </form>
       </div>
@@ -134,3 +136,4 @@ export const ServerSetup: React.FC<ServerSetupProps> = ({ theme, onToggleTheme }
 };
 
 export default ServerSetup;
+

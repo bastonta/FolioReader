@@ -9,9 +9,10 @@ import {
   LogOut, Pencil, Info, Calendar
 } from 'lucide-react';
 import { APP_VERSION, BUILD_TIME, formatBuildTime } from '../constants/buildInfo';
-
+import { useTranslation } from '../i18n';
 
 export const ProfilePage: React.FC = () => {
+  const { t } = useTranslation();
   const { user, serverUrl, clearServer, logout, refreshUser } = useAuth();
   const navigate = useNavigate();
 
@@ -66,7 +67,7 @@ export const ProfilePage: React.FC = () => {
     try {
       await profileApi.updateProfile(newName);
       await refreshUser();
-      setSuccessMsg('Profile updated successfully');
+      setSuccessMsg(t('profile.profileUpdated'));
       setIsEditingName(false);
     } catch (err) {
       setError((err as any)?.message || 'Failed to update profile');
@@ -79,7 +80,7 @@ export const ProfilePage: React.FC = () => {
     e.preventDefault();
     clearMessages();
     if (passwordData.newPassword !== passwordData.confirmPassword) {
-      setError('New passwords do not match');
+      setError(t('auth.passwordsDoNotMatch'));
       return;
     }
     setIsLoading(true);
@@ -88,7 +89,7 @@ export const ProfilePage: React.FC = () => {
         passwordData.oldPassword,
         passwordData.newPassword
       );
-      setSuccessMsg('Password changed successfully');
+      setSuccessMsg(t('profile.passwordChanged'));
       setShowPasswordChange(false);
       setPasswordData({ oldPassword: '', newPassword: '', confirmPassword: '' });
     } catch (err) {
@@ -108,7 +109,7 @@ export const ProfilePage: React.FC = () => {
         emailData.currentPassword
       );
       setEmailChangeStep(2);
-      setSuccessMsg('Verification code sent to new email');
+      setSuccessMsg(t('profile.verificationCodeSent'));
     } catch (err) {
       setError((err as any)?.message || 'Failed to request email change');
     } finally {
@@ -126,7 +127,7 @@ export const ProfilePage: React.FC = () => {
         emailData.code
       );
       await refreshUser();
-      setSuccessMsg('Email changed successfully');
+      setSuccessMsg(t('profile.emailChanged'));
       setShowEmailChange(false);
       setEmailChangeStep(1);
       setEmailData({ newEmail: '', currentPassword: '', code: '' });
@@ -161,10 +162,10 @@ export const ProfilePage: React.FC = () => {
       const { recoveryCodes } = await profileApi.confirm2fa(twoFaCode);
       await refreshUser();
       setRecoveryCodes(recoveryCodes);
-      setSuccessMsg('Two-factor authentication enabled successfully');
+      setSuccessMsg(t('profile.twoFactorEnabledSuccess'));
       setTwoFaSetupData(null);
     } catch (err) {
-      setError((err as any)?.message || 'Invalid code');
+      setError((err as any)?.message || t('auth.invalidCode'));
     } finally {
       setIsLoading(false);
     }
@@ -177,7 +178,7 @@ export const ProfilePage: React.FC = () => {
     try {
       await profileApi.disable2fa(disable2FAPassword);
       await refreshUser();
-      setSuccessMsg('Two-factor authentication disabled');
+      setSuccessMsg(t('profile.twoFactorDisabledSuccess'));
       setShowDisable2FA(false);
       setDisable2FAPassword('');
     } catch (err) {
@@ -195,7 +196,7 @@ export const ProfilePage: React.FC = () => {
       const { recoveryCodes } = await profileApi.getRecoveryCodes(viewCodesTotp);
       setRecoveryCodes(recoveryCodes);
     } catch (err) {
-      setError((err as any)?.message || 'Invalid code');
+      setError((err as any)?.message || t('auth.invalidCode'));
     } finally {
       setIsLoading(false);
     }
@@ -203,7 +204,7 @@ export const ProfilePage: React.FC = () => {
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
-    setSuccessMsg('Copied to clipboard');
+    setSuccessMsg(t('profile.copiedToClipboard'));
     setTimeout(() => setSuccessMsg(null), 3000);
   };
 
@@ -234,14 +235,14 @@ export const ProfilePage: React.FC = () => {
             style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}
           >
             <ArrowLeft size={16} />
-            <span>Back</span>
+            <span>{t('common.back')}</span>
           </button>
           <div className="library-brand" style={{ minWidth: 0 }}>
             <div>
               <h1 className="library-title" style={{ fontSize: 16, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                Account & Profile
+                {t('profile.accountAndProfile')}
               </h1>
-              <p className="library-subtitle">User Settings & Security</p>
+              <p className="library-subtitle">{t('profile.userSettingsAndSecurity')}</p>
             </div>
           </div>
         </div>
@@ -265,7 +266,7 @@ export const ProfilePage: React.FC = () => {
 
         {/* User Information */}
         <div className="profile-card">
-          <div className="profile-card-title">User Information</div>
+          <div className="profile-card-title">{t('profile.userInformation')}</div>
           <div className="profile-user-header">
             <div className="profile-avatar">
               {getInitial(user?.name || '')}
@@ -275,7 +276,7 @@ export const ProfilePage: React.FC = () => {
                 {!isEditingName ? (
                   <>
                     <div className="profile-user-name">{user?.name}</div>
-                    <button className="profile-btn profile-btn-secondary" style={{ padding: 6 }} onClick={() => setIsEditingName(true)} title="Edit Name">
+                    <button className="profile-btn profile-btn-secondary" style={{ padding: 6 }} onClick={() => setIsEditingName(true)} title={t('profile.editName')}>
                       <Pencil size={14} />
                     </button>
                   </>
@@ -292,8 +293,8 @@ export const ProfilePage: React.FC = () => {
                       autoComplete="name"
                       autoFocus
                     />
-                    <button type="submit" className="auth-btn-primary" style={{ width: 'auto', padding: '0 16px' }} disabled={isLoading || !newName.trim()}>Save</button>
-                    <button type="button" className="auth-btn-secondary" style={{ width: 'auto', padding: '0 16px' }} onClick={() => { setIsEditingName(false); setNewName(user?.name || ''); }}>Cancel</button>
+                    <button type="submit" className="auth-btn-primary" style={{ width: 'auto', padding: '0 16px' }} disabled={isLoading || !newName.trim()}>{t('common.save')}</button>
+                    <button type="button" className="auth-btn-secondary" style={{ width: 'auto', padding: '0 16px' }} onClick={() => { setIsEditingName(false); setNewName(user?.name || ''); }}>{t('common.cancel')}</button>
                   </form>
                 )}
               </div>
@@ -304,11 +305,11 @@ export const ProfilePage: React.FC = () => {
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
               <span className={`profile-badge ${user?.twoFactorEnabled ? 'success' : 'warning'}`}>
                 {user?.twoFactorEnabled ? <ShieldCheck size={14} /> : <ShieldAlert size={14} />}
-                2FA {user?.twoFactorEnabled ? 'Enabled' : 'Disabled'}
+                {user?.twoFactorEnabled ? t('profile.twoFactorEnabled') : t('profile.twoFactorDisabled')}
               </span>
               <span className={`profile-badge ${user?.emailConfirmed ? 'success' : 'neutral'}`}>
                 <CheckCircle2 size={14} />
-                Email {user?.emailConfirmed ? 'Confirmed' : 'Unconfirmed'}
+                {user?.emailConfirmed ? t('profile.emailConfirmed') : t('profile.emailUnconfirmed')}
               </span>
             </div>
           </div>
@@ -318,14 +319,14 @@ export const ProfilePage: React.FC = () => {
         <div className="profile-card">
           <div className="profile-card-title">
             <KeyRound size={18} />
-            <span>Change Password</span>
+            <span>{t('profile.changePassword')}</span>
           </div>
           <div>
             <p style={{ color: 'var(--text-secondary)', fontSize: 13.5, margin: '0 0 16px 0', lineHeight: 1.4 }}>
-              Ensure your account is using a long, random password to stay secure.
+              {t('profile.changePasswordSubtitle')}
             </p>
             <button className="auth-btn-primary" style={{ maxWidth: 200 }} onClick={() => { clearMessages(); setShowPasswordChange(true); }} disabled={isLoading}>
-              Change Password
+              {t('profile.changePassword')}
             </button>
           </div>
         </div>
@@ -334,14 +335,14 @@ export const ProfilePage: React.FC = () => {
         <div className="profile-card">
           <div className="profile-card-title">
             <Mail size={18} />
-            <span>Change Email</span>
+            <span>{t('profile.changeEmail')}</span>
           </div>
           <div>
             <p style={{ color: 'var(--text-secondary)', fontSize: 13.5, margin: '0 0 16px 0', lineHeight: 1.4 }}>
-              Update the email address associated with your account. A verification code will be sent to confirm.
+              {t('profile.changeEmailSubtitle')}
             </p>
             <button className="auth-btn-primary" style={{ maxWidth: 200 }} onClick={() => { clearMessages(); setEmailChangeStep(1); setShowEmailChange(true); }} disabled={isLoading}>
-              Change Email
+              {t('profile.changeEmail')}
             </button>
           </div>
         </div>
@@ -350,19 +351,19 @@ export const ProfilePage: React.FC = () => {
         <div className="profile-card">
           <div className="profile-card-title">
             <ShieldCheck size={18} />
-            <span>Two-Factor Authentication (2FA)</span>
+            <span>{t('profile.twoFactorTitle')}</span>
           </div>
           <div>
             <p style={{ color: 'var(--text-secondary)', fontSize: 13.5, margin: '0 0 16px 0', lineHeight: 1.4 }}>
-              Add an extra layer of security to your account by requiring a code from your authenticator app when you sign in.
+              {t('profile.twoFactorSubtitle')}
             </p>
             
             {!user?.twoFactorEnabled ? (
-              <button className="auth-btn-primary" style={{ maxWidth: 200 }} onClick={handleStartEnable2FA} disabled={isLoading}>Enable 2FA</button>
+              <button className="auth-btn-primary" style={{ maxWidth: 200 }} onClick={handleStartEnable2FA} disabled={isLoading}>{t('profile.enableTwoFactor')}</button>
             ) : (
               <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                <button className="auth-btn-secondary" style={{ width: 'auto' }} onClick={() => { clearMessages(); setShowViewRecoveryCodes(true); }}>View Recovery Codes</button>
-                <button className="auth-btn-text" style={{ color: 'var(--danger-color)' }} onClick={() => { clearMessages(); setShowDisable2FA(true); }}>Disable 2FA</button>
+                <button className="auth-btn-secondary" style={{ width: 'auto' }} onClick={() => { clearMessages(); setShowViewRecoveryCodes(true); }}>{t('profile.viewRecoveryCodes')}</button>
+                <button className="auth-btn-text" style={{ color: 'var(--danger-color)' }} onClick={() => { clearMessages(); setShowDisable2FA(true); }}>{t('profile.disableTwoFactor')}</button>
               </div>
             )}
           </div>
@@ -372,18 +373,18 @@ export const ProfilePage: React.FC = () => {
         <div className="profile-card">
           <div className="profile-card-title">
             <Server size={18} />
-            <span>Server & Session</span>
+            <span>{t('profile.serverAndSession')}</span>
           </div>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, padding: '12px 16px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)', borderRadius: 10 }}>
               <Server size={16} color="var(--text-muted)" />
-              <span style={{ fontSize: 13.5, color: 'var(--text-secondary)' }}>Connected to:</span>
+              <span style={{ fontSize: 13.5, color: 'var(--text-secondary)' }}>{t('profile.connectedTo')}:</span>
               <strong style={{ fontSize: 13.5, color: 'var(--text-primary)' }}>{serverUrl}</strong>
             </div>
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-              <button className="auth-btn-secondary" style={{ width: 'auto' }} onClick={() => { clearServer(); navigate('/server', { replace: true }); }}>Change Server</button>
+              <button className="auth-btn-secondary" style={{ width: 'auto' }} onClick={() => { clearServer(); navigate('/server', { replace: true }); }}>{t('profile.changeServer')}</button>
               <button className="auth-btn-secondary" style={{ width: 'auto', display: 'flex', alignItems: 'center', gap: 8 }} onClick={() => { logout(); navigate('/login', { replace: true }); }}>
-                <LogOut size={16} /> Sign Out
+                <LogOut size={16} /> {t('profile.signOut')}
               </button>
             </div>
           </div>
@@ -393,11 +394,11 @@ export const ProfilePage: React.FC = () => {
         <div className="profile-card">
           <div className="profile-card-title">
             <Info size={18} />
-            <span>About Folio</span>
+            <span>{t('profile.aboutFolio')}</span>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--border-subtle)' }}>
-              <span style={{ fontSize: 13.5, color: 'var(--text-secondary)' }}>Version</span>
+              <span style={{ fontSize: 13.5, color: 'var(--text-secondary)' }}>{t('profile.version')}</span>
               <span style={{ fontSize: 13.5, fontWeight: 600, fontFamily: 'monospace', color: 'var(--text-primary)' }}>
                 v{APP_VERSION}
               </span>
@@ -405,21 +406,21 @@ export const ProfilePage: React.FC = () => {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--border-subtle)' }}>
               <span style={{ fontSize: 13.5, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 6 }}>
                 <Calendar size={14} />
-                <span>Build Date</span>
+                <span>{t('profile.buildDate')}</span>
               </span>
               <span style={{ fontSize: 13.5, color: 'var(--text-secondary)', fontFamily: 'monospace' }}>
                 {formatBuildTime(BUILD_TIME)}
               </span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0' }}>
-              <span style={{ fontSize: 13.5, color: 'var(--text-secondary)' }}>Source</span>
+              <span style={{ fontSize: 13.5, color: 'var(--text-secondary)' }}>{t('profile.source')}</span>
               <a
                 href="https://github.com/bastonta/FolioApp"
                 target="_blank"
                 rel="noreferrer"
                 style={{ fontSize: 13.5, color: 'var(--accent-color)', textDecoration: 'none' }}
               >
-                GitHub Repository
+                {t('profile.githubRepository')}
               </a>
             </div>
           </div>
@@ -432,7 +433,7 @@ export const ProfilePage: React.FC = () => {
         <div className="modal-backdrop" onClick={() => { setShowPasswordChange(false); setPasswordData({ oldPassword: '', newPassword: '', confirmPassword: '' }); }}>
           <div className="modal-container" style={{ maxWidth: 440 }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <span className="modal-title">Change Password</span>
+              <span className="modal-title">{t('profile.changePassword')}</span>
               <button className="modal-close-btn" onClick={() => { setShowPasswordChange(false); setPasswordData({ oldPassword: '', newPassword: '', confirmPassword: '' }); }}><X size={16} /></button>
             </div>
             <form onSubmit={handleChangePassword} autoComplete="off">
@@ -444,7 +445,7 @@ export const ProfilePage: React.FC = () => {
                   </div>
                 )}
                 <div style={{ marginBottom: 12 }}>
-                  <label style={{ display: 'block', marginBottom: 4, fontSize: 13, color: 'var(--text-muted)' }}>Current Password</label>
+                  <label style={{ display: 'block', marginBottom: 4, fontSize: 13, color: 'var(--text-muted)' }}>{t('profile.currentPassword')}</label>
                   <input
                     id="oldPassword"
                     name="current-password"
@@ -460,7 +461,7 @@ export const ProfilePage: React.FC = () => {
                   />
                 </div>
                 <div style={{ marginBottom: 12 }}>
-                  <label style={{ display: 'block', marginBottom: 4, fontSize: 13, color: 'var(--text-muted)' }}>New Password</label>
+                  <label style={{ display: 'block', marginBottom: 4, fontSize: 13, color: 'var(--text-muted)' }}>{t('profile.newPassword')}</label>
                   <input
                     id="newPassword"
                     name="new-password"
@@ -475,7 +476,7 @@ export const ProfilePage: React.FC = () => {
                   />
                 </div>
                 <div style={{ marginBottom: 8 }}>
-                  <label style={{ display: 'block', marginBottom: 4, fontSize: 13, color: 'var(--text-muted)' }}>Confirm New Password</label>
+                  <label style={{ display: 'block', marginBottom: 4, fontSize: 13, color: 'var(--text-muted)' }}>{t('profile.confirmNewPassword')}</label>
                   <input
                     id="confirmPassword"
                     name="confirm-password"
@@ -491,8 +492,8 @@ export const ProfilePage: React.FC = () => {
                 </div>
               </div>
               <div className="modal-footer">
-                <button type="button" className="auth-btn-text" onClick={() => { setShowPasswordChange(false); setPasswordData({ oldPassword: '', newPassword: '', confirmPassword: '' }); }}>Cancel</button>
-                <button type="submit" className="auth-btn-primary" disabled={isLoading || !passwordData.oldPassword || !passwordData.newPassword || !passwordData.confirmPassword}>Change Password</button>
+                <button type="button" className="auth-btn-text" onClick={() => { setShowPasswordChange(false); setPasswordData({ oldPassword: '', newPassword: '', confirmPassword: '' }); }}>{t('common.cancel')}</button>
+                <button type="submit" className="auth-btn-primary" disabled={isLoading || !passwordData.oldPassword || !passwordData.newPassword || !passwordData.confirmPassword}>{t('profile.changePassword')}</button>
               </div>
             </form>
           </div>
@@ -504,7 +505,7 @@ export const ProfilePage: React.FC = () => {
         <div className="modal-backdrop" onClick={() => { setShowEmailChange(false); setEmailChangeStep(1); setEmailData({ newEmail: '', currentPassword: '', code: '' }); }}>
           <div className="modal-container" style={{ maxWidth: 440 }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <span className="modal-title">Change Email</span>
+              <span className="modal-title">{t('profile.changeEmail')}</span>
               <button className="modal-close-btn" onClick={() => { setShowEmailChange(false); setEmailChangeStep(1); setEmailData({ newEmail: '', currentPassword: '', code: '' }); }}><X size={16} /></button>
             </div>
             {emailChangeStep === 1 ? (
@@ -517,7 +518,7 @@ export const ProfilePage: React.FC = () => {
                     </div>
                   )}
                   <div style={{ marginBottom: 12 }}>
-                    <label style={{ display: 'block', marginBottom: 4, fontSize: 13, color: 'var(--text-muted)' }}>New Email Address</label>
+                    <label style={{ display: 'block', marginBottom: 4, fontSize: 13, color: 'var(--text-muted)' }}>{t('profile.newEmailAddress')}</label>
                     <input
                       id="newEmail"
                       name="email"
@@ -536,7 +537,7 @@ export const ProfilePage: React.FC = () => {
                     />
                   </div>
                   <div style={{ marginBottom: 8 }}>
-                    <label style={{ display: 'block', marginBottom: 4, fontSize: 13, color: 'var(--text-muted)' }}>Current Password</label>
+                    <label style={{ display: 'block', marginBottom: 4, fontSize: 13, color: 'var(--text-muted)' }}>{t('profile.currentPassword')}</label>
                     <input
                       id="emailChangePassword"
                       name="password"
@@ -552,8 +553,8 @@ export const ProfilePage: React.FC = () => {
                   </div>
                 </div>
                 <div className="modal-footer">
-                  <button type="button" className="auth-btn-text" onClick={() => { setShowEmailChange(false); setEmailChangeStep(1); setEmailData({ newEmail: '', currentPassword: '', code: '' }); }}>Cancel</button>
-                  <button type="submit" className="auth-btn-primary" disabled={isLoading || !emailData.newEmail || !emailData.currentPassword}>Send Verification Code</button>
+                  <button type="button" className="auth-btn-text" onClick={() => { setShowEmailChange(false); setEmailChangeStep(1); setEmailData({ newEmail: '', currentPassword: '', code: '' }); }}>{t('common.cancel')}</button>
+                  <button type="submit" className="auth-btn-primary" disabled={isLoading || !emailData.newEmail || !emailData.currentPassword}>{t('profile.sendVerificationCode')}</button>
                 </div>
               </form>
             ) : (
@@ -566,10 +567,10 @@ export const ProfilePage: React.FC = () => {
                     </div>
                   )}
                   <div className="auth-info" style={{ marginBottom: 16, fontSize: 13 }}>
-                    A verification code has been sent to <strong>{emailData.newEmail}</strong>.
+                    {t('auth.codeSentTo')} <strong>{emailData.newEmail}</strong>.
                   </div>
                   <div style={{ marginBottom: 8 }}>
-                    <label style={{ display: 'block', marginBottom: 4, fontSize: 13, color: 'var(--text-muted)' }}>Verification Code</label>
+                    <label style={{ display: 'block', marginBottom: 4, fontSize: 13, color: 'var(--text-muted)' }}>{t('auth.confirmationCodeLabel')}</label>
                     <input
                       id="emailVerificationCode"
                       name="code"
@@ -588,9 +589,9 @@ export const ProfilePage: React.FC = () => {
                   </div>
                 </div>
                 <div className="modal-footer">
-                  <button type="button" className="auth-btn-text" onClick={() => setEmailChangeStep(1)}>Back</button>
-                  <button type="button" className="auth-btn-text" onClick={() => { setShowEmailChange(false); setEmailChangeStep(1); setEmailData({ newEmail: '', currentPassword: '', code: '' }); }}>Cancel</button>
-                  <button type="submit" className="auth-btn-primary" disabled={isLoading || emailData.code.length < 6}>Confirm Email Change</button>
+                  <button type="button" className="auth-btn-text" onClick={() => setEmailChangeStep(1)}>{t('common.back')}</button>
+                  <button type="button" className="auth-btn-text" onClick={() => { setShowEmailChange(false); setEmailChangeStep(1); setEmailData({ newEmail: '', currentPassword: '', code: '' }); }}>{t('common.cancel')}</button>
+                  <button type="submit" className="auth-btn-primary" disabled={isLoading || emailData.code.length < 6}>{t('profile.confirmEmailChange')}</button>
                 </div>
               </form>
             )}
@@ -603,7 +604,7 @@ export const ProfilePage: React.FC = () => {
         <div className="modal-backdrop" onClick={() => setShowEnable2FA(false)}>
           <div className="modal-container" style={{ maxWidth: 440 }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <span className="modal-title">Set up Two-Factor Authentication</span>
+              <span className="modal-title">{t('profile.setUpTwoFactor')}</span>
               <button className="modal-close-btn" onClick={() => setShowEnable2FA(false)}><X size={16} /></button>
             </div>
             <form onSubmit={handleConfirmEnable2FA} autoComplete="off">
@@ -615,19 +616,19 @@ export const ProfilePage: React.FC = () => {
                   </div>
                 )}
                 <ol style={{ paddingLeft: 20, margin: 0, fontSize: 14, color: 'var(--text-primary)' }}>
-                  <li style={{ marginBottom: 12 }}>Scan this QR code with your authenticator app (like Authy or Google Authenticator).</li>
+                  <li style={{ marginBottom: 12 }}>{t('profile.scanQrCode')}</li>
                 </ol>
                 <div style={{ display: 'flex', justifyContent: 'center', margin: '16px 0', padding: 16, backgroundColor: '#ffffff', borderRadius: 10 }}>
                   <img src={twoFaSetupData.qrCodeUrl} alt="2FA QR Code" width={200} height={200} />
                 </div>
                 <div style={{ fontSize: 13, color: 'var(--text-secondary)', textAlign: 'center', marginBottom: 16 }}>
-                  Or enter this code manually:<br/>
+                  {t('profile.orEnterManualCode')}<br/>
                   <code style={{ fontSize: 15, fontWeight: 'bold', display: 'inline-block', marginTop: 8, padding: '6px 12px', backgroundColor: 'var(--bg-tertiary)', borderRadius: 6, letterSpacing: '0.05em' }}>
                     {twoFaSetupData.secret}
                   </code>
                 </div>
                 <div style={{ marginBottom: 8 }}>
-                  <label className="auth-label" style={{ display: 'block', marginBottom: 6 }}>Enter the 6-digit code from your app</label>
+                  <label className="auth-label" style={{ display: 'block', marginBottom: 6 }}>{t('profile.enterAppCode')}</label>
                   <input
                     id="enable2FaCode"
                     name="code"
@@ -644,8 +645,8 @@ export const ProfilePage: React.FC = () => {
                 </div>
               </div>
               <div className="modal-footer">
-                <button type="button" className="auth-btn-text" onClick={() => setShowEnable2FA(false)}>Cancel</button>
-                <button type="submit" className="auth-btn-primary" disabled={isLoading || twoFaCode.length < 6}>Verify & Enable</button>
+                <button type="button" className="auth-btn-text" onClick={() => setShowEnable2FA(false)}>{t('common.cancel')}</button>
+                <button type="submit" className="auth-btn-primary" disabled={isLoading || twoFaCode.length < 6}>{t('profile.verifyAndEnable')}</button>
               </div>
             </form>
           </div>
@@ -657,13 +658,13 @@ export const ProfilePage: React.FC = () => {
         <div className="modal-backdrop" onClick={() => { setRecoveryCodes(null); setShowViewRecoveryCodes(false); }}>
           <div className="modal-container" style={{ maxWidth: 440 }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <span className="modal-title">Recovery Codes</span>
+              <span className="modal-title">{t('profile.recoveryCodesTitle')}</span>
               <button className="modal-close-btn" onClick={() => { setRecoveryCodes(null); setShowViewRecoveryCodes(false); }}><X size={16} /></button>
             </div>
             <div className="modal-body">
               <div className="auth-error" style={{ backgroundColor: 'var(--warning-bg)', color: 'var(--warning-fg)', borderColor: 'rgba(245, 158, 11, 0.3)', marginBottom: 16, display: 'flex', alignItems: 'flex-start', gap: 8 }}>
                 <AlertCircle size={18} style={{ flexShrink: 0, marginTop: 2 }} />
-                <span style={{ fontSize: 13 }}>Save these recovery codes in a secure place. This is the <strong>only time</strong> they will be shown. You can use them to sign in if you lose access to your authenticator app.</span>
+                <span style={{ fontSize: 13 }}>{t('profile.saveRecoveryCodesWarning')}</span>
               </div>
               <div className="recovery-codes-grid" style={{ marginBottom: 16 }}>
                 {recoveryCodes.map((code, i) => (
@@ -674,15 +675,15 @@ export const ProfilePage: React.FC = () => {
               </div>
               <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
                 <button className="auth-btn-secondary" style={{ width: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }} onClick={() => copyToClipboard(recoveryCodes.join('\n'))}>
-                  <Copy size={14} /> Copy
+                  <Copy size={14} /> {t('profile.copy')}
                 </button>
                 <button className="auth-btn-secondary" style={{ width: 'auto', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }} onClick={downloadRecoveryCodes}>
-                  <Download size={14} /> Download
+                  <Download size={14} /> {t('profile.download')}
                 </button>
               </div>
             </div>
             <div className="modal-footer">
-              <button type="button" className="auth-btn-primary" onClick={() => { setRecoveryCodes(null); setShowViewRecoveryCodes(false); }}>I have saved them</button>
+              <button type="button" className="auth-btn-primary" onClick={() => { setRecoveryCodes(null); setShowViewRecoveryCodes(false); }}>{t('profile.savedThem')}</button>
             </div>
           </div>
         </div>
@@ -693,7 +694,7 @@ export const ProfilePage: React.FC = () => {
         <div className="modal-backdrop" onClick={() => setShowViewRecoveryCodes(false)}>
           <div className="modal-container" style={{ maxWidth: 440 }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <span className="modal-title">View Recovery Codes</span>
+              <span className="modal-title">{t('profile.viewRecoveryCodes')}</span>
               <button className="modal-close-btn" onClick={() => setShowViewRecoveryCodes(false)}><X size={16} /></button>
             </div>
             <form onSubmit={handleViewRecoveryCodes} autoComplete="off">
@@ -705,10 +706,10 @@ export const ProfilePage: React.FC = () => {
                   </div>
                 )}
                 <p style={{ fontSize: 14, color: 'var(--text-primary)', marginBottom: 16, lineHeight: 1.4 }}>
-                  To view or generate new recovery codes, please enter a code from your authenticator app. Note: Generating new codes will invalidate any old ones.
+                  {t('profile.viewRecoveryCodesDesc')}
                 </p>
                 <div style={{ marginBottom: 8 }}>
-                  <label className="auth-label" style={{ display: 'block', marginBottom: 6 }}>Authenticator Code</label>
+                  <label className="auth-label" style={{ display: 'block', marginBottom: 6 }}>{t('profile.authenticatorCodeLabel')}</label>
                   <input
                     id="viewCodesTotp"
                     name="code"
@@ -726,8 +727,8 @@ export const ProfilePage: React.FC = () => {
                 </div>
               </div>
               <div className="modal-footer">
-                <button type="button" className="auth-btn-text" onClick={() => setShowViewRecoveryCodes(false)}>Cancel</button>
-                <button type="submit" className="auth-btn-primary" disabled={isLoading || viewCodesTotp.length < 6}>Verify</button>
+                <button type="button" className="auth-btn-text" onClick={() => setShowViewRecoveryCodes(false)}>{t('common.cancel')}</button>
+                <button type="submit" className="auth-btn-primary" disabled={isLoading || viewCodesTotp.length < 6}>{t('profile.verify')}</button>
               </div>
             </form>
           </div>
@@ -739,7 +740,7 @@ export const ProfilePage: React.FC = () => {
         <div className="modal-backdrop" onClick={() => setShowDisable2FA(false)}>
           <div className="modal-container" style={{ maxWidth: 440 }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <span className="modal-title">Disable Two-Factor Authentication</span>
+              <span className="modal-title">{t('profile.disableTwoFactor')}</span>
               <button className="modal-close-btn" onClick={() => setShowDisable2FA(false)}><X size={16} /></button>
             </div>
             <form onSubmit={handleDisable2FA} autoComplete="off">
@@ -751,10 +752,10 @@ export const ProfilePage: React.FC = () => {
                   </div>
                 )}
                 <p style={{ fontSize: 14, color: 'var(--text-primary)', marginBottom: 16, lineHeight: 1.4 }}>
-                  Are you sure you want to disable two-factor authentication? This will make your account less secure.
+                  {t('profile.disableTwoFactorDesc')}
                 </p>
                 <div style={{ marginBottom: 8 }}>
-                  <label className="auth-label" style={{ display: 'block', marginBottom: 6 }}>Enter Password to Confirm</label>
+                  <label className="auth-label" style={{ display: 'block', marginBottom: 6 }}>{t('profile.enterPasswordToConfirm')}</label>
                   <input
                     id="disable2FAPassword"
                     name="password"
@@ -771,8 +772,8 @@ export const ProfilePage: React.FC = () => {
                 </div>
               </div>
               <div className="modal-footer">
-                <button type="button" className="auth-btn-text" onClick={() => setShowDisable2FA(false)}>Cancel</button>
-                <button type="submit" className="auth-btn-danger" disabled={isLoading || !disable2FAPassword}>Disable 2FA</button>
+                <button type="button" className="auth-btn-text" onClick={() => setShowDisable2FA(false)}>{t('common.cancel')}</button>
+                <button type="submit" className="auth-btn-danger" disabled={isLoading || !disable2FAPassword}>{t('profile.disableTwoFactorBtn')}</button>
               </div>
             </form>
           </div>
