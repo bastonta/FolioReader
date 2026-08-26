@@ -58,6 +58,8 @@ export type ThemeName = 'light' | 'sepia' | 'gray' | 'dark' | 'solarized';
 
 export type PageTurnMethod = 'tap' | 'swipe' | 'both';
 
+export type ScreenTimeoutOption = 'system' | '2' | '5' | '10' | '15' | '30' | 'never';
+
 export interface ReaderSettings {
   flow: 'paginated' | 'scrolled';
   columns: 'auto' | 1 | 2;
@@ -70,6 +72,9 @@ export interface ReaderSettings {
   hyphenate: boolean;
   theme: ThemeName;
   pageTurnMethod?: PageTurnMethod;
+  volumeKeysPageTurn?: boolean;
+  volumeKeysInverted?: boolean;
+  screenTimeout?: ScreenTimeoutOption;
   sidebarPinned: boolean;
   sidebarOpen: boolean;
   activeTab: 'contents' | 'annotations' | 'bookmarks';

@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { ReaderSettings, ThemeName } from '../../types/reader';
+import { ReaderSettings, ThemeName, ScreenTimeoutOption } from '../../types/reader';
 import { isMobileDevice } from '../../services/systemUi';
 import { fontManager } from '../../services/fontManager';
 import { LoadedCustomFont } from '../../types/font';
@@ -278,8 +278,75 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
                   : 'Tap: 30% left to go back, 70% right to advance'}
               </p>
             </div>
+
+            <div className="settings-divider" />
+
+            {/* Volume Buttons Page Turn (Mobile) */}
+            <div className="settings-section">
+              <div className="settings-toggle-row">
+                <span className="settings-label" style={{ marginBottom: 0 }}>Volume Buttons Page Turn</span>
+                <button
+                  type="button"
+                  className={`toggle-switch ${settings.volumeKeysPageTurn !== false ? 'checked' : ''}`}
+                  onClick={() => onUpdateSettings({ volumeKeysPageTurn: settings.volumeKeysPageTurn === false ? true : false })}
+                  role="switch"
+                  aria-checked={settings.volumeKeysPageTurn !== false}
+                  aria-label="Toggle Volume Buttons Page Turn"
+                >
+                  <span className="toggle-thumb" />
+                </button>
+              </div>
+              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, marginBottom: settings.volumeKeysPageTurn !== false ? 8 : 0 }}>
+                {settings.volumeKeysInverted ? 'Volume Up: Next, Volume Down: Prev' : 'Volume Down: Next, Volume Up: Prev'}
+              </p>
+
+              {settings.volumeKeysPageTurn !== false && (
+                <div className="settings-toggle-row" style={{ paddingTop: 6, borderTop: '1px dashed var(--border-subtle)' }}>
+                  <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Invert Buttons</span>
+                  <button
+                    type="button"
+                    className={`toggle-switch ${settings.volumeKeysInverted ? 'checked' : ''}`}
+                    onClick={() => onUpdateSettings({ volumeKeysInverted: !settings.volumeKeysInverted })}
+                    role="switch"
+                    aria-checked={Boolean(settings.volumeKeysInverted)}
+                    aria-label="Toggle Invert Volume Buttons"
+                  >
+                    <span className="toggle-thumb" />
+                  </button>
+                </div>
+              )}
+            </div>
           </>
         )}
+
+        <div className="settings-divider" />
+
+        {/* Screen Timeout & Sleep */}
+        <div className="settings-section">
+          <div className="settings-row-between" style={{ marginBottom: 6 }}>
+            <label className="settings-label" style={{ marginBottom: 0 }}>Screen Timeout</label>
+          </div>
+          <select
+            className="settings-select"
+            value={settings.screenTimeout || '5'}
+            onChange={(e) => onUpdateSettings({ screenTimeout: e.target.value as ScreenTimeoutOption })}
+          >
+            <option value="system">System Default</option>
+            <option value="2">2 minutes</option>
+            <option value="5">5 minutes</option>
+            <option value="10">10 minutes</option>
+            <option value="15">15 minutes</option>
+            <option value="30">30 minutes</option>
+            <option value="never">Never turn off (Always on)</option>
+          </select>
+          <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, marginBottom: 0 }}>
+            {settings.screenTimeout === 'never'
+              ? 'Screen will stay on while reading'
+              : settings.screenTimeout === 'system'
+              ? 'Follows device screen timeout'
+              : `Turns off after ${settings.screenTimeout || 5} min of inactivity`}
+          </p>
+        </div>
 
         <div className="settings-divider" />
 

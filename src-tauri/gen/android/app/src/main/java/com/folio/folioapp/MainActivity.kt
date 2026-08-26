@@ -15,9 +15,11 @@ import android.os.Environment
 import android.provider.DocumentsContract
 import android.provider.Settings
 import android.view.ActionMode
+import android.view.KeyEvent
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
+import android.view.WindowManager
 import android.webkit.JavascriptInterface
 import android.webkit.ValueCallback
 import android.webkit.WebView
@@ -37,6 +39,7 @@ class MainActivity : TauriActivity() {
   private var disableSystemActionMode = false
   private var isShowingExplicitActionMode = false
   private var currentExplicitActionMode: ActionMode? = null
+  private var volumeKeyNavigationEnabled = false
   private var mainWebView: WebView? = null
 
   private val folderPickerLauncher = registerForActivityResult(
@@ -111,6 +114,25 @@ class MainActivity : TauriActivity() {
       }
     }
     onBackPressedDispatcher.addCallback(this, backPressedCallback)
+  }
+
+  override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+    if (volumeKeyNavigationEnabled) {
+      val keyCode = event.keyCode
+      if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN || keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
+        if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+          val direction = if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) "down" else "up"
+          mainWebView?.post {
+            mainWebView?.evaluateJavascript(
+              "if (typeof window.handleAndroidVolumeKey === 'function') { window.handleAndroidVolumeKey('$direction'); }",
+              null
+            )
+          }
+        }
+        return true
+      }
+    }
+    return super.dispatchKeyEvent(event)
   }
 
   private fun wrapActionModeCallback(callback: ActionMode.Callback?): ActionMode.Callback? {
@@ -446,6 +468,24 @@ class MainActivity : TauriActivity() {
           folioDir.absolutePath
         } catch (e: Exception) {
           "/storage/emulated/0/Download/FolioBooks"
+        }
+      }
+
+      @JavascriptInterface
+      fun setVolumeKeyNavigation(enabled: Boolean) {
+        runOnUiThread {
+          volumeKeyNavigationEnabled = enabled
+        }
+      }
+
+      @JavascriptInterface
+      fun setKeepScreenOn(keepOn: Boolean) {
+        runOnUiThread {
+          if (keepOn) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+          } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+          }
         }
       }
 

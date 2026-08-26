@@ -19,7 +19,7 @@ import { FootnoteModal } from './FootnoteModal';
 import { AnnotationPopover, SelectionInfo } from './AnnotationPopover';
 import { SettingsPopover } from './SettingsPopover';
 import { BookInfoModal } from './BookInfoModal';
-import { setStatusBarVisible, setStatusBarTheme, setDisableSystemActionMode, dismissOriginalContextMenu, isMobileDevice } from '../../services/systemUi';
+import { setStatusBarVisible, setStatusBarTheme, setDisableSystemActionMode, dismissOriginalContextMenu, isMobileDevice, setVolumeKeyNavigation, setKeepScreenOn } from '../../services/systemUi';
 import { useBackHandler } from '../../services/backHandler';
 import {
   saveLastLocation,
@@ -536,6 +536,139 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
     return () => window.removeEventListener('mousemove', handleWindowMouseMove);
   }, [showControls, scheduleAutoHide]);
 
+  // Screen Timeout Management (Keep Screen On / Inactivity Screen Sleep)
+  const screenTimeoutTimerRef = useRef<number | null>(null);
+  const isScreenAwakeRef = useRef<boolean>(false);
+
+  const resetScreenTimeout = useCallback(() => {
+    const timeoutSetting = settings.screenTimeout || '5';
+
+    if (screenTimeoutTimerRef.current) {
+      window.clearTimeout(screenTimeoutTimerRef.current);
+      screenTimeoutTimerRef.current = null;
+    }
+
+    if (timeoutSetting === 'system') {
+      if (isScreenAwakeRef.current) {
+        setKeepScreenOn(false);
+        isScreenAwakeRef.current = false;
+      }
+      return;
+    }
+
+    if (timeoutSetting === 'never') {
+      if (!isScreenAwakeRef.current) {
+        setKeepScreenOn(true);
+        isScreenAwakeRef.current = true;
+      }
+      return;
+    }
+
+    const minutes = parseInt(timeoutSetting, 10);
+    if (isNaN(minutes) || minutes <= 0) {
+      if (isScreenAwakeRef.current) {
+        setKeepScreenOn(false);
+        isScreenAwakeRef.current = false;
+      }
+      return;
+    }
+
+    if (!isScreenAwakeRef.current) {
+      setKeepScreenOn(true);
+      isScreenAwakeRef.current = true;
+    }
+
+    screenTimeoutTimerRef.current = window.setTimeout(() => {
+      setKeepScreenOn(false);
+      isScreenAwakeRef.current = false;
+    }, minutes * 60 * 1000);
+  }, [settings.screenTimeout]);
+
+  const resetScreenTimeoutRef = useRef(resetScreenTimeout);
+  useEffect(() => {
+    resetScreenTimeoutRef.current = resetScreenTimeout;
+  }, [resetScreenTimeout]);
+
+  // Synchronize screen timeout on setting change & app visibility
+  useEffect(() => {
+    resetScreenTimeout();
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        if (screenTimeoutTimerRef.current) {
+          window.clearTimeout(screenTimeoutTimerRef.current);
+          screenTimeoutTimerRef.current = null;
+        }
+        setKeepScreenOn(false);
+        isScreenAwakeRef.current = false;
+      } else {
+        resetScreenTimeout();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      if (screenTimeoutTimerRef.current) {
+        window.clearTimeout(screenTimeoutTimerRef.current);
+        screenTimeoutTimerRef.current = null;
+      }
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      setKeepScreenOn(false);
+      isScreenAwakeRef.current = false;
+    };
+  }, [resetScreenTimeout]);
+
+  // Window activity listeners for screen timeout reset
+  useEffect(() => {
+    const handleActivity = () => {
+      resetScreenTimeoutRef.current();
+    };
+
+    window.addEventListener('pointerdown', handleActivity, { passive: true });
+    window.addEventListener('touchstart', handleActivity, { passive: true });
+    window.addEventListener('keydown', handleActivity, { passive: true });
+    window.addEventListener('wheel', handleActivity, { passive: true });
+
+    return () => {
+      window.removeEventListener('pointerdown', handleActivity);
+      window.removeEventListener('touchstart', handleActivity);
+      window.removeEventListener('keydown', handleActivity);
+      window.removeEventListener('wheel', handleActivity);
+    };
+  }, []);
+
+  // Hardware Volume Keys Navigation for Android
+  useEffect(() => {
+    const isVolumeEnabled = settings.volumeKeysPageTurn !== false;
+    setVolumeKeyNavigation(isVolumeEnabled);
+
+    const handleVolumeKey = (direction: 'up' | 'down') => {
+      resetScreenTimeoutRef.current();
+
+      const isInverted = settings.volumeKeysInverted === true;
+      const goForward = isInverted ? direction === 'up' : direction === 'down';
+
+      if (goForward) {
+        viewRef.current?.goRight();
+      } else {
+        viewRef.current?.goLeft();
+      }
+
+      if (showControlsRef.current) {
+        scheduleAutoHideRef.current();
+      }
+    };
+
+    (window as any).handleAndroidVolumeKey = handleVolumeKey;
+
+    return () => {
+      setVolumeKeyNavigation(false);
+      if ((window as any).handleAndroidVolumeKey === handleVolumeKey) {
+        delete (window as any).handleAndroidVolumeKey;
+      }
+    };
+  }, [settings.volumeKeysPageTurn, settings.volumeKeysInverted]);
 
   // Update styling in foliate-view
   const applyStyles = useCallback(() => {
@@ -671,6 +804,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
 
         // Pointerdown / mousedown on free space inside doc dismisses popover & selection
         doc.addEventListener('pointerdown', (ev: PointerEvent) => {
+          resetScreenTimeoutRef.current();
           pointerStartX = ev.clientX;
           pointerStartY = ev.clientY;
           pointerMoved = false;
@@ -711,6 +845,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
 
         // Keyboard navigation inside iframe
         doc.addEventListener('keydown', (ev: KeyboardEvent) => {
+          resetScreenTimeoutRef.current();
           if (ev.key === 'ArrowLeft' || ev.key === 'h') {
             view.goLeft();
             if (showControlsRef.current) scheduleAutoHideRef.current();

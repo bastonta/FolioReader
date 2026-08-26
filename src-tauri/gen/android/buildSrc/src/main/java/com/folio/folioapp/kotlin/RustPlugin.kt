@@ -26,6 +26,11 @@ open class RustPlugin : Plugin<Project> {
         val targetsList = (findProperty("targetList") as? String)?.split(',') ?: listOf("aarch64", "armv7", "i686", "x86_64")
 
         extensions.configure<ApplicationExtension> {
+            buildTypes {
+                getByName("debug") {
+                    applicationIdSuffix = ".dev"
+                }
+            }
             @Suppress("UnstableApiUsage")
             flavorDimensions.add("abi")
             productFlavors {

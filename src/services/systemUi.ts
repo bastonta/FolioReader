@@ -88,6 +88,60 @@ export function dismissOriginalContextMenu(): void {
 }
 
 /**
+ * Enable or disable volume key navigation (interception of volume up/down for page turning) on Android
+ */
+export function setVolumeKeyNavigation(enabled: boolean): void {
+  try {
+    const androidBridge = (window as any).AndroidBridge;
+    if (androidBridge && typeof androidBridge.setVolumeKeyNavigation === 'function') {
+      androidBridge.setVolumeKeyNavigation(enabled);
+    }
+  } catch (e) {
+    console.warn('AndroidBridge setVolumeKeyNavigation error:', e);
+  }
+}
+
+let wakeLockSentinel: any = null;
+
+/**
+ * Control whether the screen should stay awake / on (prevents screen dimming / sleep)
+ * Uses AndroidBridge on native Android, and standard Web Screen Wake Lock API as a universal fallback.
+ */
+export async function setKeepScreenOn(keepOn: boolean): Promise<void> {
+  // 1. Android Native via AndroidBridge Javascript Interface (Tauri Android)
+  try {
+    const androidBridge = (window as any).AndroidBridge;
+    if (androidBridge && typeof androidBridge.setKeepScreenOn === 'function') {
+      androidBridge.setKeepScreenOn(keepOn);
+      return;
+    }
+  } catch (e) {
+    console.warn('AndroidBridge setKeepScreenOn error:', e);
+  }
+
+  // 2. Web Screen Wake Lock API (Universal fallback)
+  try {
+    if (typeof navigator !== 'undefined' && 'wakeLock' in navigator && (navigator as any).wakeLock?.request) {
+      if (keepOn) {
+        if (!wakeLockSentinel) {
+          wakeLockSentinel = await (navigator as any).wakeLock.request('screen');
+          wakeLockSentinel.addEventListener('release', () => {
+            wakeLockSentinel = null;
+          });
+        }
+      } else {
+        if (wakeLockSentinel) {
+          await wakeLockSentinel.release();
+          wakeLockSentinel = null;
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('Screen WakeLock API error:', e);
+  }
+}
+
+/**
  * Utility to control System UI / Status Bar (Clock & Battery) across platforms
  */
 

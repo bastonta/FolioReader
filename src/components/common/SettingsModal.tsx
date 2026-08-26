@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ReaderSettings, ThemeName } from '../../types/reader';
+import { ReaderSettings, ThemeName, ScreenTimeoutOption } from '../../types/reader';
 import { fileManager } from '../../services/fileManager';
 import { fontManager } from '../../services/fontManager';
 import { LoadedCustomFont } from '../../types/font';
@@ -22,6 +22,8 @@ import {
   Plus,
   Info,
   Calendar,
+  Volume2,
+  Clock,
 } from 'lucide-react';
 import { APP_VERSION, BUILD_TIME, formatBuildTime } from '../../constants/buildInfo';
 
@@ -488,6 +490,125 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             </div>
           )}
+
+          {/* Volume Buttons Page Turn for Mobile */}
+          {isMobile && (
+            <div className="settings-block" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 16 }}>
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  fontSize: 14,
+                  fontWeight: 600,
+                  color: 'var(--text-primary)',
+                  marginBottom: 6,
+                }}
+              >
+                <Volume2 size={18} style={{ color: 'var(--accent-color)' }} />
+                <span>Volume Buttons Navigation</span>
+              </label>
+              <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
+                Use hardware volume buttons to turn pages forward and backward while reading.
+              </p>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div
+                  className="settings-toggle-row"
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => onUpdateSettings({ volumeKeysPageTurn: settings.volumeKeysPageTurn === false ? true : false })}
+                >
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
+                      Turn Pages with Volume Buttons
+                    </span>
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                      {settings.volumeKeysInverted ? 'Volume Up: Next, Volume Down: Prev' : 'Volume Down: Next, Volume Up: Prev'}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className={`toggle-switch ${settings.volumeKeysPageTurn !== false ? 'checked' : ''}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onUpdateSettings({ volumeKeysPageTurn: settings.volumeKeysPageTurn === false ? true : false });
+                    }}
+                    role="switch"
+                    aria-checked={settings.volumeKeysPageTurn !== false}
+                    aria-label="Toggle Volume Buttons Navigation"
+                  >
+                    <span className="toggle-thumb" />
+                  </button>
+                </div>
+
+                {settings.volumeKeysPageTurn !== false && (
+                  <div
+                    className="settings-toggle-row"
+                    style={{ cursor: 'pointer', paddingTop: 8, borderTop: '1px dashed var(--border-subtle)' }}
+                    onClick={() => onUpdateSettings({ volumeKeysInverted: !settings.volumeKeysInverted })}
+                  >
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
+                        Invert Volume Buttons
+                      </span>
+                      <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                        Swap buttons (Volume Up to advance, Volume Down to go back)
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className={`toggle-switch ${settings.volumeKeysInverted ? 'checked' : ''}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onUpdateSettings({ volumeKeysInverted: !settings.volumeKeysInverted });
+                      }}
+                      role="switch"
+                      aria-checked={Boolean(settings.volumeKeysInverted)}
+                      aria-label="Toggle Invert Volume Buttons"
+                    >
+                      <span className="toggle-thumb" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Screen Timeout Setting */}
+          <div className="settings-block" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 16 }}>
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontSize: 14,
+                fontWeight: 600,
+                color: 'var(--text-primary)',
+                marginBottom: 6,
+              }}
+            >
+              <Clock size={18} style={{ color: 'var(--accent-color)' }} />
+              <span>Screen Timeout & Sleep</span>
+            </label>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+              Keep the screen awake while reading or let it turn off automatically after inactivity.
+            </p>
+
+            <select
+              className="settings-select"
+              value={settings.screenTimeout || '5'}
+              onChange={(e) => onUpdateSettings({ screenTimeout: e.target.value as ScreenTimeoutOption })}
+              style={{ width: '100%', height: 38, fontSize: 13 }}
+            >
+              <option value="system">System Default (Device settings)</option>
+              <option value="2">2 minutes of inactivity</option>
+              <option value="5">5 minutes of inactivity</option>
+              <option value="10">10 minutes of inactivity</option>
+              <option value="15">15 minutes of inactivity</option>
+              <option value="30">30 minutes of inactivity</option>
+              <option value="never">Never turn off (Always on while reading)</option>
+            </select>
+          </div>
 
           {/* Custom Reader Fonts Section */}
           <div className="settings-block" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 16 }}>
