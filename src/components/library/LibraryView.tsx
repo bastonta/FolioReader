@@ -46,6 +46,7 @@ import {
 } from '../../services/readerDb';
 import { useBackHandler } from '../../services/backHandler';
 import { useTranslation, formatPluralRussian } from '../../i18n';
+import { useDialog } from '../../context/DialogContext';
 
 interface LibraryViewProps {
   settings: ReaderSettings;
@@ -65,6 +66,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   onUpdateSettings,
 }) => {
   const { t, resolvedLanguage } = useTranslation();
+  const { confirm } = useDialog();
   const { isOffline, checkOnlineStatus } = useAuth();
   const [localBooks, setLocalBooks] = useState<LocalBookFile[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -400,7 +402,14 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   const handleDeleteBook = async (book: LocalBookFile, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     const name = metaCache[book.id]?.title || book.fileName;
-    if (confirm(t('library.deleteBookConfirm', { name }))) {
+    const confirmed = await confirm({
+      title: t('common.delete'),
+      message: t('library.deleteBookConfirm', { name }),
+      confirmText: t('common.delete'),
+      cancelText: t('common.cancel'),
+      isDestructive: true,
+    });
+    if (confirmed) {
       await fileManager.deleteBookFile(book.filePath);
       await scanFolder();
       refreshRecentProgress();
@@ -428,7 +437,14 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       return targetPrefix.every((p, idx) => segs[idx] === p);
     });
 
-    if (confirm(t('library.deleteFolderConfirm', { name: folderName, count: booksInFolder.length }))) {
+    const confirmed = await confirm({
+      title: t('common.delete'),
+      message: t('library.deleteFolderConfirm', { name: folderName, count: booksInFolder.length }),
+      confirmText: t('common.delete'),
+      cancelText: t('common.cancel'),
+      isDestructive: true,
+    });
+    if (confirmed) {
       for (const book of booksInFolder) {
         await fileManager.deleteBookFile(book.filePath);
       }

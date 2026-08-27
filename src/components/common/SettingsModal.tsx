@@ -5,6 +5,7 @@ import { fontManager } from '../../services/fontManager';
 import { LoadedCustomFont } from '../../types/font';
 import { isMobileDevice } from '../../services/systemUi';
 import { useTranslation, Language } from '../../i18n';
+import { useDialog } from '../../context/DialogContext';
 import { Select } from './Select';
 import {
   X,
@@ -45,6 +46,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onUpdateSettings,
 }) => {
   const { t, setLanguage } = useTranslation();
+  const { confirm } = useDialog();
   const [isPicking, setIsPicking] = useState(false);
   const [hasPermission, setHasPermission] = useState(true);
   const [customFonts, setCustomFonts] = useState<LoadedCustomFont[]>(() => fontManager.getCachedFonts());
@@ -83,7 +85,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   const handleDeleteFont = async (fileName: string) => {
-    if (window.confirm(`Delete font "${fileName}"?`)) {
+    const confirmed = await confirm({
+      title: t('common.delete'),
+      message: t('settings.deleteFontConfirm', { name: fileName }),
+      confirmText: t('common.delete'),
+      cancelText: t('common.cancel'),
+      isDestructive: true,
+    });
+    if (confirmed) {
       await fontManager.deleteFont(fileName);
     }
   };

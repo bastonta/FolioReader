@@ -26,6 +26,7 @@ import {
   isNetworkError,
 } from "../../api/tokenManager";
 import { useAuth } from "../../context/AuthContext";
+import { useDialog } from "../../context/DialogContext";
 import { useTranslation } from "../../i18n";
 import { useBackHandler } from "../../services/backHandler";
 import { fileManager } from "../../services/fileManager";
@@ -53,6 +54,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
   onUpdateSettings,
 }) => {
   const { t } = useTranslation();
+  const { alert } = useDialog();
   const { isOffline, checkOnlineStatus } = useAuth();
   // Navigation & Folder path
   const [currentSeriesPath, setCurrentSeriesPath] = useState<
@@ -362,7 +364,11 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
   // Download book handler
   const handleDownloadBook = async (book: BrowseItem) => {
     if (!settings.downloadPath) {
-      alert(t("browse.needDownloadFolderAlert"));
+      await alert({
+        title: t("common.warning"),
+        message: t("browse.needDownloadFolderAlert"),
+        type: "warning",
+      });
       return;
     }
 
@@ -394,7 +400,11 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
     } catch (err: any) {
       console.error("Download error:", err);
       setDownloadStates((prev) => ({ ...prev, [book.id]: "error" }));
-      alert(t("browse.downloadFailedAlert", { error: err?.message || err }));
+      await alert({
+        title: t("common.error"),
+        message: t("browse.downloadFailedAlert", { error: err?.message || err }),
+        type: "error",
+      });
     }
   };
 

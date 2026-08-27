@@ -4103,4 +4103,218 @@ foliate-view::part(foot) {
   color: var(--text-muted);
 }
 
+/* ==========================================================================
+   Custom Alert & Confirm Dialog System
+   ========================================================================== */
+.dialog-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.48);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  padding: 16px;
+  animation: dialogFadeIn 0.15s ease-out;
+}
+
+@keyframes dialogFadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.dialog-container {
+  width: 100%;
+  max-width: 420px;
+  background-color: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: dialogPop 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  box-sizing: border-box;
+}
+
+@keyframes dialogPop {
+  0% {
+    opacity: 0;
+    transform: scale(0.94) translateY(4px);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.dialog-header {
+  padding: 18px 20px 0 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.dialog-icon-wrapper {
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.dialog-icon-wrapper.dialog-icon-info,
+.dialog-icon-wrapper.dialog-icon-confirm {
+  background-color: rgba(53, 132, 228, 0.12);
+  color: var(--accent-color);
+}
+
+.dialog-icon-wrapper.dialog-icon-danger,
+.dialog-icon-wrapper.dialog-icon-error {
+  background-color: rgba(224, 27, 36, 0.12);
+  color: var(--danger-color);
+}
+
+.dialog-icon-wrapper.dialog-icon-warning {
+  background-color: var(--warning-bg);
+  color: var(--warning-fg);
+}
+
+.dialog-icon-wrapper.dialog-icon-success {
+  background-color: var(--success-bg);
+  color: var(--success-fg);
+}
+
+.dialog-icon {
+  background: transparent !important;
+  flex-shrink: 0;
+  display: block;
+}
+
+.dialog-header-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.dialog-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+  line-height: 1.3;
+}
+
+.dialog-close-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.dialog-close-btn:hover {
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.dialog-body {
+  padding: 12px 20px 18px 20px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  word-break: break-word;
+  user-select: text;
+}
+
+.dialog-footer {
+  padding: 14px 20px;
+  background-color: var(--bg-secondary);
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+}
+
+.dialog-btn {
+  padding: 8px 18px;
+  border-radius: var(--radius-md);
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 80px;
+}
+
+.dialog-btn-secondary {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+.dialog-btn-secondary:hover {
+  background-color: var(--bg-tertiary);
+  border-color: var(--text-muted);
+}
+
+.dialog-btn-primary {
+  background-color: var(--accent-color);
+  color: var(--accent-text);
+  border: none;
+}
+
+.dialog-btn-primary:hover {
+  background-color: var(--accent-hover);
+}
+
+.dialog-btn-primary:focus-visible,
+.dialog-btn-danger:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}
+
+.dialog-btn-danger {
+  background-color: var(--danger-color);
+  color: #ffffff;
+  border: none;
+}
+
+.dialog-btn-danger:hover {
+  background-color: var(--danger-hover);
+}
+
+@media (max-width: 640px) {
+  .dialog-backdrop {
+    padding: 20px;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .dialog-container {
+    max-width: 360px;
+  }
+}
+
+
 

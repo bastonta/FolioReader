@@ -22,6 +22,7 @@ import { setStatusBarVisible, setStatusBarTheme, isMobileDevice } from './servic
 import { useBackHandler } from './services/backHandler';
 import { SplashScreen } from './components/common/SplashScreen';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { DialogProvider, useDialog } from './context/DialogContext';
 import { I18nProvider, useTranslation } from './i18n';
 import { APP_VERSION, BUILD_TIME } from './constants/buildInfo';
 
@@ -90,6 +91,7 @@ function GuestOnly({ children, theme }: { children: React.ReactNode; theme?: str
 function AppRoutes() {
   const { isAuthenticated, isLoading } = useAuth();
   const { t, setLanguage } = useTranslation();
+  const { alert } = useDialog();
   const [settings, setSettings] = useState<ReaderSettings>(() => loadSettings());
   const [activeBook, setActiveBook] = useState<ActiveBookState | null>(null);
   const [currentView, setCurrentView] = useState<'library' | 'browse'>('library');
@@ -249,7 +251,11 @@ function AppRoutes() {
       });
     } catch (err) {
       console.error('Failed to open local book file:', err);
-      alert('Failed to open book file.');
+      alert({
+        title: t('common.error'),
+        message: t('common.failedToOpenBook'),
+        type: 'error',
+      });
     }
   };
 
@@ -291,7 +297,11 @@ function AppRoutes() {
       });
     } catch (err) {
       console.error('Failed to open book from path:', err);
-      alert('Failed to open downloaded book file.');
+      alert({
+        title: t('common.error'),
+        message: t('common.failedToOpenDownloadedBook'),
+        type: 'error',
+      });
     }
   };
 
@@ -418,9 +428,11 @@ export function App() {
 
   return (
     <I18nProvider language={lang} onLanguageChange={setLang}>
-      <AuthProvider>
-        <AppRoutes />
-      </AuthProvider>
+      <DialogProvider>
+        <AuthProvider>
+          <AppRoutes />
+        </AuthProvider>
+      </DialogProvider>
     </I18nProvider>
   );
 }
