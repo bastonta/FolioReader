@@ -269,7 +269,12 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
     <div className="modal-backdrop" onClick={onClose}>
       <div
         className="modal-container"
-        style={{ maxWidth: 520, maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}
+        style={{
+          maxWidth: 520,
+          maxHeight: "90vh",
+          display: "flex",
+          flexDirection: "column",
+        }}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -279,19 +284,19 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
         {/* Modal Header */}
         <div className="modal-header" style={{ paddingBottom: 12 }}>
           <div className="modal-header-title-row">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <div
                 style={{
                   width: 32,
                   height: 32,
                   borderRadius: 8,
                   backgroundColor: isPre
-                    ? 'rgba(234, 179, 8, 0.15)'
-                    : 'rgba(59, 130, 246, 0.15)',
-                  color: isPre ? '#eab308' : 'var(--accent-color)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
+                    ? "rgba(234, 179, 8, 0.15)"
+                    : "rgba(59, 130, 246, 0.15)",
+                  color: isPre ? "#eab308" : "var(--accent-color)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
                   flexShrink: 0,
                 }}
               >
@@ -299,7 +304,7 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
               </div>
               <div>
                 <h3 className="modal-title" style={{ fontSize: 16, margin: 0 }}>
-                  {isPre ? t('update.prereleaseTitle') : t('update.title')}
+                  {isPre ? t("update.prereleaseTitle") : t("update.title")}
                 </h3>
               </div>
             </div>
@@ -308,7 +313,7 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
               type="button"
               className="modal-close-btn"
               onClick={onClose}
-              aria-label={t('common.close')}
+              aria-label={t("common.close")}
             >
               <X size={18} />
             </button>
@@ -320,9 +325,9 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
           className="modal-body"
           style={{
             flex: 1,
-            overflowY: 'auto',
-            display: 'flex',
-            flexDirection: 'column',
+            overflowY: "auto",
+            display: "flex",
+            flexDirection: "column",
             gap: 16,
             paddingTop: 8,
           }}
@@ -330,45 +335,52 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
           {/* Version Banner */}
           <div
             style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              padding: '12px 16px',
-              backgroundColor: 'var(--bg-secondary)',
-              border: '1px solid var(--border-color)',
-              borderRadius: 'var(--radius-md)',
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "12px 16px",
+              backgroundColor: "var(--bg-secondary)",
+              border: "1px solid var(--border-color)",
+              borderRadius: "var(--radius-md)",
               gap: 12,
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                  {t('update.currentVersion')}:
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                flexWrap: "wrap",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                  {t("update.currentVersion")}:
                 </span>
                 <span
                   style={{
                     fontSize: 13,
-                    fontFamily: 'monospace',
+                    fontFamily: "monospace",
                     fontWeight: 600,
-                    color: 'var(--text-secondary)',
+                    color: "var(--text-secondary)",
                   }}
                 >
                   v{updateInfo.currentVersion}
                 </span>
               </div>
 
-              <ArrowRight size={14} style={{ color: 'var(--text-muted)' }} />
+              <ArrowRight size={14} style={{ color: "var(--text-muted)" }} />
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                  {t('update.latestVersion')}:
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                  {t("update.latestVersion")}:
                 </span>
                 <span
                   style={{
                     fontSize: 13,
-                    fontFamily: 'monospace',
+                    fontFamily: "monospace",
                     fontWeight: 700,
-                    color: 'var(--accent-color)',
+                    color: "var(--accent-color)",
                   }}
                 >
                   v{updateInfo.latestVersion}
@@ -380,20 +392,20 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
               style={{
                 fontSize: 11,
                 fontWeight: 700,
-                padding: '3px 8px',
+                padding: "3px 8px",
                 borderRadius: 12,
                 backgroundColor: isPre
-                  ? 'rgba(234, 179, 8, 0.15)'
-                  : 'rgba(34, 197, 94, 0.15)',
-                color: isPre ? '#ca8a04' : '#16a34a',
-                display: 'inline-flex',
-                alignItems: 'center',
+                  ? "rgba(234, 179, 8, 0.15)"
+                  : "rgba(34, 197, 94, 0.15)",
+                color: isPre ? "#ca8a04" : "#16a34a",
+                display: "inline-flex",
+                alignItems: "center",
                 gap: 4,
                 flexShrink: 0,
               }}
             >
               <Tag size={12} />
-              <span>{isPre ? 'BETA' : 'NEW'}</span>
+              <span>{isPre ? "BETA" : "NEW"}</span>
             </span>
           </div>
 
@@ -401,11 +413,11 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
           {updateInfo.publishedAt && (
             <div
               style={{
-                display: 'flex',
-                alignItems: 'center',
+                display: "flex",
+                alignItems: "center",
                 gap: 6,
                 fontSize: 12,
-                color: 'var(--text-muted)',
+                color: "var(--text-muted)",
               }}
             >
               <Calendar size={13} />
@@ -419,28 +431,28 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
               style={{
                 fontSize: 13,
                 fontWeight: 600,
-                color: 'var(--text-primary)',
+                color: "var(--text-primary)",
                 marginBottom: 8,
               }}
             >
-              {t('update.releaseNotes')}
+              {t("update.releaseNotes")}
             </div>
 
             <div
               style={{
                 maxHeight: 220,
-                overflowY: 'auto',
-                padding: '12px 14px',
-                backgroundColor: 'var(--bg-secondary)',
-                border: '1px solid var(--border-color)',
-                borderRadius: 'var(--radius-md)',
+                overflowY: "auto",
+                padding: "12px 14px",
+                backgroundColor: "var(--bg-secondary)",
+                border: "1px solid var(--border-color)",
+                borderRadius: "var(--radius-md)",
               }}
             >
               {updateInfo.releaseNotes ? (
                 renderMarkdown(updateInfo.releaseNotes, openReleaseUrl)
               ) : (
-                <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                  {t('update.noReleaseNotes')}
+                <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                  {t("update.noReleaseNotes")}
                 </span>
               )}
             </div>
@@ -451,57 +463,77 @@ export const UpdateModal: React.FC<UpdateModalProps> = ({
         <div
           className="modal-footer"
           style={{
-            padding: '14px 20px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
+            padding: "14px 20px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
             gap: 10,
-            flexWrap: 'wrap',
+            flexWrap: "wrap",
           }}
         >
           <button
             type="button"
             className="auth-btn-secondary"
-            style={{ padding: '8px 14px', fontSize: 13 }}
+            style={{ padding: "8px 14px", fontSize: 13 }}
             onClick={handleDismiss}
           >
-            {t('update.later')}
+            {t("update.later")}
           </button>
 
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <div style={{ display: "flex", gap: 8, width: "100%" }}>
             <button
               type="button"
               className="auth-btn-secondary"
               style={{
-                padding: '8px 14px',
+                flex: 1,
+                minWidth: 0,
+                padding: "8px 12px",
                 fontSize: 13,
-                display: 'inline-flex',
-                alignItems: 'center',
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
                 gap: 6,
               }}
               onClick={handleOpenReleasePage}
             >
-              <ExternalLink size={14} />
-              <span>{t('update.openReleasePage')}</span>
+              <ExternalLink size={14} style={{ flexShrink: 0 }} />
+              <span
+                style={{
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {t("update.openReleasePage")}
+              </span>
             </button>
 
             <button
               type="button"
               className="auth-btn-primary"
               style={{
-                padding: '8px 18px',
+                flex: 1,
+                minWidth: 0,
+                padding: "8px 12px",
                 fontSize: 13,
-                display: 'inline-flex',
-                alignItems: 'center',
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
                 gap: 6,
               }}
               onClick={handleDownloadAsset}
             >
-              <Download size={15} />
-              <span>
-                {updateInfo.assetUrl?.endsWith('.apk')
-                  ? t('update.downloadApk')
-                  : t('update.downloadUpdate')}
+              <Download size={14} style={{ flexShrink: 0 }} />
+              <span
+                style={{
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {updateInfo.assetUrl?.endsWith(".apk")
+                  ? t("update.downloadApk")
+                  : t("update.downloadUpdate")}
               </span>
             </button>
           </div>

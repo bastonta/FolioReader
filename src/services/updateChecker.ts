@@ -76,12 +76,23 @@ export interface CheckOptions {
 // ─── Version Parsing & Comparison ──────────────────────────────────────────
 
 /**
- * Parse semantic version string (e.g., "0.1.0-beta", "v1.0.0", "dev").
+ * Check whether a version string represents a development/debug build.
+ * Returns true if version string contains 'dev' (e.g., "0.0.1-dev", "dev", "1.0.0-dev.1").
+ */
+export function isDevVersion(versionString: string = APP_VERSION): boolean {
+  if (typeof versionString !== 'string') return false;
+  return /dev/i.test(versionString);
+}
+
+/**
+ * Parse semantic version string (e.g., "0.1.0-beta", "v1.0.0", "dev", "0.0.1-dev").
  */
 export function parseVersion(versionString: string): ParsedVersion | null {
   if (typeof versionString !== 'string') return null;
 
   const clean = versionString.replace(/^[vV]\.?/, '').trim();
+  const containsDev = isDevVersion(clean);
+
   if (clean.toLowerCase() === 'dev' || clean.toLowerCase().startsWith('dev')) {
     return {
       major: 9999,
@@ -96,12 +107,13 @@ export function parseVersion(versionString: string): ParsedVersion | null {
   // Check major.minor.patch[-prerelease]
   const match3 = clean.match(/^(\d+)\.(\d+)\.(\d+)(?:-?(.+))?$/);
   if (match3) {
+    const prerelease = match3[4]?.trim() || undefined;
     return {
       major: parseInt(match3[1], 10),
       minor: parseInt(match3[2], 10),
       patch: parseInt(match3[3], 10),
-      prerelease: match3[4]?.trim() || undefined,
-      isDev: false,
+      prerelease,
+      isDev: containsDev,
       original: versionString,
     };
   }
@@ -109,12 +121,24 @@ export function parseVersion(versionString: string): ParsedVersion | null {
   // Check major.minor[-prerelease]
   const match2 = clean.match(/^(\d+)\.(\d+)(?:-?(.+))?$/);
   if (match2) {
+    const prerelease = match2[3]?.trim() || undefined;
     return {
       major: parseInt(match2[1], 10),
       minor: parseInt(match2[2], 10),
       patch: 0,
-      prerelease: match2[3]?.trim() || undefined,
-      isDev: false,
+      prerelease,
+      isDev: containsDev,
+      original: versionString,
+    };
+  }
+
+  if (containsDev) {
+    return {
+      major: 9999,
+      minor: 9999,
+      patch: 9999,
+      prerelease: 'dev',
+      isDev: true,
       original: versionString,
     };
   }
@@ -357,6 +381,13 @@ export async function checkForUpdates(options: CheckOptions = {}): Promise<Updat
     timeoutMs = auto ? 8000 : 15000,
     currentVersion = APP_VERSION,
   } = options;
+
+  // Development/debug builds containing 'dev' should not check for updates
+  if (isDevVersion(currentVersion)) {
+    return {
+      status: 'dev-build',
+    };
+  }
 
   try {
     const releases = await fetchReleases(timeoutMs);

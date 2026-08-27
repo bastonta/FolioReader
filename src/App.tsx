@@ -25,7 +25,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { DialogProvider, useDialog } from './context/DialogContext';
 import { I18nProvider, useTranslation } from './i18n';
 import { APP_VERSION, BUILD_TIME } from './constants/buildInfo';
-import { checkForUpdates, isUpdateDismissed, UpdateInfo } from './services/updateChecker';
+import { checkForUpdates, isDevVersion, isUpdateDismissed, UpdateInfo } from './services/updateChecker';
 import { UpdateModal } from './components/common/UpdateModal';
 
 // Auth pages
@@ -108,6 +108,8 @@ function AppRoutes() {
 
   // Silent background check for updates on startup if enabled
   useEffect(() => {
+    if (isDevVersion(APP_VERSION)) return;
+
     if (settings.autoCheckUpdates !== false) {
       const timer = setTimeout(async () => {
         try {
