@@ -1,3 +1,4 @@
+import { invoke } from '@tauri-apps/api/core';
 import { isMobileDevice } from './systemUi';
 import { APP_VERSION } from '../constants/buildInfo';
 
@@ -9,6 +10,13 @@ export const GITHUB_RELEASES_PAGE = `https://github.com/${GITHUB_REPO_OWNER}/${G
 
 const DISMISSED_VERSION_KEY = 'folio_dismissed_update_version';
 const LAST_CHECK_KEY = 'folio_last_update_check';
+
+let inMemoryDismissedVersion: string | null = null;
+let inMemoryLastCheckTime: string | null = null;
+
+const isTauri = (): boolean => {
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+};
 
 // ─── Interfaces ────────────────────────────────────────────────────────────
 
@@ -283,6 +291,9 @@ export async function openReleaseUrl(url: string): Promise<void> {
 // ─── Storage Helpers ───────────────────────────────────────────────────────
 
 export function isUpdateDismissed(version: string): boolean {
+  if (inMemoryDismissedVersion !== null) {
+    return inMemoryDismissedVersion === version;
+  }
   try {
     const dismissed = localStorage.getItem(DISMISSED_VERSION_KEY);
     return dismissed === version;
@@ -292,6 +303,10 @@ export function isUpdateDismissed(version: string): boolean {
 }
 
 export function dismissUpdate(version: string): void {
+  inMemoryDismissedVersion = version;
+  if (isTauri()) {
+    invoke('db_set_app_kv', { key: DISMISSED_VERSION_KEY, value: version }).catch(console.warn);
+  }
   try {
     localStorage.setItem(DISMISSED_VERSION_KEY, version);
   } catch (err) {
@@ -300,6 +315,9 @@ export function dismissUpdate(version: string): void {
 }
 
 export function getLastUpdateCheckTime(): string | null {
+  if (inMemoryLastCheckTime !== null) {
+    return inMemoryLastCheckTime;
+  }
   try {
     return localStorage.getItem(LAST_CHECK_KEY);
   } catch {
@@ -308,11 +326,27 @@ export function getLastUpdateCheckTime(): string | null {
 }
 
 export function setLastUpdateCheckTime(time?: string): void {
+  const val = time || new Date().toISOString();
+  inMemoryLastCheckTime = val;
+  if (isTauri()) {
+    invoke('db_set_app_kv', { key: LAST_CHECK_KEY, value: val }).catch(console.warn);
+  }
   try {
-    const val = time || new Date().toISOString();
     localStorage.setItem(LAST_CHECK_KEY, val);
   } catch (err) {
     console.error('Failed to save last update check time:', err);
+  }
+}
+
+export async function initUpdateCheckerKv(): Promise<void> {
+  if (!isTauri()) return;
+  try {
+    const dismissed = await invoke<string | null>('db_get_app_kv', { key: DISMISSED_VERSION_KEY });
+    if (dismissed) inMemoryDismissedVersion = dismissed;
+    const lastCheck = await invoke<string | null>('db_get_app_kv', { key: LAST_CHECK_KEY });
+    if (lastCheck) inMemoryLastCheckTime = lastCheck;
+  } catch (err) {
+    console.warn('Failed to init update checker KV from SQLite:', err);
   }
 }
 

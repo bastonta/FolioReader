@@ -539,7 +539,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 type="button"
                 className={`segmented-btn ${(settings.libraryViewMode || 'grid') === 'grid' ? 'active' : ''}`}
                 onClick={() => {
-                  localStorage.setItem('folio_library_view_mode', 'grid');
                   onUpdateSettings({ libraryViewMode: 'grid' });
                 }}
                 style={{ height: '100%', fontSize: 13, gap: 8 }}
@@ -551,7 +550,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 type="button"
                 className={`segmented-btn ${settings.libraryViewMode === 'list' ? 'active' : ''}`}
                 onClick={() => {
-                  localStorage.setItem('folio_library_view_mode', 'list');
                   onUpdateSettings({ libraryViewMode: 'list' });
                 }}
                 style={{ height: '100%', fontSize: 13, gap: 8 }}

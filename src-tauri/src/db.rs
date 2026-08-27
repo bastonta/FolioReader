@@ -65,6 +65,34 @@ pub struct DbBookMapping {
     pub created_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct DbLocalBookMeta {
+    pub book_id: String,
+    pub file_path: String,
+    pub title: String,
+    pub author: String,
+    pub cover_path: Option<String>,
+    pub extracted: bool,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct DbRecentBook {
+    pub id: String,
+    pub title: String,
+    pub author: String,
+    pub cover_path: Option<String>,
+    pub cover_url: Option<String>,
+    pub file_path: Option<String>,
+    pub file_name: Option<String>,
+    pub file_size: Option<i64>,
+    pub last_location: Option<String>,
+    pub progress_fraction: f32,
+    pub last_opened_at: String,
+}
+
 pub async fn init_db(db_path: &Path) -> Result<DbPool, sqlx::Error> {
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent).ok();
@@ -133,6 +161,38 @@ pub async fn init_db(db_path: &Path) -> Result<DbPool, sqlx::Error> {
             sync_status TEXT NOT NULL DEFAULT 'synced'
         );
         CREATE INDEX IF NOT EXISTS idx_annotations_book_id ON annotations(book_id);
+
+        CREATE TABLE IF NOT EXISTS local_books_metadata (
+            book_id TEXT PRIMARY KEY,
+            file_path TEXT NOT NULL,
+            title TEXT NOT NULL,
+            author TEXT NOT NULL,
+            cover_path TEXT,
+            extracted INTEGER NOT NULL DEFAULT 1,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_local_books_metadata_file_path ON local_books_metadata(file_path);
+
+        CREATE TABLE IF NOT EXISTS recent_books (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            author TEXT NOT NULL,
+            cover_path TEXT,
+            cover_url TEXT,
+            file_path TEXT,
+            file_name TEXT,
+            file_size INTEGER,
+            last_location TEXT,
+            progress_fraction REAL NOT NULL DEFAULT 0.0,
+            last_opened_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_recent_books_last_opened ON recent_books(last_opened_at DESC);
+
+        CREATE TABLE IF NOT EXISTS app_kv (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
         "#,
     )
     .execute(&pool)
@@ -584,6 +644,181 @@ pub async fn delete_annotation(pool: &DbPool, id_or_value: &str) -> Result<(), s
     Ok(())
 }
 
+// ================= LOCAL BOOKS METADATA REPO =================
+
+pub async fn save_local_book_meta(
+    pool: &DbPool,
+    book_id: &str,
+    file_path: &str,
+    title: &str,
+    author: &str,
+    cover_path: Option<&str>,
+    extracted: bool,
+) -> Result<(), sqlx::Error> {
+    let now = Utc::now().to_rfc3339();
+    sqlx::query(
+        r#"
+        INSERT INTO local_books_metadata (book_id, file_path, title, author, cover_path, extracted, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(book_id) DO UPDATE SET
+            file_path = excluded.file_path,
+            title = excluded.title,
+            author = excluded.author,
+            cover_path = COALESCE(excluded.cover_path, local_books_metadata.cover_path),
+            extracted = excluded.extracted,
+            updated_at = excluded.updated_at
+        "#,
+    )
+    .bind(book_id)
+    .bind(file_path)
+    .bind(title)
+    .bind(author)
+    .bind(cover_path)
+    .bind(if extracted { 1 } else { 0 })
+    .bind(&now)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn get_all_local_books_meta(pool: &DbPool) -> Result<Vec<DbLocalBookMeta>, sqlx::Error> {
+    sqlx::query_as::<_, DbLocalBookMeta>(
+        "SELECT book_id, file_path, title, author, cover_path, extracted != 0 AS extracted, updated_at FROM local_books_metadata",
+    )
+    .fetch_all(pool)
+    .await
+}
+
+pub async fn get_local_book_meta(
+    pool: &DbPool,
+    book_id: &str,
+) -> Result<Option<DbLocalBookMeta>, sqlx::Error> {
+    sqlx::query_as::<_, DbLocalBookMeta>(
+        "SELECT book_id, file_path, title, author, cover_path, extracted != 0 AS extracted, updated_at FROM local_books_metadata WHERE book_id = ? LIMIT 1",
+    )
+    .bind(book_id)
+    .fetch_optional(pool)
+    .await
+}
+
+// ================= RECENT BOOKS REPO =================
+
+pub async fn save_recent_book(pool: &DbPool, book: &DbRecentBook) -> Result<(), sqlx::Error> {
+    let now = if book.last_opened_at.is_empty() {
+        Utc::now().to_rfc3339()
+    } else {
+        book.last_opened_at.clone()
+    };
+    sqlx::query(
+        r#"
+        INSERT INTO recent_books (id, title, author, cover_path, cover_url, file_path, file_name, file_size, last_location, progress_fraction, last_opened_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            title = excluded.title,
+            author = excluded.author,
+            cover_path = COALESCE(excluded.cover_path, recent_books.cover_path),
+            cover_url = COALESCE(excluded.cover_url, recent_books.cover_url),
+            file_path = COALESCE(excluded.file_path, recent_books.file_path),
+            file_name = COALESCE(excluded.file_name, recent_books.file_name),
+            file_size = COALESCE(excluded.file_size, recent_books.file_size),
+            last_location = COALESCE(excluded.last_location, recent_books.last_location),
+            progress_fraction = excluded.progress_fraction,
+            last_opened_at = excluded.last_opened_at
+        "#,
+    )
+    .bind(&book.id)
+    .bind(&book.title)
+    .bind(&book.author)
+    .bind(&book.cover_path)
+    .bind(&book.cover_url)
+    .bind(&book.file_path)
+    .bind(&book.file_name)
+    .bind(book.file_size)
+    .bind(&book.last_location)
+    .bind(book.progress_fraction)
+    .bind(&now)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn get_recent_books(pool: &DbPool, limit: i64) -> Result<Vec<DbRecentBook>, sqlx::Error> {
+    sqlx::query_as::<_, DbRecentBook>(
+        "SELECT id, title, author, cover_path, cover_url, file_path, file_name, file_size, last_location, progress_fraction, last_opened_at FROM recent_books ORDER BY last_opened_at DESC LIMIT ?",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+}
+
+pub async fn remove_recent_book(pool: &DbPool, id: &str) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM recent_books WHERE id = ?")
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn update_recent_book_meta(
+    pool: &DbPool,
+    id: &str,
+    title: Option<&str>,
+    author: Option<&str>,
+    cover_path: Option<&str>,
+    cover_url: Option<&str>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        UPDATE recent_books
+        SET
+            title = COALESCE(?, title),
+            author = COALESCE(?, author),
+            cover_path = COALESCE(?, cover_path),
+            cover_url = COALESCE(?, cover_url)
+        WHERE id = ?
+        "#,
+    )
+    .bind(title)
+    .bind(author)
+    .bind(cover_path)
+    .bind(cover_url)
+    .bind(id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+// ================= APP KEY/VALUE REPO =================
+
+pub async fn set_app_kv(pool: &DbPool, key: &str, value: &str) -> Result<(), sqlx::Error> {
+    let now = Utc::now().to_rfc3339();
+    sqlx::query(
+        r#"
+        INSERT INTO app_kv (key, value, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET
+            value = excluded.value,
+            updated_at = excluded.updated_at
+        "#,
+    )
+    .bind(key)
+    .bind(value)
+    .bind(&now)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn get_app_kv(pool: &DbPool, key: &str) -> Result<Option<String>, sqlx::Error> {
+    let row = sqlx::query_scalar::<_, String>("SELECT value FROM app_kv WHERE key = ? LIMIT 1")
+        .bind(key)
+        .fetch_optional(pool)
+        .await?;
+    Ok(row)
+}
+
 pub async fn clear_all_data(pool: &DbPool) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
@@ -591,6 +826,9 @@ pub async fn clear_all_data(pool: &DbPool) -> Result<(), sqlx::Error> {
         DELETE FROM annotations;
         DELETE FROM book_progress;
         DELETE FROM book_mappings;
+        DELETE FROM local_books_metadata;
+        DELETE FROM recent_books;
+        DELETE FROM app_kv;
         VACUUM;
         "#,
     )
@@ -713,7 +951,64 @@ mod tests {
             .expect("must exist");
         assert_eq!(resolved_local_id, local_id);
 
-        // 5. Clear all data
+        // 5. Local books metadata
+        save_local_book_meta(
+            &pool,
+            local_id,
+            file_path,
+            "Chapter 1 Title",
+            "Author Name",
+            Some("/path/to/covers/c1.jpg"),
+            true,
+        )
+        .await
+        .expect("save local book meta");
+
+        let meta = get_local_book_meta(&pool, local_id)
+            .await
+            .expect("get local book meta")
+            .expect("must exist");
+        assert_eq!(meta.title, "Chapter 1 Title");
+        assert_eq!(meta.author, "Author Name");
+
+        let all_meta = get_all_local_books_meta(&pool)
+            .await
+            .expect("get all local books meta");
+        assert_eq!(all_meta.len(), 1);
+
+        // 6. Recent books
+        let recent_book = DbRecentBook {
+            id: local_id.to_string(),
+            title: "Chapter 1 Title".to_string(),
+            author: "Author Name".to_string(),
+            cover_path: Some("/path/to/covers/c1.jpg".to_string()),
+            cover_url: None,
+            file_path: Some(file_path.to_string()),
+            file_name: Some("chapter1.epub".to_string()),
+            file_size: Some(1024),
+            last_location: Some("epubcfi(/6/4!/4/2:0)".to_string()),
+            progress_fraction: 0.5,
+            last_opened_at: "2026-08-27T10:00:00Z".to_string(),
+        };
+        save_recent_book(&pool, &recent_book)
+            .await
+            .expect("save recent book");
+
+        let recent_list = get_recent_books(&pool, 10).await.expect("get recent books");
+        assert_eq!(recent_list.len(), 1);
+        assert_eq!(recent_list[0].id, local_id);
+
+        // 7. App KV store
+        set_app_kv(&pool, "test_key", "test_val")
+            .await
+            .expect("set app kv");
+        let kv_val = get_app_kv(&pool, "test_key")
+            .await
+            .expect("get app kv")
+            .expect("must exist");
+        assert_eq!(kv_val, "test_val");
+
+        // 8. Clear all data
         clear_all_data(&pool).await.expect("clear all data");
 
         let prog_after_clear = get_progress(&pool, book_id)
@@ -725,5 +1020,20 @@ mod tests {
             .await
             .expect("get mapping after clear");
         assert!(mapping_after_clear.is_none());
+
+        let meta_after_clear = get_local_book_meta(&pool, local_id)
+            .await
+            .expect("get meta after clear");
+        assert!(meta_after_clear.is_none());
+
+        let recent_after_clear = get_recent_books(&pool, 10)
+            .await
+            .expect("get recent after clear");
+        assert_eq!(recent_after_clear.len(), 0);
+
+        let kv_after_clear = get_app_kv(&pool, "test_key")
+            .await
+            .expect("get kv after clear");
+        assert!(kv_after_clear.is_none());
     }
 }

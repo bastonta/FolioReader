@@ -211,6 +211,7 @@ pub async fn read_book_file(file_path: String) -> Result<tauri::ipc::Response, S
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn download_book_file(
+    app: tauri::AppHandle,
     server_url: String,
     token: Option<String>,
     book_id: String,
@@ -278,7 +279,7 @@ pub async fn download_book_file(
     );
 
     let mut request = client.get(&url);
-    if let Some(t) = token
+    if let Some(t) = token.as_ref()
         && !t.is_empty()
     {
         request = request.header("Authorization", format!("Bearer {t}"));
@@ -323,6 +324,44 @@ pub async fn download_book_file(
     let local_id = format!("local-{}", rel_path.replace(['/', '\\', ' ', '.'], "_"));
 
     let _ = crate::db::save_book_mapping(&db, &local_id, &book_id, Some(&final_path_str)).await;
+
+    // Auto-fetch book cover from server and cache locally
+    if let Ok(covers_dir) = get_covers_dir(&app) {
+        let cover_url = format!(
+            "{}/api/books/{}/cover",
+            server_url.trim_end_matches('/'),
+            book_id
+        );
+        let mut cover_req = client.get(&cover_url);
+        if let Some(t) = &token
+            && !t.is_empty()
+        {
+            cover_req = cover_req.header("Authorization", format!("Bearer {t}"));
+        }
+        if let Ok(cover_resp) = cover_req.send().await
+            && cover_resp.status().is_success()
+            && let Ok(bytes) = cover_resp.bytes().await
+        {
+            let local_cover_file = format!("{}.jpg", sanitize_filename_part(&local_id));
+            let server_cover_file = format!("{}.jpg", sanitize_filename_part(&book_id));
+            let local_cover_path = covers_dir.join(&local_cover_file);
+            let server_cover_path = covers_dir.join(&server_cover_file);
+            let _ = fs::write(&local_cover_path, &bytes).await;
+            let _ = fs::write(&server_cover_path, &bytes).await;
+
+            let title = file_name.trim_end_matches(".epub").replace('_', " ");
+            let _ = crate::db::save_local_book_meta(
+                &db,
+                &local_id,
+                &final_path_str,
+                &title,
+                "Unknown Author",
+                Some(&local_cover_path.to_string_lossy()),
+                true,
+            )
+            .await;
+        }
+    }
 
     Ok(final_path_str)
 }
@@ -560,4 +599,121 @@ pub async fn open_fonts_folder(app: tauri::AppHandle) -> Result<(), String> {
     app.opener()
         .open_path(path_str, None::<&str>)
         .map_err(|e| format!("Failed to open fonts folder: {e}"))
+}
+
+// ================= BOOK COVERS MANAGEMENT =================
+
+pub fn get_covers_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let base_dir = crate::get_app_base_dir(app)?;
+    let covers_dir = base_dir.join("covers");
+    if !covers_dir.exists() {
+        std::fs::create_dir_all(&covers_dir)
+            .map_err(|e| format!("Failed to create covers directory: {e}"))?;
+    }
+    Ok(covers_dir)
+}
+
+#[tauri::command]
+pub async fn save_book_cover(
+    app: tauri::AppHandle,
+    book_id: String,
+    base64_data: String,
+) -> Result<String, String> {
+    let clean_base64 = if let Some(idx) = base64_data.find(',') {
+        &base64_data[idx + 1..]
+    } else {
+        &base64_data
+    };
+
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(clean_base64.trim())
+        .map_err(|e| format!("Failed to decode base64 cover data: {e}"))?;
+
+    let covers_dir = get_covers_dir(&app)?;
+    let file_name = format!("{}.jpg", sanitize_filename_part(&book_id));
+    let target_path = covers_dir.join(&file_name);
+
+    fs::write(&target_path, &bytes)
+        .await
+        .map_err(|e| format!("Failed to save cover file '{file_name}': {e}"))?;
+
+    Ok(target_path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub async fn get_book_cover_path(
+    app: tauri::AppHandle,
+    book_id: String,
+) -> Result<Option<String>, String> {
+    let covers_dir = get_covers_dir(&app)?;
+    let file_name = format!("{}.jpg", sanitize_filename_part(&book_id));
+    let target_path = covers_dir.join(&file_name);
+
+    if target_path.exists() && target_path.is_file() {
+        Ok(Some(target_path.to_string_lossy().to_string()))
+    } else {
+        Ok(None)
+    }
+}
+
+#[tauri::command]
+pub async fn delete_book_cover(app: tauri::AppHandle, book_id: String) -> Result<bool, String> {
+    let covers_dir = get_covers_dir(&app)?;
+    let file_name = format!("{}.jpg", sanitize_filename_part(&book_id));
+    let target_path = covers_dir.join(&file_name);
+
+    if target_path.exists() && target_path.is_file() {
+        fs::remove_file(&target_path)
+            .await
+            .map_err(|e| format!("Failed to delete cover file '{file_name}': {e}"))?;
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
+#[tauri::command]
+pub async fn clear_covers_cache(app: tauri::AppHandle) -> Result<(), String> {
+    let covers_dir = get_covers_dir(&app)?;
+    if let Ok(mut entries) = fs::read_dir(&covers_dir).await {
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            let path = entry.path();
+            if path.is_file() {
+                let _ = fs::remove_file(path).await;
+            }
+        }
+    }
+    Ok(())
+}
+
+// ================= APP SETTINGS MANAGEMENT =================
+
+#[tauri::command]
+pub async fn load_app_settings(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    let base_dir = crate::get_app_base_dir(&app)?;
+    let settings_path = base_dir.join("settings.json");
+
+    if settings_path.exists() && settings_path.is_file() {
+        let content = fs::read_to_string(&settings_path)
+            .await
+            .map_err(|e| format!("Failed to read settings.json: {e}"))?;
+        Ok(Some(content))
+    } else {
+        Ok(None)
+    }
+}
+
+#[tauri::command]
+pub async fn save_app_settings(app: tauri::AppHandle, settings_json: String) -> Result<(), String> {
+    let base_dir = crate::get_app_base_dir(&app)?;
+    if !base_dir.exists() {
+        fs::create_dir_all(&base_dir)
+            .await
+            .map_err(|e| format!("Failed to create app base dir: {e}"))?;
+    }
+    let settings_path = base_dir.join("settings.json");
+    fs::write(&settings_path, settings_json.as_bytes())
+        .await
+        .map_err(|e| format!("Failed to write settings.json: {e}"))?;
+    Ok(())
 }

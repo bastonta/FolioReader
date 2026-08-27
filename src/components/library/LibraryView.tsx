@@ -25,9 +25,9 @@ import { isMobileDevice } from '../../services/systemUi';
 import { useAuth } from '../../context/AuthContext';
 import {
   loadLocalBooksCache,
+  loadLocalBooksCacheAsync,
   saveLocalBookCache,
   storeBookCover,
-  blobToThumbnailDataUrl,
   formatLanguageMap,
   formatContributor,
   loadLastLocation,
@@ -38,12 +38,15 @@ import { ReaderSettings, RecentBook } from '../../types/reader';
 import { FolderStackCover } from './FolderStackCover';
 import { BookContextMenu } from './BookContextMenu';
 import { ResetProgressModal } from './ResetProgressModal';
+import { convertFileSrc } from '@tauri-apps/api/core';
 import {
   pullBookProgress,
   loadDbLastLocation,
   resetBookProgress,
   setBookReadStatus,
+  getDbServerBookId,
 } from '../../services/readerDb';
+import { getServerUrl, getAccessToken } from '../../api/tokenManager';
 import { useBackHandler } from '../../services/backHandler';
 import { useTranslation, formatPluralRussian } from '../../i18n';
 import { useDialog } from '../../context/DialogContext';
@@ -185,7 +188,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
 
   // View mode: 'grid' | 'list'
   const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => {
-    return settings.libraryViewMode || (localStorage.getItem('folio_library_view_mode') as 'grid' | 'list') || 'grid';
+    return settings.libraryViewMode || 'grid';
   });
 
   useEffect(() => {
@@ -196,7 +199,6 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
 
   const handleToggleViewMode = (mode: 'grid' | 'list') => {
     setViewMode(mode);
-    localStorage.setItem('folio_library_view_mode', mode);
     onUpdateSettings?.({ libraryViewMode: mode });
   };
 
@@ -230,7 +232,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     try {
       const files = await fileManager.scanLocalBooks(settings.downloadPath);
       setLocalBooks(files);
-      setMetaCache(loadLocalBooksCache());
+      const cache = await loadLocalBooksCacheAsync();
+      setMetaCache(cache);
     } catch (err) {
       console.error('Failed to scan local books:', err);
     } finally {
@@ -250,15 +253,15 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     scanFolder();
   }, [scanFolder]);
 
-  // Enrich local books metadata asynchronously
+  // Enrich local books metadata and covers asynchronously
   useEffect(() => {
     let isCancelled = false;
 
     async function enrichLocalBooks() {
-      const currentCache = loadLocalBooksCache();
+      const currentCache = await loadLocalBooksCacheAsync();
       const needsEnrich = localBooks.filter((b) => {
         const cached = currentCache[b.id];
-        return !cached || !cached.extracted || (cached.author === 'Unknown Author' && !cached.coverUrl);
+        return !cached || !cached.extracted || !cached.coverUrl || cached.author === 'Unknown Author';
       });
 
       if (needsEnrich.length === 0) return;
@@ -266,13 +269,28 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       for (const book of needsEnrich) {
         if (isCancelled) break;
         try {
-          // Read book file bytes
+          // 1. Check if cover file already exists on disk from a previous session or download
+          const diskCover = await fileManager.getBookCoverPath(book.id);
+          if (diskCover) {
+            const coverUrl = convertFileSrc(diskCover);
+            const existingMeta = currentCache[book.id];
+            if (existingMeta && existingMeta.extracted && existingMeta.author !== 'Unknown Author') {
+              const metaItem = { ...existingMeta, coverUrl };
+              saveLocalBookCache(book.id, metaItem, book.filePath);
+              if (!isCancelled) {
+                setMetaCache((prev) => ({ ...prev, [book.id]: metaItem }));
+              }
+              continue;
+            }
+          }
+
+          // 2. Read book file bytes and extract metadata & cover
           const file = await fileManager.readBookFile(book.filePath);
           if (!file) continue;
 
-          let title = book.fileName.replace(/\.[^/.]+$/, '');
-          let author = 'Unknown Author';
-          let coverUrl: string | undefined = currentCache[book.id]?.coverUrl;
+          let title = currentCache[book.id]?.title || book.fileName.replace(/\.[^/.]+$/, '');
+          let author = currentCache[book.id]?.author || 'Unknown Author';
+          let coverUrl: string | undefined = diskCover ? convertFileSrc(diskCover) : undefined;
           let extracted = false;
 
           try {
@@ -285,28 +303,49 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
               if (parsedBook.metadata?.author || parsedBook.metadata?.creator) {
                 author = formatContributor(parsedBook.metadata.author || parsedBook.metadata.creator) || author;
               }
-              if (parsedBook.getCover) {
+              if (parsedBook.getCover && !coverUrl) {
                 const coverBlob = await Promise.resolve(parsedBook.getCover());
                 if (coverBlob) {
-                  await storeBookCover(book.id, coverBlob);
-                  coverUrl = await blobToThumbnailDataUrl(coverBlob);
+                  coverUrl = await storeBookCover(book.id, coverBlob);
                 }
               }
               parsedBook.destroy?.();
               extracted = true;
             }
           } catch (e) {
-            console.warn('Metadata extraction failed for:', book.fileName, e);
+            console.warn(`Metadata extraction failed for '${book.fileName}':`, e);
+          }
+
+          // 3. Fallback: If no cover in EPUB, check if book is mapped to server and fetch cover from server
+          if (!coverUrl) {
+            try {
+              const serverBookId = await getDbServerBookId(book.id);
+              const serverUrl = getServerUrl();
+              if (serverBookId && serverUrl) {
+                const token = getAccessToken();
+                const headers: Record<string, string> = {};
+                if (token) headers['Authorization'] = `Bearer ${token}`;
+                const resp = await fetch(`${serverUrl}/api/books/${serverBookId}/cover`, { headers });
+                if (resp.ok) {
+                  const blob = await resp.blob();
+                  if (blob && blob.size > 0) {
+                    coverUrl = await storeBookCover(book.id, blob);
+                  }
+                }
+              }
+            } catch {
+              // ignore
+            }
           }
 
           const metaItem = { title, author, coverUrl, extracted };
-          saveLocalBookCache(book.id, metaItem);
+          saveLocalBookCache(book.id, metaItem, book.filePath);
 
           if (!isCancelled) {
             setMetaCache((prev) => ({ ...prev, [book.id]: metaItem }));
           }
         } catch (err) {
-          console.warn('Error enriching book:', book.fileName, err);
+          console.warn(`Error enriching book '${book.fileName}':`, err);
         }
       }
     }

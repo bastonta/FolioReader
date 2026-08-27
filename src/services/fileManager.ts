@@ -193,4 +193,90 @@ export const fileManager = {
     const sanitized = relPath.replace(/\\/g, '/').replace(/[/\\ .]/g, '_');
     return `local-${sanitized}`;
   },
+
+  /**
+   * Saves a book cover blob or base64 string to app data /covers/{bookId}.jpg
+   * Returns the absolute file path on disk.
+   */
+  saveBookCover: async (bookId: string, data: Blob | string): Promise<string> => {
+    try {
+      let base64Data: string;
+      if (typeof data === 'string') {
+        base64Data = data;
+      } else {
+        base64Data = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = (e) => reject(e);
+          reader.readAsDataURL(data);
+        });
+      }
+
+      return await invoke<string>('save_book_cover', {
+        bookId,
+        base64Data,
+      });
+    } catch (err) {
+      console.error(`Failed to save book cover for '${bookId}':`, err);
+      throw err;
+    }
+  },
+
+  /**
+   * Gets the file path of a saved book cover if it exists.
+   */
+  getBookCoverPath: async (bookId: string): Promise<string | null> => {
+    try {
+      return await invoke<string | null>('get_book_cover_path', { bookId });
+    } catch (err) {
+      console.warn(`Failed to get book cover path for '${bookId}':`, err);
+      return null;
+    }
+  },
+
+  /**
+   * Deletes a book cover file from disk.
+   */
+  deleteBookCover: async (bookId: string): Promise<boolean> => {
+    try {
+      return await invoke<boolean>('delete_book_cover', { bookId });
+    } catch (err) {
+      console.warn(`Failed to delete book cover for '${bookId}':`, err);
+      return false;
+    }
+  },
+
+  /**
+   * Clears the entire covers cache directory.
+   */
+  clearCoversCache: async (): Promise<void> => {
+    try {
+      await invoke('clear_covers_cache');
+    } catch (err) {
+      console.warn('Failed to clear covers cache:', err);
+    }
+  },
+
+  /**
+   * Reads settings.json from app local data folder.
+   */
+  loadAppSettings: async (): Promise<string | null> => {
+    try {
+      return await invoke<string | null>('load_app_settings');
+    } catch (err) {
+      console.warn('Failed to load settings.json:', err);
+      return null;
+    }
+  },
+
+  /**
+   * Writes settings.json to app local data folder.
+   */
+  saveAppSettings: async (settingsJson: string): Promise<void> => {
+    try {
+      await invoke('save_app_settings', { settingsJson });
+    } catch (err) {
+      console.warn('Failed to save settings.json:', err);
+    }
+  },
 };

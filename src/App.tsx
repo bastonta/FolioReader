@@ -12,9 +12,9 @@ import {
   formatLanguageMap,
   formatContributor,
   storeBookCover,
-  blobToThumbnailDataUrl,
   saveLocalBookCache,
   saveRecentBook,
+  initStorage,
 } from './services/storage';
 import { saveDbBookMapping, loadDbLastLocation } from './services/readerDb';
 import { fileManager } from './services/fileManager';
@@ -25,7 +25,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { DialogProvider, useDialog } from './context/DialogContext';
 import { I18nProvider, useTranslation } from './i18n';
 import { APP_VERSION, BUILD_TIME } from './constants/buildInfo';
-import { checkForUpdates, isDevVersion, isUpdateDismissed, UpdateInfo } from './services/updateChecker';
+import { checkForUpdates, isDevVersion, isUpdateDismissed, initUpdateCheckerKv, UpdateInfo } from './services/updateChecker';
 import { UpdateModal } from './components/common/UpdateModal';
 
 // Auth pages
@@ -104,6 +104,10 @@ function AppRoutes() {
 
   useEffect(() => {
     console.info(`[Folio] Version: ${APP_VERSION}, Build: ${BUILD_TIME}`);
+    initStorage().then(() => {
+      setSettings(loadSettings());
+    });
+    initUpdateCheckerKv();
   }, []);
 
   // Silent background check for updates on startup if enabled
@@ -245,11 +249,10 @@ function AppRoutes() {
             if (parsedBook.getCover) {
               const coverBlob = await Promise.resolve(parsedBook.getCover());
               if (coverBlob) {
-                await storeBookCover(book.id, coverBlob);
-                coverUrl = await blobToThumbnailDataUrl(coverBlob);
+                coverUrl = await storeBookCover(book.id, coverBlob);
               }
             }
-            saveLocalBookCache(book.id, { title, author, coverUrl, extracted: true });
+            saveLocalBookCache(book.id, { title, author, coverUrl, extracted: true }, filePath);
             parsedBook.destroy?.();
           }
         } catch (e) {

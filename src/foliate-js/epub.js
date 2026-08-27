@@ -1085,10 +1085,56 @@ ${doc.querySelector('parsererror').innerText}`)
         return isExternal(uri)
     }
     async getCover() {
-        const cover = this.resources?.cover
-        return cover?.href
-            ? new Blob([await this.loadBlob(cover.href)], { type: cover.mediaType })
-            : null
+        let cover = this.resources?.cover
+        if (!cover) {
+            // 1. Try to find cover from guide XHTML (e.g. titlepage.xhtml / cover.xhtml)
+            const guideHref = this.resources?.guide
+                ?.find(ref => ref.type?.includes('cover'))?.href
+            if (guideHref) {
+                try {
+                    const doc = await this.loadDocument(this.resources.getItemByHref(guideHref))
+                    if (doc) {
+                        const img = doc.querySelector('img') || doc.querySelector('image')
+                        const src = img?.getAttribute('src') || img?.getAttribute('href') || img?.getAttribute('xlink:href')
+                        if (src) {
+                            const basePath = guideHref.includes('/') ? guideHref.slice(0, guideHref.lastIndexOf('/') + 1) : ''
+                            const resolvedHref = basePath ? basePath + src.replace(/^\.\//, '') : src
+                            cover = this.resources.getItemByHref(resolvedHref)
+                                || this.resources.manifest?.find(it => it.href?.endsWith(src.split('/').pop()))
+                        }
+                    }
+                } catch (e) {
+                    console.debug('Failed to parse guide cover xhtml:', e)
+                }
+            }
+        }
+        if (!cover) {
+            // 2. Try manifest items containing cover-related keywords
+            const isImage = item => item?.mediaType?.startsWith('image/')
+            const keywords = ['cover', 'title', 'front', 'jacket', 'poster']
+            cover = this.resources?.manifest?.find(item =>
+                isImage(item) && keywords.some(kw =>
+                    item.id?.toLowerCase().includes(kw) || item.href?.toLowerCase().includes(kw)
+                )
+            )
+        }
+        if (!cover) {
+            // 3. Fallback: first image in manifest
+            const isImage = item => item?.mediaType?.startsWith('image/')
+            cover = this.resources?.manifest?.find(isImage)
+        }
+
+        if (cover?.href) {
+            try {
+                const blob = await this.loadBlob(cover.href)
+                if (blob) {
+                    return new Blob([blob], { type: cover.mediaType || 'image/jpeg' })
+                }
+            } catch (err) {
+                console.warn('Failed to load blob for cover:', cover.href, err)
+            }
+        }
+        return null
     }
     async getCalibreBookmarks() {
         const txt = await this.loadText('META-INF/calibre_bookmarks.txt')

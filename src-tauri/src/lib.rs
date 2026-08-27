@@ -88,6 +88,21 @@ pub fn run() {
             reader_commands::pull_book_progress,
             reader_commands::sync_all_pending,
             reader_commands::db_clear_all_data,
+            reader_commands::db_save_local_book_meta,
+            reader_commands::db_get_all_local_books_meta,
+            reader_commands::db_get_local_book_meta,
+            reader_commands::db_save_recent_book,
+            reader_commands::db_get_recent_books,
+            reader_commands::db_remove_recent_book,
+            reader_commands::db_update_recent_book_meta,
+            reader_commands::db_set_app_kv,
+            reader_commands::db_get_app_kv,
+            fs_manager::save_book_cover,
+            fs_manager::get_book_cover_path,
+            fs_manager::delete_book_cover,
+            fs_manager::clear_covers_cache,
+            fs_manager::load_app_settings,
+            fs_manager::save_app_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

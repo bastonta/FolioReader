@@ -63,11 +63,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
 
   // View mode: 'grid' | 'list'
   const [viewMode, setViewMode] = useState<"grid" | "list">(() => {
-    return (
-      settings.libraryViewMode ||
-      (localStorage.getItem("folio_library_view_mode") as "grid" | "list") ||
-      "grid"
-    );
+    return settings.libraryViewMode || "grid";
   });
 
   useEffect(() => {
@@ -78,7 +74,6 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
 
   const handleToggleViewMode = (mode: "grid" | "list") => {
     setViewMode(mode);
-    localStorage.setItem("folio_library_view_mode", mode);
     onUpdateSettings?.({ libraryViewMode: mode });
   };
 

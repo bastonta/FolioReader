@@ -1,5 +1,7 @@
 use crate::auth_proxy::AuthHttpClientState;
-use crate::db::{self, DbAnnotation, DbBookProgress, DbBookmark, DbPool};
+use crate::db::{
+    self, DbAnnotation, DbBookProgress, DbBookmark, DbLocalBookMeta, DbPool, DbRecentBook,
+};
 use crate::sync_manager::{self, PullProgressResult, SyncResult};
 use tauri::State;
 
@@ -241,4 +243,114 @@ pub async fn sync_all_pending(
 #[tauri::command]
 pub async fn db_clear_all_data(db: State<'_, DbPool>) -> Result<(), String> {
     db::clear_all_data(&db).await.map_err(|e| e.to_string())
+}
+
+// ================= LOCAL BOOKS METADATA COMMANDS =================
+
+#[tauri::command]
+pub async fn db_save_local_book_meta(
+    book_id: String,
+    file_path: String,
+    title: String,
+    author: String,
+    cover_path: Option<String>,
+    extracted: Option<bool>,
+    db: State<'_, DbPool>,
+) -> Result<(), String> {
+    db::save_local_book_meta(
+        &db,
+        &book_id,
+        &file_path,
+        &title,
+        &author,
+        cover_path.as_deref(),
+        extracted.unwrap_or(true),
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn db_get_all_local_books_meta(
+    db: State<'_, DbPool>,
+) -> Result<Vec<DbLocalBookMeta>, String> {
+    db::get_all_local_books_meta(&db)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn db_get_local_book_meta(
+    book_id: String,
+    db: State<'_, DbPool>,
+) -> Result<Option<DbLocalBookMeta>, String> {
+    db::get_local_book_meta(&db, &book_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+// ================= RECENT BOOKS COMMANDS =================
+
+#[tauri::command]
+pub async fn db_save_recent_book(book: DbRecentBook, db: State<'_, DbPool>) -> Result<(), String> {
+    db::save_recent_book(&db, &book)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn db_get_recent_books(
+    limit: Option<i64>,
+    db: State<'_, DbPool>,
+) -> Result<Vec<DbRecentBook>, String> {
+    let l = limit.unwrap_or(100);
+    db::get_recent_books(&db, l)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn db_remove_recent_book(id: String, db: State<'_, DbPool>) -> Result<(), String> {
+    db::remove_recent_book(&db, &id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn db_update_recent_book_meta(
+    id: String,
+    title: Option<String>,
+    author: Option<String>,
+    cover_path: Option<String>,
+    cover_url: Option<String>,
+    db: State<'_, DbPool>,
+) -> Result<(), String> {
+    db::update_recent_book_meta(
+        &db,
+        &id,
+        title.as_deref(),
+        author.as_deref(),
+        cover_path.as_deref(),
+        cover_url.as_deref(),
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
+// ================= APP KEY/VALUE COMMANDS =================
+
+#[tauri::command]
+pub async fn db_set_app_kv(
+    key: String,
+    value: String,
+    db: State<'_, DbPool>,
+) -> Result<(), String> {
+    db::set_app_kv(&db, &key, &value)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn db_get_app_kv(key: String, db: State<'_, DbPool>) -> Result<Option<String>, String> {
+    db::get_app_kv(&db, &key).await.map_err(|e| e.to_string())
 }
