@@ -19,6 +19,7 @@ export interface PullProgressResult {
   location?: string;
   progressPercent?: number;
   isRead?: boolean;
+  updatedAt?: string;
 }
 
 interface DbBookProgress {

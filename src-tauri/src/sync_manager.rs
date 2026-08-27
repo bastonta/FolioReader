@@ -23,6 +23,7 @@ pub struct PullProgressResult {
     pub location: Option<String>,
     pub progress_percent: Option<f32>,
     pub is_read: Option<bool>,
+    pub updated_at: Option<String>,
 }
 
 // Server payload types
@@ -32,6 +33,7 @@ struct ServerProgressResponse {
     pub location: Option<String>,
     pub progress_percent: Option<f32>,
     pub is_read: Option<bool>,
+    pub updated_at: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -240,6 +242,7 @@ pub async fn pull_book_progress(
                 location: None,
                 progress_percent: None,
                 is_read: None,
+                updated_at: None,
             });
         }
     };
@@ -303,6 +306,7 @@ pub async fn pull_book_progress(
                     location: Some(local_p.location),
                     progress_percent: Some(local_p.progress_percent),
                     is_read: Some(local_p.is_read),
+                    updated_at: Some(local_p.updated_at),
                 });
             }
 
@@ -319,6 +323,7 @@ pub async fn pull_book_progress(
                 location: Some(loc),
                 progress_percent: Some(remote_percent),
                 is_read: Some(is_read),
+                updated_at: remote.updated_at,
             });
         }
         Ok(PullProgressResult {
@@ -327,6 +332,7 @@ pub async fn pull_book_progress(
             location: None,
             progress_percent: None,
             is_read: None,
+            updated_at: None,
         })
     } else if res.status().as_u16() == 404 {
         Ok(PullProgressResult {
@@ -335,6 +341,7 @@ pub async fn pull_book_progress(
             location: None,
             progress_percent: None,
             is_read: None,
+            updated_at: None,
         })
     } else {
         Err(format!("Server returned error status {}", res.status()))

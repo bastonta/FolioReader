@@ -363,6 +363,94 @@ pub async fn download_book_file(
         }
     }
 
+    // Auto-fetch reading progress from server and save to local db if available
+    let progress_url = format!(
+        "{}/api/books/{}/progress?format=cfi",
+        server_url.trim_end_matches('/'),
+        book_id
+    );
+    let mut prog_req = client.get(&progress_url);
+    if let Some(t) = &token
+        && !t.is_empty()
+    {
+        prog_req = prog_req.header("Authorization", format!("Bearer {t}"));
+    }
+    if let Ok(prog_resp) = prog_req.send().await
+        && prog_resp.status().is_success()
+        && let Ok(prog_val) = prog_resp.json::<serde_json::Value>().await
+    {
+        let location = prog_val
+            .get("location")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let progress_percent = prog_val
+            .get("progressPercent")
+            .and_then(|v| v.as_f64())
+            .map(|v| v as f32)
+            .unwrap_or(0.0);
+        let is_read = prog_val
+            .get("isRead")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let updated_at = prog_val
+            .get("updatedAt")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
+
+        if !location.is_empty() || progress_percent > 0.0 || is_read {
+            let _ = crate::db::save_progress(
+                &db,
+                &local_id,
+                &location,
+                progress_percent,
+                is_read,
+                false,
+            )
+            .await;
+            let _ = crate::db::save_progress(
+                &db,
+                &book_id,
+                &location,
+                progress_percent,
+                is_read,
+                false,
+            )
+            .await;
+
+            let title = file_name.trim_end_matches(".epub").replace('_', " ");
+            let file_size = match tokio::fs::metadata(&final_path).await {
+                Ok(m) => Some(m.len() as i64),
+                Err(_) => None,
+            };
+            let disk_cover = get_covers_dir(&app).ok().map(|d| {
+                d.join(format!("{}.jpg", sanitize_filename_part(&local_id)))
+                    .to_string_lossy()
+                    .to_string()
+            });
+
+            let recent_book = crate::db::DbRecentBook {
+                id: local_id.clone(),
+                title,
+                author: "Unknown Author".to_string(),
+                cover_path: disk_cover,
+                cover_url: None,
+                file_path: Some(final_path_str.clone()),
+                file_name: Some(file_name.clone()),
+                file_size,
+                last_location: if location.is_empty() {
+                    None
+                } else {
+                    Some(location)
+                },
+                progress_fraction: progress_percent / 100.0,
+                last_opened_at: updated_at,
+            };
+            let _ = crate::db::save_recent_book(&db, &recent_book).await;
+        }
+    }
+
     Ok(final_path_str)
 }
 

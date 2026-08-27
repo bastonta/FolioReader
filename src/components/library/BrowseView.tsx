@@ -30,6 +30,12 @@ import { useDialog } from "../../context/DialogContext";
 import { useTranslation } from "../../i18n";
 import { useBackHandler } from "../../services/backHandler";
 import { fileManager } from "../../services/fileManager";
+import { saveDbBookMapping } from "../../services/readerDb";
+import {
+  saveRecentBook,
+  saveLastLocation,
+  saveLocalBookCache,
+} from "../../services/storage";
 import { BrowseItem } from "../../types/browse";
 import { ReaderSettings } from "../../types/reader";
 
@@ -388,6 +394,40 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
         seriesName: seriesPath,
         baseDir: settings.downloadPath,
       });
+
+      const localId = fileManager.getLocalBookId(savedPath, settings.downloadPath);
+      await saveDbBookMapping(localId, book.id, savedPath);
+
+      // Update in-memory caches if progress was present in catalog item
+      if (book.progress) {
+        const pct = book.progress.progressPercent ?? 0;
+        const isRead = book.progress.isRead ?? (pct >= 100);
+        const loc = book.progress.location || "";
+        const lastOpenedAt =
+          book.progress.updatedAt || new Date().toISOString();
+        if (loc || pct > 0 || isRead) {
+          saveLastLocation(localId, loc, pct / 100);
+          saveRecentBook({
+            id: localId,
+            title: book.name,
+            author: book.author || t("common.unknownAuthor"),
+            filePath: savedPath,
+            progressFraction: pct / 100,
+            lastOpenedAt,
+            fileName,
+          });
+        }
+      }
+
+      saveLocalBookCache(
+        localId,
+        {
+          title: book.name,
+          author: book.author || t("common.unknownAuthor"),
+          extracted: true,
+        },
+        savedPath,
+      );
 
       setDownloadedPaths((prev) => ({ ...prev, [book.id]: savedPath }));
       setDownloadStates((prev) => ({ ...prev, [book.id]: "downloaded" }));

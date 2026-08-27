@@ -2,6 +2,7 @@ export interface BrowseProgressInfo {
   location?: string;
   progressPercent?: number;
   isRead?: boolean;
+  updatedAt?: string;
 }
 
 export interface BrowseItem {

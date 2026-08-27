@@ -12,6 +12,7 @@ import {
   formatLanguageMap,
   formatContributor,
   storeBookCover,
+  loadRecentBooksAsync,
   saveLocalBookCache,
   saveRecentBook,
   initStorage,
@@ -421,6 +422,9 @@ function AppRoutes() {
                   settings={settings}
                   onBackToLocalLibrary={() => setCurrentView('library')}
                   onOpenBookFromPath={handleOpenBookFromPath}
+                  onBookDownloaded={() => {
+                    loadRecentBooksAsync().catch(console.warn);
+                  }}
                   onUpdateSettings={handleUpdateSettings}
                 />
               ) : (
