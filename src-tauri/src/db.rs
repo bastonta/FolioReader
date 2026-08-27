@@ -754,7 +754,8 @@ pub async fn get_recent_books(pool: &DbPool, limit: i64) -> Result<Vec<DbRecentB
 }
 
 pub async fn remove_recent_book(pool: &DbPool, id: &str) -> Result<(), sqlx::Error> {
-    sqlx::query("DELETE FROM recent_books WHERE id = ?")
+    sqlx::query("DELETE FROM recent_books WHERE id = ? OR file_path = ?")
+        .bind(id)
         .bind(id)
         .execute(pool)
         .await?;

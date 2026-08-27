@@ -32,6 +32,7 @@ import {
   formatContributor,
   loadLastLocation,
   loadRecentBooks,
+  removeRecentBook,
 } from '../../services/storage';
 import { LocalBookFile } from '../../types/browse';
 import { ReaderSettings, RecentBook } from '../../types/reader';
@@ -450,6 +451,11 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     });
     if (confirmed) {
       await fileManager.deleteBookFile(book.filePath);
+      await removeRecentBook(book.id);
+      if (book.filePath) {
+        await removeRecentBook(book.filePath);
+      }
+      setRecentBooks((prev) => prev.filter((b) => b.id !== book.id && (!book.filePath || b.filePath !== book.filePath)));
       await scanFolder();
       refreshRecentProgress();
     }
@@ -486,8 +492,18 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     if (confirmed) {
       for (const book of booksInFolder) {
         await fileManager.deleteBookFile(book.filePath);
+        await removeRecentBook(book.id);
+        if (book.filePath) {
+          await removeRecentBook(book.filePath);
+        }
       }
+      setRecentBooks((prev) =>
+        prev.filter(
+          (b) => !booksInFolder.some((deleted) => deleted.id === b.id || (b.filePath && deleted.filePath === b.filePath))
+        )
+      );
       await scanFolder();
+      refreshRecentProgress();
     }
   };
 

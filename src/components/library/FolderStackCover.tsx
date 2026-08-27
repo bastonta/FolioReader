@@ -35,12 +35,8 @@ export const FolderStackCover: React.FC<FolderStackCoverProps> = ({
 
     return (
       <div className={`folder-stack-wrap count-1 ${compact ? 'compact' : ''}`}>
-        <div className="folder-stack-single-card" style={{ position: 'relative' }}>
-          <div className="folder-stack-fallback-cover">
-            <BookOpen size={compact ? 16 : 24} />
-            {!compact && <span className="folder-fallback-title">{title}</span>}
-          </div>
-          {coverUrl && (
+        <div className="folder-stack-single-card">
+          {coverUrl ? (
             <img
               src={coverUrl}
               alt={title}
@@ -49,8 +45,12 @@ export const FolderStackCover: React.FC<FolderStackCoverProps> = ({
               onError={(e) => {
                 (e.target as HTMLElement).style.display = 'none';
               }}
-              style={{ position: 'absolute', inset: 0 }}
             />
+          ) : (
+            <div className="folder-stack-fallback-cover">
+              <BookOpen size={compact ? 16 : 24} />
+              {!compact && <span className="folder-fallback-title">{title}</span>}
+            </div>
           )}
         </div>
       </div>
@@ -71,13 +71,8 @@ export const FolderStackCover: React.FC<FolderStackCoverProps> = ({
             <div
               key={book.id}
               className={`folder-stack-layer stack-2-layer-${idx} ${isFront ? 'front' : 'back'}`}
-              style={{ position: 'relative' }}
             >
-              <div className="folder-stack-fallback-cover">
-                <BookOpen size={compact ? 14 : 20} />
-                {!compact && isFront && <span className="folder-fallback-title">{title}</span>}
-              </div>
-              {coverUrl && (
+              {coverUrl ? (
                 <img
                   src={coverUrl}
                   alt={title}
@@ -86,8 +81,12 @@ export const FolderStackCover: React.FC<FolderStackCoverProps> = ({
                   onError={(e) => {
                     (e.target as HTMLElement).style.display = 'none';
                   }}
-                  style={{ position: 'absolute', inset: 0 }}
                 />
+              ) : (
+                <div className="folder-stack-fallback-cover">
+                  <BookOpen size={compact ? 14 : 20} />
+                  {!compact && isFront && <span className="folder-fallback-title">{title}</span>}
+                </div>
               )}
             </div>
           );
@@ -109,13 +108,9 @@ export const FolderStackCover: React.FC<FolderStackCoverProps> = ({
           <div
             key={book.id}
             className={`folder-stack-layer stack-multi-layer-${idx} ${isFront ? 'front' : 'back'}`}
-            style={{ zIndex: idx + 1, position: 'relative' }}
+            style={{ zIndex: idx + 1 }}
           >
-            <div className="folder-stack-fallback-cover">
-              <BookOpen size={compact ? 12 : 18} />
-              {!compact && isFront && <span className="folder-fallback-title">{title}</span>}
-            </div>
-            {coverUrl && (
+            {coverUrl ? (
               <img
                 src={coverUrl}
                 alt={title}
@@ -124,8 +119,12 @@ export const FolderStackCover: React.FC<FolderStackCoverProps> = ({
                 onError={(e) => {
                   (e.target as HTMLElement).style.display = 'none';
                 }}
-                style={{ position: 'absolute', inset: 0 }}
               />
+            ) : (
+              <div className="folder-stack-fallback-cover">
+                <BookOpen size={compact ? 12 : 18} />
+                {!compact && isFront && <span className="folder-fallback-title">{title}</span>}
+              </div>
             )}
           </div>
         );

@@ -512,7 +512,7 @@ export function updateRecentBookMetadata(
 }
 
 export async function removeRecentBook(id: string): Promise<void> {
-  cachedRecentBooks = cachedRecentBooks.filter((b) => b.id !== id);
+  cachedRecentBooks = cachedRecentBooks.filter((b) => b.id !== id && b.filePath !== id);
 
   if (isTauri()) {
     try {
