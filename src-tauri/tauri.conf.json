@@ -26,6 +26,9 @@
     "active": true,
     "targets": "all",
     "publisher": "Folio",
+    "android": {
+      "debugApplicationIdSuffix": ".dev"
+    },
     "windows": {
       "nsis": {
         "installMode": "currentUser",

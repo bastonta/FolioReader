@@ -46,6 +46,11 @@ configure<ApplicationExtension> {
     }
     buildTypes {
         getByName("debug") {
+            val keystorePropertiesFile = rootProject.file("keystore.properties")
+            if (keystorePropertiesFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+            applicationIdSuffix = ".dev"
             manifestPlaceholders["usesCleartextTraffic"] = "true"
             isDebuggable = true
             isJniDebuggable = true
