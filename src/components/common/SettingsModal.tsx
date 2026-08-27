@@ -908,19 +908,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
               <button
                 type="button"
-                className="auth-btn-secondary"
-                style={{
-                  padding: '6px 12px',
-                  fontSize: 12,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                }}
+                className="settings-action-btn"
                 onClick={handleCheckUpdates}
                 disabled={isCheckingUpdate}
+                title={t('update.checkForUpdates')}
               >
                 <RefreshCw
-                  size={13}
+                  size={12}
                   style={{
                     animation: isCheckingUpdate ? 'spin 1s linear infinite' : 'none',
                   }}
@@ -986,8 +980,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 {updateResult.status === 'update-available' && updateResult.updateInfo && (
                   <button
                     type="button"
-                    className="auth-btn-primary"
-                    style={{ padding: '4px 10px', fontSize: 11 }}
+                    className="settings-action-btn-primary"
                     onClick={() => setActiveUpdateInfo(updateResult.updateInfo!)}
                   >
                     {t('update.viewUpdate')}

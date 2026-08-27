@@ -448,10 +448,10 @@ export const ProfilePage: React.FC = () => {
                 </span>
                 <button
                   type="button"
-                  className="auth-btn-secondary"
-                  style={{ padding: '4px 10px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                  className="settings-action-btn"
                   onClick={handleCheckUpdates}
                   disabled={isCheckingUpdate}
+                  title={t('update.checkForUpdates')}
                 >
                   <RefreshCw
                     size={12}
@@ -517,8 +517,7 @@ export const ProfilePage: React.FC = () => {
                 {updateResult.status === 'update-available' && updateResult.updateInfo && (
                   <button
                     type="button"
-                    className="auth-btn-primary"
-                    style={{ padding: '3px 8px', fontSize: 11 }}
+                    className="settings-action-btn-primary"
                     onClick={() => setActiveUpdateInfo(updateResult.updateInfo!)}
                   >
                     {t('update.viewUpdate')}
