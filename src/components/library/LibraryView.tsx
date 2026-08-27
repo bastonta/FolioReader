@@ -841,20 +841,20 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                     onClick={() => handleResumeBook(book)}
                     title={`${t('library.continueReading')} "${book.title}" (${pct}%)`}
                   >
-                    <div className="continue-reading-cover-wrap">
-                      {cover ? (
+                    <div className="continue-reading-cover-wrap" style={{ position: 'relative' }}>
+                      <div className="continue-reading-placeholder">
+                        <BookOpen size={24} />
+                      </div>
+                      {cover && (
                         <img
                           src={cover}
                           alt={book.title}
                           className="continue-reading-cover"
+                          style={{ position: 'absolute', inset: 0 }}
                           onError={(e) => {
                             (e.target as HTMLElement).style.display = 'none';
                           }}
                         />
-                      ) : (
-                        <div className="continue-reading-placeholder">
-                          <BookOpen size={24} />
-                        </div>
                       )}
                       {pct > 0 && (
                         <span className="continue-reading-badge">{pct}%</span>
@@ -1335,8 +1335,11 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
         onContextMenu={(e) => handleOpenBookMenu(book, e, isRead)}
       >
         {/* Cover thumbnail on the left */}
-        <div className="book-list-thumbnail-wrap">
-          {meta?.coverUrl ? (
+        <div className="book-list-thumbnail-wrap" style={{ position: 'relative' }}>
+          <div className="book-list-thumbnail-placeholder">
+            <BookOpen size={20} />
+          </div>
+          {meta?.coverUrl && (
             <img
               src={meta.coverUrl}
               alt={title}
@@ -1345,11 +1348,8 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
               onError={(e) => {
                 (e.target as HTMLElement).style.display = 'none';
               }}
+              style={{ position: 'absolute', inset: 0 }}
             />
-          ) : (
-            <div className="book-list-thumbnail-placeholder">
-              <BookOpen size={20} />
-            </div>
           )}
         </div>
 

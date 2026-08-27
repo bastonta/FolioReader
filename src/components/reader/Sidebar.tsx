@@ -66,17 +66,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
     <aside className={`sidebar-container ${isPinned ? 'pinned' : 'floating'}`}>
       {/* Book Metadata Header */}
       <div className="sidebar-book-header">
-        <div className="sidebar-book-cover-wrap">
-          {metadata?.coverUrl ? (
+        <div className="sidebar-book-cover-wrap" style={{ position: 'relative' }}>
+          <div className="sidebar-book-cover-placeholder">
+            <BookOpen size={24} />
+          </div>
+          {metadata?.coverUrl && (
             <img
               src={metadata.coverUrl}
               alt={metadata.title || t('common.untitledBook')}
               className="sidebar-book-cover"
+              style={{ position: 'absolute', inset: 0 }}
+              onError={(e) => {
+                (e.target as HTMLElement).style.display = 'none';
+              }}
             />
-          ) : (
-            <div className="sidebar-book-cover-placeholder">
-              <BookOpen size={24} />
-            </div>
           )}
         </div>
 

@@ -82,20 +82,20 @@ export const BookInfoModal: React.FC<BookInfoModalProps> = ({
     <Modal isOpen={isOpen} onClose={onClose} title={t('reader.bookDetails')} maxWidth="580px">
       <div className="book-info-layout">
         {/* Book Cover */}
-        <div className="book-info-cover-wrap">
-          {metadata.coverUrl ? (
+        <div className="book-info-cover-wrap" style={{ position: 'relative' }}>
+          <div className="book-info-cover-placeholder">
+            <BookOpen size={36} />
+          </div>
+          {metadata.coverUrl && (
             <img
               src={metadata.coverUrl}
               alt={metadata.title}
               className="book-info-cover-img"
+              style={{ position: 'absolute', inset: 0 }}
               onError={(e) => {
                 (e.target as HTMLElement).style.display = 'none';
               }}
             />
-          ) : (
-            <div className="book-info-cover-placeholder">
-              <BookOpen size={36} />
-            </div>
           )}
         </div>
 
