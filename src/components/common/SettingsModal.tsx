@@ -28,8 +28,19 @@ import {
   Volume2,
   Clock,
   Globe,
+  RefreshCw,
+  Sparkles,
+  CheckCircle2,
+  AlertCircle,
 } from 'lucide-react';
 import { APP_VERSION, BUILD_TIME, formatBuildTime } from '../../constants/buildInfo';
+import {
+  checkForUpdates,
+  getLastUpdateCheckTime,
+  UpdateInfo,
+  UpdateCheckResult,
+} from '../../services/updateChecker';
+import { UpdateModal } from './UpdateModal';
 
 
 interface SettingsModalProps {
@@ -55,14 +66,44 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const fontInputRef = useRef<HTMLInputElement>(null);
   const isMobile = isMobileDevice();
 
+  // Update check states
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null);
+  const [lastCheckTime, setLastCheckTime] = useState<string | null>(() => getLastUpdateCheckTime());
+  const [activeUpdateInfo, setActiveUpdateInfo] = useState<UpdateInfo | null>(null);
+
   useEffect(() => {
     if (isOpen) {
       fileManager.hasStoragePermission().then(setHasPermission);
       fontManager.loadAllFonts().then(setCustomFonts);
+      setLastCheckTime(getLastUpdateCheckTime());
       const unsubscribe = fontManager.subscribe(setCustomFonts);
       return () => unsubscribe();
     }
   }, [isOpen]);
+
+  const handleCheckUpdates = async () => {
+    setIsCheckingUpdate(true);
+    setUpdateResult(null);
+    try {
+      const result = await checkForUpdates({
+        auto: false,
+        includePrereleases: settings.includePrereleases,
+      });
+      setUpdateResult(result);
+      setLastCheckTime(new Date().toISOString());
+      if (result.status === 'update-available' && result.updateInfo) {
+        setActiveUpdateInfo(result.updateInfo);
+      }
+    } catch (err: any) {
+      setUpdateResult({
+        status: 'error',
+        error: err?.message || 'Failed to check for updates',
+      });
+    } finally {
+      setIsCheckingUpdate(false);
+    }
+  };
 
   const handleFontUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -847,6 +888,191 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             )}
           </div>
 
+          {/* App Updates Section */}
+          <div className="settings-block" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  fontSize: 14,
+                  fontWeight: 600,
+                  color: 'var(--text-primary)',
+                  margin: 0,
+                }}
+              >
+                <Sparkles size={18} style={{ color: 'var(--accent-color)' }} />
+                <span>{t('update.title')}</span>
+              </label>
+
+              <button
+                type="button"
+                className="auth-btn-secondary"
+                style={{
+                  padding: '6px 12px',
+                  fontSize: 12,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+                onClick={handleCheckUpdates}
+                disabled={isCheckingUpdate}
+              >
+                <RefreshCw
+                  size={13}
+                  style={{
+                    animation: isCheckingUpdate ? 'spin 1s linear infinite' : 'none',
+                  }}
+                />
+                <span>{isCheckingUpdate ? t('update.checking') : t('update.checkForUpdates')}</span>
+              </button>
+            </div>
+
+            {/* Status Feedback */}
+            {updateResult && (
+              <div
+                style={{
+                  padding: '10px 12px',
+                  borderRadius: 'var(--radius-md)',
+                  marginBottom: 12,
+                  fontSize: 12,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 8,
+                  backgroundColor:
+                    updateResult.status === 'update-available'
+                      ? 'rgba(59, 130, 246, 0.12)'
+                      : updateResult.status === 'error'
+                      ? 'rgba(239, 68, 68, 0.12)'
+                      : 'var(--bg-secondary)',
+                  border: `1px solid ${
+                    updateResult.status === 'update-available'
+                      ? 'rgba(59, 130, 246, 0.3)'
+                      : updateResult.status === 'error'
+                      ? 'rgba(239, 68, 68, 0.3)'
+                      : 'var(--border-color)'
+                  }`,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {updateResult.status === 'update-available' && (
+                    <Sparkles size={16} style={{ color: 'var(--accent-color)', flexShrink: 0 }} />
+                  )}
+                  {updateResult.status === 'up-to-date' && (
+                    <CheckCircle2 size={16} style={{ color: '#16a34a', flexShrink: 0 }} />
+                  )}
+                  {updateResult.status === 'dev-build' && (
+                    <CheckCircle2 size={16} style={{ color: '#ca8a04', flexShrink: 0 }} />
+                  )}
+                  {updateResult.status === 'error' && (
+                    <AlertCircle size={16} style={{ color: '#ef4444', flexShrink: 0 }} />
+                  )}
+
+                  <span style={{ color: 'var(--text-primary)' }}>
+                    {updateResult.status === 'update-available' &&
+                      `${t('update.title')}: v${updateResult.updateInfo?.latestVersion}`}
+                    {updateResult.status === 'up-to-date' &&
+                      t('update.upToDate', { version: APP_VERSION })}
+                    {updateResult.status === 'dev-build' &&
+                      t('update.devBuild', { version: APP_VERSION })}
+                    {updateResult.status === 'no-releases' && t('update.noReleasesFound')}
+                    {updateResult.status === 'error' &&
+                      (updateResult.error || t('update.checkFailed'))}
+                  </span>
+                </div>
+
+                {updateResult.status === 'update-available' && updateResult.updateInfo && (
+                  <button
+                    type="button"
+                    className="auth-btn-primary"
+                    style={{ padding: '4px 10px', fontSize: 11 }}
+                    onClick={() => setActiveUpdateInfo(updateResult.updateInfo!)}
+                  >
+                    {t('update.viewUpdate')}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Last checked caption */}
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 12 }}>
+              {lastCheckTime
+                ? t('update.lastChecked', { time: formatBuildTime(lastCheckTime) })
+                : t('update.neverChecked')}
+            </div>
+
+            {/* Toggles */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {/* Auto check toggle */}
+              <div
+                className="settings-toggle-row"
+                style={{ cursor: 'pointer' }}
+                onClick={() =>
+                  onUpdateSettings({ autoCheckUpdates: settings.autoCheckUpdates === false ? true : false })
+                }
+              >
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
+                    {t('update.autoCheckTitle')}
+                  </span>
+                  <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                    {t('update.autoCheckDesc')}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className={`toggle-switch ${settings.autoCheckUpdates !== false ? 'checked' : ''}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onUpdateSettings({
+                      autoCheckUpdates: settings.autoCheckUpdates === false ? true : false,
+                    });
+                  }}
+                  role="switch"
+                  aria-checked={settings.autoCheckUpdates !== false}
+                  aria-label={t('update.autoCheckTitle')}
+                >
+                  <span className="toggle-thumb" />
+                </button>
+              </div>
+
+              {/* Include pre-releases toggle */}
+              <div
+                className="settings-toggle-row"
+                style={{ cursor: 'pointer', paddingTop: 8, borderTop: '1px dashed var(--border-subtle)' }}
+                onClick={() =>
+                  onUpdateSettings({ includePrereleases: !settings.includePrereleases })
+                }
+              >
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)' }}>
+                    {t('update.includePrereleasesTitle')}
+                  </span>
+                  <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                    {t('update.includePrereleasesDesc')}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className={`toggle-switch ${settings.includePrereleases ? 'checked' : ''}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onUpdateSettings({
+                      includePrereleases: !settings.includePrereleases,
+                    });
+                  }}
+                  role="switch"
+                  aria-checked={Boolean(settings.includePrereleases)}
+                  aria-label={t('update.includePrereleasesTitle')}
+                >
+                  <span className="toggle-thumb" />
+                </button>
+              </div>
+            </div>
+          </div>
+
           {/* About / App Information */}
           <div className="settings-block" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 16 }}>
             <label
@@ -921,6 +1147,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Update Info Modal Dialog */}
+      {activeUpdateInfo && (
+        <UpdateModal
+          isOpen={Boolean(activeUpdateInfo)}
+          onClose={() => setActiveUpdateInfo(null)}
+          updateInfo={activeUpdateInfo}
+        />
+      )}
     </div>
   );
 };

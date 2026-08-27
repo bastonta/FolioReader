@@ -25,6 +25,8 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { DialogProvider, useDialog } from './context/DialogContext';
 import { I18nProvider, useTranslation } from './i18n';
 import { APP_VERSION, BUILD_TIME } from './constants/buildInfo';
+import { checkForUpdates, isUpdateDismissed, UpdateInfo } from './services/updateChecker';
+import { UpdateModal } from './components/common/UpdateModal';
 
 // Auth pages
 import { ServerSetup } from './pages/ServerSetup';
@@ -96,12 +98,37 @@ function AppRoutes() {
   const [activeBook, setActiveBook] = useState<ActiveBookState | null>(null);
   const [currentView, setCurrentView] = useState<'library' | 'browse'>('library');
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [autoUpdateInfo, setAutoUpdateInfo] = useState<UpdateInfo | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
 
   useEffect(() => {
     console.info(`[Folio] Version: ${APP_VERSION}, Build: ${BUILD_TIME}`);
   }, []);
+
+  // Silent background check for updates on startup if enabled
+  useEffect(() => {
+    if (settings.autoCheckUpdates !== false) {
+      const timer = setTimeout(async () => {
+        try {
+          const result = await checkForUpdates({
+            auto: true,
+            includePrereleases: settings.includePrereleases,
+          });
+          if (
+            result.status === 'update-available' &&
+            result.updateInfo &&
+            !isUpdateDismissed(result.updateInfo.latestVersion)
+          ) {
+            setAutoUpdateInfo(result.updateInfo);
+          }
+        } catch (e) {
+          console.debug('Background update check skipped or failed:', e);
+        }
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [settings.autoCheckUpdates, settings.includePrereleases]);
 
   // Sync document title with localized app name & subtitle
   useEffect(() => {
@@ -416,6 +443,15 @@ function AppRoutes() {
         settings={settings}
         onUpdateSettings={handleUpdateSettings}
       />
+
+      {/* Auto-check Update Modal */}
+      {autoUpdateInfo && (
+        <UpdateModal
+          isOpen={Boolean(autoUpdateInfo)}
+          onClose={() => setAutoUpdateInfo(null)}
+          updateInfo={autoUpdateInfo}
+        />
+      )}
     </div>
   );
 }

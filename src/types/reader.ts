@@ -84,6 +84,8 @@ export interface ReaderSettings {
   downloadPath?: string;
   createSeriesFolder?: boolean;
   libraryViewMode?: 'grid' | 'list';
+  autoCheckUpdates?: boolean;
+  includePrereleases?: boolean;
 }
 
 export interface FootnoteData {

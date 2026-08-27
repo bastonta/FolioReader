@@ -21,6 +21,9 @@ export default defineConfig(() => ({
     __APP_VERSION__: JSON.stringify(appVersion),
     __BUILD_TIME__: JSON.stringify(buildTime),
   },
+  build: {
+    chunkSizeWarningLimit: 1000,
+  },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

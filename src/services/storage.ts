@@ -28,6 +28,8 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   downloadPath: '',
   createSeriesFolder: true,
   libraryViewMode: 'grid',
+  autoCheckUpdates: true,
+  includePrereleases: false,
 };
 
 // IndexedDB for storing book covers

@@ -12,7 +12,9 @@ import {
     Server,
     ShieldAlert,
     ShieldCheck,
-    X
+    X,
+    RefreshCw,
+    Sparkles,
 } from 'lucide-react';
 import QRCode from 'qrcode';
 import React, { useEffect, useState } from 'react';
@@ -21,6 +23,12 @@ import { profileApi } from '../api/profileApi';
 import { APP_VERSION, BUILD_TIME, formatBuildTime } from '../constants/buildInfo';
 import { useAuth } from '../context/AuthContext';
 import { useTranslation } from '../i18n';
+import {
+  checkForUpdates,
+  UpdateInfo,
+  UpdateCheckResult,
+} from '../services/updateChecker';
+import { UpdateModal } from '../components/common/UpdateModal';
 
 export const ProfilePage: React.FC = () => {
   const { t } = useTranslation();
@@ -55,6 +63,30 @@ export const ProfilePage: React.FC = () => {
 
   const [showViewRecoveryCodes, setShowViewRecoveryCodes] = useState(false);
   const [viewCodesTotp, setViewCodesTotp] = useState('');
+
+  // Update check states
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null);
+  const [activeUpdateInfo, setActiveUpdateInfo] = useState<UpdateInfo | null>(null);
+
+  const handleCheckUpdates = async () => {
+    setIsCheckingUpdate(true);
+    setUpdateResult(null);
+    try {
+      const result = await checkForUpdates({ auto: false });
+      setUpdateResult(result);
+      if (result.status === 'update-available' && result.updateInfo) {
+        setActiveUpdateInfo(result.updateInfo);
+      }
+    } catch (err: any) {
+      setUpdateResult({
+        status: 'error',
+        error: err?.message || 'Failed to check for updates',
+      });
+    } finally {
+      setIsCheckingUpdate(false);
+    }
+  };
 
   useEffect(() => {
     if (user) {
@@ -410,10 +442,91 @@ export const ProfilePage: React.FC = () => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--border-subtle)' }}>
               <span style={{ fontSize: 13.5, color: 'var(--text-secondary)' }}>{t('profile.version')}</span>
-              <span style={{ fontSize: 13.5, fontWeight: 600, fontFamily: 'monospace', color: 'var(--text-primary)' }}>
-                v{APP_VERSION}
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 13.5, fontWeight: 600, fontFamily: 'monospace', color: 'var(--text-primary)' }}>
+                  v{APP_VERSION}
+                </span>
+                <button
+                  type="button"
+                  className="auth-btn-secondary"
+                  style={{ padding: '4px 10px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+                  onClick={handleCheckUpdates}
+                  disabled={isCheckingUpdate}
+                >
+                  <RefreshCw
+                    size={12}
+                    style={{
+                      animation: isCheckingUpdate ? 'spin 1s linear infinite' : 'none',
+                    }}
+                  />
+                  <span>{isCheckingUpdate ? t('update.checking') : t('update.checkForUpdates')}</span>
+                </button>
+              </div>
             </div>
+
+            {updateResult && (
+              <div
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: 8,
+                  fontSize: 12,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 8,
+                  backgroundColor:
+                    updateResult.status === 'update-available'
+                      ? 'rgba(59, 130, 246, 0.12)'
+                      : updateResult.status === 'error'
+                      ? 'rgba(239, 68, 68, 0.12)'
+                      : 'var(--bg-secondary)',
+                  border: `1px solid ${
+                    updateResult.status === 'update-available'
+                      ? 'rgba(59, 130, 246, 0.3)'
+                      : updateResult.status === 'error'
+                      ? 'rgba(239, 68, 68, 0.3)'
+                      : 'var(--border-color)'
+                  }`,
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {updateResult.status === 'update-available' && (
+                    <Sparkles size={14} style={{ color: 'var(--accent-color)', flexShrink: 0 }} />
+                  )}
+                  {updateResult.status === 'up-to-date' && (
+                    <CheckCircle2 size={14} style={{ color: '#16a34a', flexShrink: 0 }} />
+                  )}
+                  {updateResult.status === 'dev-build' && (
+                    <CheckCircle2 size={14} style={{ color: '#ca8a04', flexShrink: 0 }} />
+                  )}
+                  {updateResult.status === 'error' && (
+                    <AlertCircle size={14} style={{ color: '#ef4444', flexShrink: 0 }} />
+                  )}
+                  <span>
+                    {updateResult.status === 'update-available' &&
+                      `${t('update.title')}: v${updateResult.updateInfo?.latestVersion}`}
+                    {updateResult.status === 'up-to-date' &&
+                      t('update.upToDate', { version: APP_VERSION })}
+                    {updateResult.status === 'dev-build' &&
+                      t('update.devBuild', { version: APP_VERSION })}
+                    {updateResult.status === 'no-releases' && t('update.noReleasesFound')}
+                    {updateResult.status === 'error' &&
+                      (updateResult.error || t('update.checkFailed'))}
+                  </span>
+                </div>
+                {updateResult.status === 'update-available' && updateResult.updateInfo && (
+                  <button
+                    type="button"
+                    className="auth-btn-primary"
+                    style={{ padding: '3px 8px', fontSize: 11 }}
+                    onClick={() => setActiveUpdateInfo(updateResult.updateInfo!)}
+                  >
+                    {t('update.viewUpdate')}
+                  </button>
+                )}
+              </div>
+            )}
+
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--border-subtle)' }}>
               <span style={{ fontSize: 13.5, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 6 }}>
                 <Calendar size={14} />
@@ -436,6 +549,7 @@ export const ProfilePage: React.FC = () => {
             </div>
           </div>
         </div>
+
 
       </main>
 
@@ -789,6 +903,15 @@ export const ProfilePage: React.FC = () => {
             </form>
           </div>
         </div>
+      )}
+
+      {/* Update Modal */}
+      {activeUpdateInfo && (
+        <UpdateModal
+          isOpen={Boolean(activeUpdateInfo)}
+          onClose={() => setActiveUpdateInfo(null)}
+          updateInfo={activeUpdateInfo}
+        />
       )}
 
     </div>
