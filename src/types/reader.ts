@@ -1,13 +1,13 @@
 export interface BookMetadata {
   title: string;
   author: string;
-  publisher?: string;
-  language?: string;
+  publisher?: any;
+  language?: any;
   description?: string;
-  identifier?: string;
-  published?: string;
+  identifier?: any;
+  published?: any;
   modified?: string;
-  subject?: string[] | string;
+  subject?: any;
   coverUrl?: string;
 }
 

@@ -1141,11 +1141,11 @@ export class Paginator extends HTMLElement {
         this.#view.document.defaultView.focus()
     }
     destroy() {
-        this.#observer.unobserve(this)
-        this.#view.destroy()
+        this.#observer?.unobserve?.(this)
+        this.#view?.destroy?.()
         this.#view = null
-        this.sections[this.#index]?.unload?.()
-        this.#mediaQuery.removeEventListener('change', this.#mediaQueryListener)
+        this.sections?.[this.#index]?.unload?.()
+        this.#mediaQuery?.removeEventListener?.('change', this.#mediaQueryListener)
     }
 }
 

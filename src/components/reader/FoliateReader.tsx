@@ -27,6 +27,8 @@ import {
   blobToThumbnailDataUrl,
   updateRecentBookMetadata,
   saveLocalBookCache,
+  formatLanguageMap,
+  formatContributor,
 } from '../../services/storage';
 import {
   loadDbLastLocation,
@@ -52,23 +54,7 @@ interface FoliateReaderProps {
   onBackToLibrary: () => void;
 }
 
-const formatLanguageMap = (x: any): string => {
-  if (!x) return '';
-  if (typeof x === 'string') return x;
-  const keys = Object.keys(x);
-  return x[keys[0]] || '';
-};
 
-const formatContributor = (contributor: any): string => {
-  if (!contributor) return '';
-  if (typeof contributor === 'string') return contributor;
-  if (Array.isArray(contributor)) {
-    return contributor
-      .map((c) => (typeof c === 'string' ? c : formatLanguageMap(c?.name || c)))
-      .join(', ');
-  }
-  return formatLanguageMap(contributor?.name || contributor);
-};
 
 export const isFootnoteOrEndnoteLink = (a: Element | null, href: string): boolean => {
   if (!a && !href) return false;
@@ -1215,7 +1201,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         // Extract metadata
         const title = formatLanguageMap(book.metadata?.title) || 'Untitled Book';
         const author = formatContributor(book.metadata?.author || book.metadata?.creator);
-        const publisher = formatLanguageMap(book.metadata?.publisher);
+        const publisher = formatContributor(book.metadata?.publisher);
         const language = formatLanguageMap(book.metadata?.language);
         const description = formatLanguageMap(book.metadata?.description);
         const identifier = formatLanguageMap(book.metadata?.identifier);
@@ -1377,7 +1363,11 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
     return () => {
       isCancelled = true;
       if (viewRef.current) {
-        viewRef.current.close?.();
+        try {
+          viewRef.current.close?.();
+        } catch (e) {
+          console.warn('Error closing foliate view:', e);
+        }
       }
       syncBookData(bookId).catch(console.warn);
     };

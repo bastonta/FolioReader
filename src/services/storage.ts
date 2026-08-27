@@ -270,8 +270,20 @@ export async function blobToThumbnailDataUrl(
 export const formatLanguageMap = (x: any): string => {
   if (!x) return '';
   if (typeof x === 'string') return x;
-  const keys = Object.keys(x);
-  return x[keys[0]] || '';
+  if (typeof x === 'number' || typeof x === 'boolean') return String(x);
+  if (Array.isArray(x)) {
+    return x.map((item) => formatLanguageMap(item)).filter(Boolean).join(', ');
+  }
+  if (typeof x === 'object') {
+    if ('name' in x && x.name) {
+      return formatLanguageMap(x.name);
+    }
+    const keys = Object.keys(x);
+    if (keys.length === 0) return '';
+    const val = x[keys[0]];
+    return typeof val === 'string' ? val : formatLanguageMap(val);
+  }
+  return String(x);
 };
 
 export const formatContributor = (contributor: any): string => {
@@ -279,10 +291,44 @@ export const formatContributor = (contributor: any): string => {
   if (typeof contributor === 'string') return contributor;
   if (Array.isArray(contributor)) {
     return contributor
-      .map((c) => (typeof c === 'string' ? c : formatLanguageMap(c?.name || c)))
+      .map((c) => formatContributor(c))
+      .filter(Boolean)
       .join(', ');
   }
-  return formatLanguageMap(contributor?.name || contributor);
+  if (typeof contributor === 'object') {
+    if ('name' in contributor && contributor.name) {
+      return formatContributor(contributor.name);
+    }
+    return formatLanguageMap(contributor);
+  }
+  return String(contributor);
+};
+
+export const parseSubjects = (subject?: any): string[] => {
+  if (!subject) return [];
+  const rawList = Array.isArray(subject) ? subject : [subject];
+  const results: string[] = [];
+
+  for (const item of rawList) {
+    if (!item) continue;
+    let str = '';
+    if (typeof item === 'string') {
+      str = item;
+    } else if (typeof item === 'object') {
+      str = formatContributor(item);
+    } else {
+      str = String(item);
+    }
+    if (str) {
+      const parts = str
+        .split(/[,;|]/)
+        .map((s) => s.trim().replace(/_/g, ' '))
+        .filter(Boolean);
+      results.push(...parts);
+    }
+  }
+
+  return Array.from(new Set(results));
 };
 
 // ─── Settings (settings.json + Lightweight LocalStorage Mirror for FOUC) ────

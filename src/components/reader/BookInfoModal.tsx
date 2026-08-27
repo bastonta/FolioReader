@@ -15,6 +15,7 @@ import {
   BookmarkCheck,
 } from 'lucide-react';
 import { useTranslation } from '../../i18n';
+import { formatContributor, formatLanguageMap, parseSubjects } from '../../services/storage';
 
 interface BookInfoModalProps {
   isOpen: boolean;
@@ -27,8 +28,10 @@ interface BookInfoModalProps {
   syncMessage?: string | null;
 }
 
-const formatLanguage = (lang?: string): string => {
+const formatLanguage = (lang?: any): string => {
   if (!lang) return '';
+  const str = typeof lang === 'string' ? lang : formatLanguageMap(lang);
+  if (!str) return '';
   const map: Record<string, string> = {
     ru: 'Русский (ru)',
     en: 'English (en)',
@@ -45,16 +48,8 @@ const formatLanguage = (lang?: string): string => {
     tr: 'Türkçe (tr)',
     kk: 'Қазақша (kk)',
   };
-  const code = lang.toLowerCase().trim();
-  return map[code] || lang;
-};
-
-const parseSubjects = (subject?: string[] | string): string[] => {
-  if (!subject) return [];
-  const rawList = Array.isArray(subject) ? subject : subject.split(/[,;|]/);
-  return rawList
-    .map((s) => s.trim().replace(/_/g, ' '))
-    .filter(Boolean);
+  const code = str.toLowerCase().trim();
+  return map[code] || str;
 };
 
 export const BookInfoModal: React.FC<BookInfoModalProps> = ({
@@ -76,7 +71,9 @@ export const BookInfoModal: React.FC<BookInfoModalProps> = ({
 
   const handleCopyIdentifier = () => {
     if (!metadata.identifier) return;
-    navigator.clipboard.writeText(metadata.identifier);
+    const id = formatLanguageMap(metadata.identifier);
+    if (!id) return;
+    navigator.clipboard.writeText(id);
     setCopiedId(true);
     setTimeout(() => setCopiedId(false), 2000);
   };
@@ -104,15 +101,15 @@ export const BookInfoModal: React.FC<BookInfoModalProps> = ({
 
         {/* Core Metadata */}
         <div className="book-info-details">
-          <h3 className="book-info-title">{metadata.title || t('common.untitledBook')}</h3>
-          <p className="book-info-author">{metadata.author || t('common.unknownAuthor')}</p>
+          <h3 className="book-info-title">{formatLanguageMap(metadata.title) || t('common.untitledBook')}</h3>
+          <p className="book-info-author">{formatContributor(metadata.author) || t('common.unknownAuthor')}</p>
 
           <div className="book-info-meta-list">
             {metadata.publisher && (
               <div className="book-info-meta-item">
                 <Building size={15} className="book-info-icon" />
                 <span className="book-info-meta-label">{t('reader.publisher')}:</span>
-                <span className="book-info-meta-val">{metadata.publisher}</span>
+                <span className="book-info-meta-val">{formatContributor(metadata.publisher)}</span>
               </div>
             )}
 
@@ -120,7 +117,7 @@ export const BookInfoModal: React.FC<BookInfoModalProps> = ({
               <div className="book-info-meta-item">
                 <Calendar size={15} className="book-info-icon" />
                 <span className="book-info-meta-label">{t('reader.published')}:</span>
-                <span className="book-info-meta-val">{metadata.published}</span>
+                <span className="book-info-meta-val">{formatLanguageMap(metadata.published)}</span>
               </div>
             )}
 
@@ -137,8 +134,8 @@ export const BookInfoModal: React.FC<BookInfoModalProps> = ({
                 <Hash size={15} className="book-info-icon" style={{ marginTop: 2 }} />
                 <span className="book-info-meta-label">{t('reader.bookId')}:</span>
                 <div className="book-info-id-wrapper">
-                  <span className="book-info-id-badge" title={metadata.identifier}>
-                    {metadata.identifier}
+                  <span className="book-info-id-badge" title={formatLanguageMap(metadata.identifier)}>
+                    {formatLanguageMap(metadata.identifier)}
                   </span>
                   <button
                     type="button"
