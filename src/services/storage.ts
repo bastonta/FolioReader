@@ -370,7 +370,7 @@ export function saveSettings(settings: Partial<ReaderSettings>): ReaderSettings 
   const updated: ReaderSettings = { ...cachedSettings, ...settings };
   cachedSettings = updated;
 
-  // 1. Write to settings.json asynchronously
+  // 1. Write to settings.json asynchronously via Tauri FS
   if (isTauri()) {
     fileManager.saveAppSettings(JSON.stringify(updated, null, 2)).catch((err) => {
       console.error('Failed to save settings.json:', err);

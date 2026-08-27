@@ -10,14 +10,14 @@
     <script>
       (function() {
         try {
-          var settings = JSON.parse(localStorage.getItem('foliate_reader_settings') || '{}');
-          var theme = settings.theme || 'light';
+          var theme = localStorage.getItem('folio_theme') || 'light';
           document.documentElement.className = 'theme-' + theme;
           var themeColorMeta = document.getElementById('meta-theme-color');
           if (themeColorMeta) {
             if (theme === 'dark') themeColorMeta.content = '#1e1e1e';
             else if (theme === 'sepia') themeColorMeta.content = '#fbf0d9';
             else if (theme === 'gray') themeColorMeta.content = '#2e3440';
+            else if (theme === 'solarized') themeColorMeta.content = '#fdf6e3';
             else themeColorMeta.content = '#ffffff';
           }
         } catch(e) {}
@@ -35,6 +35,7 @@
       .theme-light { --bg-splash: #ffffff; --text-splash: #2e3436; --text-subtle-splash: #86848d; --accent-splash: #3584e4; }
       .theme-dark  { --bg-splash: #1e1e1e; --text-splash: #ffffff; --text-subtle-splash: #8892b0; --accent-splash: #3584e4; }
       .theme-sepia { --bg-splash: #fbf0d9; --text-splash: #5f4b32; --text-subtle-splash: #9e8464; --accent-splash: #8f6b32; }
+      .theme-solarized { --bg-splash: #fdf6e3; --text-splash: #657b83; --text-subtle-splash: #93a1a1; --accent-splash: #b58900; }
       .theme-gray  { --bg-splash: #2e3440; --text-splash: #eceff4; --text-subtle-splash: #8892b0; --accent-splash: #88c0d0; }
 
       .android-splash-container {
