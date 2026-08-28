@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Name={{name}}
+GenericName=E-Book Reader
+GenericName[ru]=Читалка электронных книг
+Comment={{comment}}
+Comment[ru]=Приложение для чтения электронных книг EPUB, FB2, MOBI, CBZ и PDF
+Comment[en]=E-book reader for EPUB, FB2, MOBI, CBZ, and PDF
+Keywords=book;ebook;reader;epub;fb2;mobi;pdf;cbz;
+Keywords[ru]=книга;книги;читалка;электронная книга;чтение;epub;fb2;mobi;pdf;
+Exec={{exec}} %F
+Icon={{icon}}
+Categories={{categories}}
+StartupWMClass=folioapp
+Terminal=false

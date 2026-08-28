@@ -40,6 +40,17 @@
     "active": true,
     "targets": "all",
     "publisher": "Folio",
+    "category": "Office",
+    "shortDescription": "E-book reader for EPUB, FB2, MOBI, CBZ, and PDF",
+    "longDescription": "Modern cross-platform e-book reader with cloud sync support.",
+    "linux": {
+      "deb": {
+        "desktopTemplate": "./templates/folioapp.desktop"
+      },
+      "rpm": {
+        "desktopTemplate": "./templates/folioapp.desktop"
+      }
+    },
     "android": {
       "debugApplicationIdSuffix": ".dev"
     },
