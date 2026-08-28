@@ -73,6 +73,8 @@ pub fn run() {
             fs_manager::delete_custom_font,
             fs_manager::read_font_file,
             fs_manager::open_fonts_folder,
+            fs_manager::open_external_url,
+            fs_manager::open_external_path,
             reader_commands::db_save_book_mapping,
             reader_commands::db_get_server_book_id,
             reader_commands::db_save_progress,

@@ -20,6 +20,7 @@ import { AnnotationPopover, SelectionInfo } from './AnnotationPopover';
 import { SettingsPopover } from './SettingsPopover';
 import { BookInfoModal } from './BookInfoModal';
 import { setStatusBarVisible, setStatusBarTheme, setDisableSystemActionMode, dismissOriginalContextMenu, isMobileDevice, setVolumeKeyNavigation, setKeepScreenOn } from '../../services/systemUi';
+import { openExternalUrl } from '../../services/appOpener';
 import { useBackHandler } from '../../services/backHandler';
 import {
   saveLastLocation,
@@ -766,9 +767,14 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         setLocationLabel(locText);
       });
 
-      // Footnote / Endnote interception on link events
+      // Footnote / Endnote interception & external link handling on link events
       view.addEventListener('link', async (e: any) => {
         const { a, href } = e.detail || {};
+        if (href && (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('mailto:'))) {
+          e.preventDefault();
+          openExternalUrl(href);
+          return;
+        }
         if (isFootnoteOrEndnoteLink(a, href)) {
           e.preventDefault();
           const noteData = await extractFootnoteData(view.book, href, a);
@@ -1056,10 +1062,16 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
             return;
           }
 
-          // 3. Footnote / endnote link click
+          // 3. Footnote / endnote / external link click
           const a = (ev.target as Element)?.closest('a[href]');
           if (a) {
             const href = a.getAttribute('href') || '';
+            if (href && (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('mailto:'))) {
+              ev.preventDefault();
+              ev.stopPropagation();
+              openExternalUrl(href);
+              return;
+            }
             if (isFootnoteOrEndnoteLink(a, href)) {
               ev.preventDefault();
               ev.stopPropagation();

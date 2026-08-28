@@ -69,7 +69,13 @@ export function showOriginalContextMenu(
   if (navigator.share) {
     navigator.share({ text }).catch(() => {});
   } else {
-    window.open(`https://www.google.com/search?q=${encodeURIComponent(text)}`, '_blank');
+    import('./appOpener')
+      .then(({ openExternalUrl }) => {
+        openExternalUrl(`https://www.google.com/search?q=${encodeURIComponent(text)}`);
+      })
+      .catch(() => {
+        window.open(`https://www.google.com/search?q=${encodeURIComponent(text)}`, '_blank');
+      });
   }
 }
 

@@ -41,6 +41,7 @@ import {
   UpdateCheckResult,
 } from '../../services/updateChecker';
 import { UpdateModal } from './UpdateModal';
+import { openExternalUrl } from '../../services/appOpener';
 
 
 interface SettingsModalProps {
@@ -1112,6 +1113,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <span style={{ color: 'var(--text-secondary)' }}>
                   {isMobile ? t('common.mobile') : t('common.desktop')}
                 </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 6, borderTop: '1px dashed var(--border-subtle)' }}>
+                <span style={{ color: 'var(--text-muted)' }}>{t('profile.source')}</span>
+                <a
+                  href="https://github.com/bastonta/FolioApp"
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    openExternalUrl('https://github.com/bastonta/FolioApp');
+                  }}
+                  style={{ color: 'var(--accent-color)', textDecoration: 'none', cursor: 'pointer' }}
+                >
+                  {t('profile.githubRepository')}
+                </a>
               </div>
             </div>
           </div>

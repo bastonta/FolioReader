@@ -29,6 +29,7 @@ import {
   UpdateCheckResult,
 } from '../services/updateChecker';
 import { UpdateModal } from '../components/common/UpdateModal';
+import { openExternalUrl } from '../services/appOpener';
 
 export const ProfilePage: React.FC = () => {
   const { t } = useTranslation();
@@ -541,7 +542,11 @@ export const ProfilePage: React.FC = () => {
                 href="https://github.com/bastonta/FolioApp"
                 target="_blank"
                 rel="noreferrer"
-                style={{ fontSize: 13.5, color: 'var(--accent-color)', textDecoration: 'none' }}
+                onClick={(e) => {
+                  e.preventDefault();
+                  openExternalUrl('https://github.com/bastonta/FolioApp');
+                }}
+                style={{ fontSize: 13.5, color: 'var(--accent-color)', textDecoration: 'none', cursor: 'pointer' }}
               >
                 {t('profile.githubRepository')}
               </a>

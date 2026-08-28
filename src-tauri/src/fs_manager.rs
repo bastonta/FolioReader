@@ -665,14 +665,328 @@ pub async fn read_font_file(file_path: String) -> Result<Vec<u8>, String> {
         .map_err(|e| format!("Failed to read font file '{file_path}': {e}"))
 }
 
+#[cfg(target_os = "linux")]
+fn configure_linux_command(cmd: &mut std::process::Command) {
+    if let Ok(orig_ld) = std::env::var("LD_LIBRARY_PATH_ORIG")
+        .or_else(|_| std::env::var("ORIG_LD_LIBRARY_PATH"))
+        .or_else(|_| std::env::var("SAVED_LD_LIBRARY_PATH"))
+    {
+        if !orig_ld.trim().is_empty() {
+            cmd.env("LD_LIBRARY_PATH", orig_ld);
+        } else {
+            cmd.env_remove("LD_LIBRARY_PATH");
+        }
+    } else {
+        cmd.env_remove("LD_LIBRARY_PATH");
+    }
+
+    if let Ok(orig_preload) = std::env::var("LD_PRELOAD_ORIG").or_else(|_| std::env::var("ORIG_LD_PRELOAD")) {
+        if !orig_preload.trim().is_empty() {
+            cmd.env("LD_PRELOAD", orig_preload);
+        } else {
+            cmd.env_remove("LD_PRELOAD");
+        }
+    } else {
+        cmd.env_remove("LD_PRELOAD");
+    }
+
+    cmd.env_remove("GSETTINGS_SCHEMA_DIR");
+    cmd.env_remove("APPDIR");
+    cmd.env_remove("APPIMAGE");
+    cmd.env_remove("PYTHONHOME");
+    cmd.env_remove("PYTHONPATH");
+    cmd.env_remove("PERLLIB");
+
+    if let Ok(orig_xdg) = std::env::var("XDG_DATA_DIRS_ORIG").or_else(|_| std::env::var("ORIG_XDG_DATA_DIRS")) {
+        if !orig_xdg.trim().is_empty() {
+            cmd.env("XDG_DATA_DIRS", orig_xdg);
+        }
+    }
+
+    if let Ok(home) = std::env::var("HOME") {
+        if !home.trim().is_empty() {
+            cmd.current_dir(home);
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn open_external_url(app: tauri::AppHandle, url: String) -> Result<(), String> {
+    let clean_url = url.trim().to_string();
+    if clean_url.is_empty() {
+        return Err("URL is empty".to_string());
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // 1. Try DBus XDG Desktop Portal via gdbus or busctl
+        let mut portal_gdbus = std::process::Command::new("gdbus");
+        portal_gdbus.args([
+            "call",
+            "--session",
+            "--dest",
+            "org.freedesktop.portal.Desktop",
+            "--object-path",
+            "/org/freedesktop/portal/desktop",
+            "--method",
+            "org.freedesktop.portal.OpenURI.OpenURI",
+            "",
+            &clean_url,
+            "{}",
+        ]);
+        configure_linux_command(&mut portal_gdbus);
+        if let Ok(status) = portal_gdbus.status() {
+            if status.success() {
+                return Ok(());
+            }
+        }
+
+        let mut portal_busctl = std::process::Command::new("busctl");
+        portal_busctl.args([
+            "call",
+            "--user",
+            "org.freedesktop.portal.Desktop",
+            "/org/freedesktop/portal/desktop",
+            "org.freedesktop.portal.OpenURI",
+            "OpenURI",
+            "ssa{sv}",
+            "",
+            &clean_url,
+            "0",
+        ]);
+        configure_linux_command(&mut portal_busctl);
+        if let Ok(status) = portal_busctl.status() {
+            if status.success() {
+                return Ok(());
+            }
+        }
+
+        // 2. Try xdg-open with sanitized environment
+        let mut xdg_cmd = std::process::Command::new("xdg-open");
+        xdg_cmd.arg(&clean_url);
+        configure_linux_command(&mut xdg_cmd);
+        if let Ok(mut child) = xdg_cmd.spawn() {
+            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+            if let Ok(Some(status)) = child.try_wait() {
+                if status.success() {
+                    return Ok(());
+                }
+            } else {
+                return Ok(());
+            }
+        }
+
+        // 3. Try gio open with sanitized environment
+        let mut gio_cmd = std::process::Command::new("gio");
+        gio_cmd.args(["open", &clean_url]);
+        configure_linux_command(&mut gio_cmd);
+        if let Ok(mut child) = gio_cmd.spawn() {
+            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+            if let Ok(Some(status)) = child.try_wait() {
+                if status.success() {
+                    return Ok(());
+                }
+            } else {
+                return Ok(());
+            }
+        }
+
+        // 4. Try kde-open5 / kde-open / wslview
+        for helper in &["kde-open5", "kde-open", "wslview"] {
+            let mut cmd = std::process::Command::new(helper);
+            cmd.arg(&clean_url);
+            configure_linux_command(&mut cmd);
+            if let Ok(mut child) = cmd.spawn() {
+                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                if let Ok(Some(status)) = child.try_wait() {
+                    if status.success() {
+                        return Ok(());
+                    }
+                } else {
+                    return Ok(());
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let mut cmd = std::process::Command::new("cmd");
+        cmd.args(["/C", "start", "", &clean_url]);
+        if let Ok(status) = cmd.status() {
+            if status.success() {
+                return Ok(());
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let mut cmd = std::process::Command::new("open");
+        cmd.arg(&clean_url);
+        if let Ok(status) = cmd.status() {
+            if status.success() {
+                return Ok(());
+            }
+        }
+    }
+
+    // 5. Fallback to Tauri Opener Plugin
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_url(&clean_url, None::<&str>)
+        .map_err(|e| format!("Failed to open url: {e}"))
+}
+
+#[tauri::command]
+pub async fn open_external_path(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    let clean_path = path.trim().to_string();
+    if clean_path.is_empty() {
+        return Err("Path is empty".to_string());
+    }
+
+    let target_path = PathBuf::from(&clean_path);
+    if !target_path.exists() {
+        let _ = std::fs::create_dir_all(&target_path);
+    }
+
+    let canonical = target_path
+        .canonicalize()
+        .unwrap_or_else(|_| target_path.clone());
+    let canonical_str = canonical.to_string_lossy().to_string();
+    let file_uri = if canonical_str.starts_with('/') {
+        format!("file://{canonical_str}")
+    } else {
+        format!("file:///{canonical_str}")
+    };
+
+    #[cfg(target_os = "linux")]
+    {
+        // 1. Try org.freedesktop.FileManager1 via gdbus / busctl
+        let mut fm_gdbus = std::process::Command::new("gdbus");
+        fm_gdbus.args([
+            "call",
+            "--session",
+            "--dest",
+            "org.freedesktop.FileManager1",
+            "--object-path",
+            "/org/freedesktop/FileManager1",
+            "--method",
+            "org.freedesktop.FileManager1.ShowFolders",
+            &format!("['{file_uri}']"),
+            "",
+        ]);
+        configure_linux_command(&mut fm_gdbus);
+        if let Ok(status) = fm_gdbus.status() {
+            if status.success() {
+                return Ok(());
+            }
+        }
+
+        let mut fm_busctl = std::process::Command::new("busctl");
+        fm_busctl.args([
+            "call",
+            "--user",
+            "org.freedesktop.FileManager1",
+            "/org/freedesktop/FileManager1",
+            "org.freedesktop.FileManager1",
+            "ShowFolders",
+            "ass",
+            "1",
+            &file_uri,
+            "",
+        ]);
+        configure_linux_command(&mut fm_busctl);
+        if let Ok(status) = fm_busctl.status() {
+            if status.success() {
+                return Ok(());
+            }
+        }
+
+        // 2. Try xdg-open with sanitized environment
+        let mut xdg_cmd = std::process::Command::new("xdg-open");
+        xdg_cmd.arg(&canonical_str);
+        configure_linux_command(&mut xdg_cmd);
+        if let Ok(mut child) = xdg_cmd.spawn() {
+            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+            if let Ok(Some(status)) = child.try_wait() {
+                if status.success() {
+                    return Ok(());
+                }
+            } else {
+                return Ok(());
+            }
+        }
+
+        // 3. Try gio open with sanitized environment
+        let mut gio_cmd = std::process::Command::new("gio");
+        gio_cmd.args(["open", &canonical_str]);
+        configure_linux_command(&mut gio_cmd);
+        if let Ok(mut child) = gio_cmd.spawn() {
+            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+            if let Ok(Some(status)) = child.try_wait() {
+                if status.success() {
+                    return Ok(());
+                }
+            } else {
+                return Ok(());
+            }
+        }
+
+        // 4. Try common Linux file managers directly
+        for fm in &["nautilus", "dolphin", "thunar", "nemo", "pcmanfm", "caja"] {
+            let mut fm_cmd = std::process::Command::new(fm);
+            fm_cmd.arg(&canonical_str);
+            configure_linux_command(&mut fm_cmd);
+            if let Ok(mut child) = fm_cmd.spawn() {
+                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                if let Ok(Some(status)) = child.try_wait() {
+                    if status.success() {
+                        return Ok(());
+                    }
+                } else {
+                    return Ok(());
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let mut cmd = std::process::Command::new("explorer");
+        cmd.arg(&canonical_str);
+        if let Ok(status) = cmd.status() {
+            if status.success() {
+                return Ok(());
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let mut cmd = std::process::Command::new("open");
+        cmd.arg(&canonical_str);
+        if let Ok(status) = cmd.status() {
+            if status.success() {
+                return Ok(());
+            }
+        }
+    }
+
+    // 5. Fallback to Tauri Opener Plugin
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_path(canonical_str, None::<&str>)
+        .map_err(|e| format!("Failed to open path: {e}"))
+}
+
 #[tauri::command]
 pub async fn open_fonts_folder(app: tauri::AppHandle) -> Result<(), String> {
-    use tauri_plugin_opener::OpenerExt;
     let fonts_dir = get_fonts_dir(&app)?;
-    let path_str = fonts_dir.to_string_lossy().to_string();
-    app.opener()
-        .open_path(path_str, None::<&str>)
-        .map_err(|e| format!("Failed to open fonts folder: {e}"))
+    if !fonts_dir.exists() {
+        let _ = std::fs::create_dir_all(&fonts_dir);
+    }
+    open_external_path(app, fonts_dir.to_string_lossy().to_string()).await
 }
 
 // ================= BOOK COVERS MANAGEMENT =================

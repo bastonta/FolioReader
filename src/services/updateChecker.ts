@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { isMobileDevice } from './systemUi';
 import { APP_VERSION } from '../constants/buildInfo';
+import { openExternalUrl } from './appOpener';
 
 // Constants
 export const GITHUB_REPO_OWNER = 'bastonta';
@@ -268,24 +269,11 @@ export function getPlatformDownloadAsset(release: GitHubRelease): GitHubAsset | 
 // ─── Open URL in System Browser ────────────────────────────────────────────
 
 /**
- * Open external URL using Tauri opener plugin with fallback to window.open.
+ * Open external URL using AppImage-safe opener with fallback to window.open.
  */
 export async function openReleaseUrl(url: string): Promise<void> {
   if (!url) return;
-
-  try {
-    const opener = await import('@tauri-apps/plugin-opener');
-    if (opener && typeof opener.openUrl === 'function') {
-      await opener.openUrl(url);
-      return;
-    }
-  } catch (err) {
-    console.warn('Tauri openUrl failed, falling back to window.open:', err);
-  }
-
-  if (typeof window !== 'undefined') {
-    window.open(url, '_blank', 'noopener,noreferrer');
-  }
+  await openExternalUrl(url);
 }
 
 // ─── Storage Helpers ───────────────────────────────────────────────────────
