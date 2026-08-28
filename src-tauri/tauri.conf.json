@@ -40,7 +40,7 @@
     "active": true,
     "targets": "all",
     "publisher": "Folio",
-    "category": "Office",
+    "category": "Productivity",
     "shortDescription": "E-book reader for EPUB, FB2, MOBI, CBZ, and PDF",
     "longDescription": "Modern cross-platform e-book reader with cloud sync support.",
     "linux": {
