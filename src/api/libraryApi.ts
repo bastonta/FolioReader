@@ -32,10 +32,14 @@ export const libraryApi = {
   },
 
   /**
-   * Get single book metadata and details (including series info)
+   * Get single book metadata and details (including series info and reading progress)
    */
-  getBook: async (id: string): Promise<BookDetail> => {
-    return apiGet<BookDetail>(`/books/${id}`);
+  getBook: async (id: string, format: string = 'cfi'): Promise<BookDetail> => {
+    const query = new URLSearchParams();
+    if (format) query.set('format', format);
+    const qs = query.toString();
+    const path = qs ? `/books/${id}?${qs}` : `/books/${id}`;
+    return apiGet<BookDetail>(path);
   },
 
   /**

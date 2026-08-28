@@ -36,7 +36,7 @@ import {
   saveLastLocation,
   saveLocalBookCache,
 } from "../../services/storage";
-import { BrowseItem } from "../../types/browse";
+import { BrowseItem, BookDetail } from "../../types/browse";
 import { ReaderSettings } from "../../types/reader";
 
 interface BrowseViewProps {
@@ -156,6 +156,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
     async (
       bookId: string,
       activeBreadcrumb: Array<{ id: string; name: string }>,
+      bookDetailParam?: BookDetail | null,
     ): Promise<string | undefined> => {
       if (settings.createSeriesFolder === false) {
         return undefined;
@@ -165,7 +166,9 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
 
       try {
         const [bookDetail, seriesMap] = await Promise.all([
-          libraryApi.getBook(bookId).catch(() => null),
+          bookDetailParam !== undefined
+            ? Promise.resolve(bookDetailParam)
+            : libraryApi.getBook(bookId, 'cfi').catch(() => null),
           getSeriesMap(),
         ]);
 
@@ -380,37 +383,59 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
         throw new Error(t("browse.serverNotConfiguredAlert"));
       }
       const token = getAccessToken() || undefined;
+      // Single request to get full book details including CFI progress and series metadata
+      const bookDetail = await libraryApi.getBook(book.id, "cfi").catch((err) => {
+        console.warn("Failed to fetch book detail:", err);
+        return null;
+      });
+
       const seriesPath = await resolveBookSeriesPath(
         book.id,
         currentSeriesPath,
+        bookDetail,
       );
-      const fileName = `${book.name}.epub`;
+
+      const title = bookDetail?.title || book.name;
+      const author =
+        bookDetail?.author || book.author || t("common.unknownAuthor");
+      const progress = bookDetail?.progress ?? book.progress;
+      const fileName = `${title}.epub`;
 
       const savedPath = await fileManager.downloadBookFile({
         serverUrl,
         token,
         bookId: book.id,
         fileName,
+        title,
+        author,
         seriesName: seriesPath,
         baseDir: settings.downloadPath,
+        progress: progress
+          ? {
+              location: progress.location,
+              progressPercent: progress.progressPercent,
+              isRead: progress.isRead,
+              updatedAt: progress.updatedAt,
+            }
+          : undefined,
       });
 
       const localId = fileManager.getLocalBookId(savedPath, settings.downloadPath);
       await saveDbBookMapping(localId, book.id, savedPath);
 
-      // Update in-memory caches if progress was present in catalog item
-      if (book.progress) {
-        const pct = book.progress.progressPercent ?? 0;
-        const isRead = book.progress.isRead ?? (pct >= 100);
-        const loc = book.progress.location || "";
+      // Update in-memory caches if progress was present
+      if (progress) {
+        const pct = progress.progressPercent ?? 0;
+        const isRead = progress.isRead ?? (pct >= 100);
+        const loc = progress.location || "";
         const lastOpenedAt =
-          book.progress.updatedAt || new Date().toISOString();
+          progress.updatedAt || new Date().toISOString();
         if (loc || pct > 0 || isRead) {
           saveLastLocation(localId, loc, pct / 100);
           saveRecentBook({
             id: localId,
-            title: book.name,
-            author: book.author || t("common.unknownAuthor"),
+            title,
+            author,
             filePath: savedPath,
             progressFraction: pct / 100,
             lastOpenedAt,
@@ -422,8 +447,8 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
       saveLocalBookCache(
         localId,
         {
-          title: book.name,
-          author: book.author || t("common.unknownAuthor"),
+          title,
+          author,
           extracted: true,
         },
         savedPath,

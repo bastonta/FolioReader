@@ -38,6 +38,7 @@ export interface BookDetail {
   language?: string;
   coverUrl: string;
   seriesOrder?: number;
+  progress?: BrowseProgressInfo;
   series: Array<{
     id: string;
     name: string;

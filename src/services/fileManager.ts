@@ -124,9 +124,17 @@ export const fileManager = {
     token?: string;
     bookId: string;
     fileName: string;
+    title?: string;
+    author?: string;
     seriesName?: string;
     baseDir: string;
     customTargetDir?: string;
+    progress?: {
+      location?: string;
+      progressPercent?: number;
+      isRead?: boolean;
+      updatedAt?: string;
+    };
   }): Promise<string> => {
     try {
       return await invoke<string>('download_book_file', {
@@ -134,9 +142,12 @@ export const fileManager = {
         token: options.token || null,
         bookId: options.bookId,
         fileName: options.fileName,
+        title: options.title || null,
+        author: options.author || null,
         seriesName: options.seriesName || null,
         baseDir: options.baseDir,
         customTargetDir: options.customTargetDir || null,
+        progress: options.progress || null,
       });
     } catch (err) {
       console.error(`Failed to download book '${options.fileName}':`, err);
