@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-08-29
+
+### Added
+- Window state persistence support for desktop platforms (remembers window size, position, and maximized state across restarts).
+- Configured minimum window dimensions (600x600) and initial hidden window visibility in Tauri configurations to prevent startup flicker during state restoration.
+
+### Changed
+- Refactored `fs_manager` process status checks and cleaned up unused variable warnings on non-Linux platforms.
+- Updated `uuid` dependency to `1.26.0`.
+
 ## [0.2.5] - 2026-08-29
 
 ### Added
