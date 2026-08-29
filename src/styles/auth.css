@@ -9,6 +9,7 @@
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
   display: flex;
   flex-direction: column;
   align-items: center;

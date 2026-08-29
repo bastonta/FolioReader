@@ -142,11 +142,12 @@
   --warning-fg: #b58900;
 }
 
-/* Reset & Global */
-* {
+/* Reset & Global - Native App Experience */
+*, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+  -webkit-tap-highlight-color: transparent !important;
 }
 
 html, body, #root {
@@ -157,6 +158,62 @@ html, body, #root {
   background-color: var(--bg-primary);
   color: var(--text-primary);
   user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Prevent image & link ghost dragging */
+img, a {
+  -webkit-user-drag: none;
+  user-drag: none;
+}
+
+/* Custom theme-aware text selection */
+::selection {
+  background-color: rgba(53, 132, 228, 0.3);
+  color: inherit;
+}
+
+::-moz-selection {
+  background-color: rgba(53, 132, 228, 0.3);
+  color: inherit;
+}
+
+/* Clear default browser focus outlines */
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}
+
+/* Interactive touch responsiveness without browser zoom delay */
+button, a, input, select, textarea, [role="button"], label {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent !important;
+}
+
+/* Form inputs allow text selection */
+input, textarea, [contenteditable="true"] {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* All scrollable containers: enable smooth hardware acceleration and native overscroll */
+.sidebar-content-body,
+.annotations-list-scroll,
+.bookmarks-list-scroll,
+.custom-select-options-scroller,
+.settings-popover,
+.footnote-modal-body,
+.book-info-desc-body,
+.modal-body,
+.library-main-content,
+.search-results-list {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
 }
 
 .app-container {

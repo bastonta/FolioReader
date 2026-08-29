@@ -24,6 +24,10 @@
       })();
     </script>
     <style>
+      *, *::before, *::after {
+        box-sizing: border-box;
+        -webkit-tap-highlight-color: transparent !important;
+      }
       html, body {
         margin: 0;
         padding: 0;
@@ -31,6 +35,9 @@
         height: 100%;
         overflow: hidden;
         font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        user-select: none;
       }
       .theme-light { --bg-splash: #ffffff; --text-splash: #2e3436; --text-subtle-splash: #86848d; --accent-splash: #3584e4; }
       .theme-dark  { --bg-splash: #1e1e1e; --text-splash: #ffffff; --text-subtle-splash: #8892b0; --accent-splash: #3584e4; }

@@ -207,6 +207,11 @@ class MainActivity : TauriActivity() {
     mainWebView = webView
     super.onWebViewCreate(webView)
 
+    // Enable native overscroll behavior and hide raw browser scrollbars
+    webView.overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+    webView.isVerticalScrollBarEnabled = false
+    webView.isHorizontalScrollBarEnabled = false
+
     // Propagate system bar insets (status bar, navigation bar) directly to CSS variables
     ViewCompat.setOnApplyWindowInsetsListener(window.decorView) { _, insets ->
       val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())

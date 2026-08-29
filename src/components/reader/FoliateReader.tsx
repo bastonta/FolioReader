@@ -182,6 +182,19 @@ const getReaderCSS = (settings: ReaderSettings, customFontsCss: string = '') => 
   return `
     ${customFontsCss}
     @namespace epub "http://www.idpf.org/2007/ops";
+    *, *::before, *::after {
+      -webkit-tap-highlight-color: transparent !important;
+    }
+    img, a {
+      -webkit-user-drag: none;
+      user-drag: none;
+    }
+    ::selection {
+      background-color: ${colors.link}40 !important;
+    }
+    ::-moz-selection {
+      background-color: ${colors.link}40 !important;
+    }
     html {
       color-scheme: ${settings.theme === 'dark' || settings.theme === 'gray' ? 'dark' : 'light'};
       background-color: ${colors.bg} !important;
