@@ -14,22 +14,22 @@
     "tauri:android:build:dev": "tauri android build --debug --apk -t aarch64"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2",
+    "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-http": "^2.5.9",
-    "@tauri-apps/plugin-opener": "^2",
+    "@tauri-apps/plugin-opener": "^2.5.4",
     "@types/qrcode": "^1.5.6",
-    "lucide-react": "^1.34.0",
+    "lucide-react": "^1.37.0",
     "qrcode": "^1.5.4",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0",
-    "react-router-dom": "^7.18.2"
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-router-dom": "^7.18.3"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2",
-    "@types/react": "^19.1.8",
+    "@tauri-apps/cli": "^2.11.4",
+    "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
-    "@vitejs/plugin-react": "^6.0.2",
+    "@vitejs/plugin-react": "^6.1.1",
     "typescript": "~7.0.2",
-    "vite": "^8.0.16"
+    "vite": "^8.2.2"
   }
 }
