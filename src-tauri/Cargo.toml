@@ -44,6 +44,7 @@ webpki-root-certs = "1.0"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 rfd = "0.17.2"
+tauri-plugin-window-state = "2"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
