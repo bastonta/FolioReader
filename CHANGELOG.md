@@ -7,19 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+## [0.2.5] - 2026-08-29
 
+### Added
 - Native overscroll containment and hardware scrolling on scrollable containers.
 - Support for dev/release default storage folder paths (Downloads for dev, Documents for release).
+- Added `CHANGELOG.md` and automated release notes extraction for GitHub Actions releases.
 
 ### Changed
-
 - Refactored reader header bar to remove duplicate sidebar pin button.
 
 ### Fixed
-
 - Fixed Android folder picker getting stuck in selecting state when cancelled.
-- Polish native app experience: eliminated default browser focus outlines, removed web tap highlights, and styled text selection.
+- Polished native app experience: eliminated default browser focus outlines, removed web tap highlights, and styled text selection.
 
 ## [0.2.4] - 2026-08-29
 
