@@ -16,7 +16,6 @@ import {
   Layers,
   Check,
   ShieldAlert,
-  HardDrive,
   Smartphone,
   LayoutGrid,
   List as ListIcon,
@@ -157,12 +156,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     { id: 'solarized', label: t('theme.solarized'), bg: '#fdf6e3', color: '#657b83', border: '#eee8d5' },
     { id: 'gray', label: t('theme.gray'), bg: '#2e3440', color: '#eceff4', border: '#4c566a' },
     { id: 'dark', label: t('theme.dark'), bg: '#1e1e1e', color: '#dedede', border: '#444444' },
-  ];
-
-  const androidPresets = [
-    { label: 'Download / FolioBooks', path: '/storage/emulated/0/Download/FolioBooks' },
-    { label: 'Documents / FolioBooks', path: '/storage/emulated/0/Documents/FolioBooks' },
-    { label: 'Books / Folio', path: '/storage/emulated/0/Books/Folio' },
   ];
 
   const handleRequestPermission = async () => {
@@ -429,37 +422,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <span>{t('common.default')}</span>
               </button>
             </div>
-
-            {/* Android Presets */}
-            {isMobile && (
-              <div style={{ marginTop: 10 }}>
-                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-muted)', display: 'block', marginBottom: 6 }}>
-                  {t('settings.quickAndroidPresets')}
-                </span>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                  {androidPresets.map((preset) => (
-                    <button
-                      key={preset.path}
-                      type="button"
-                      className={`theme-pill ${settings.downloadPath === preset.path ? 'active' : ''}`}
-                      style={{
-                        padding: '5px 10px',
-                        fontSize: 11,
-                        borderRadius: 'var(--radius-md)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 4,
-                      }}
-                      onClick={() => onUpdateSettings({ downloadPath: preset.path })}
-                    >
-                      <HardDrive size={12} />
-                      <span>{preset.label}</span>
-                      {settings.downloadPath === preset.path && <Check size={12} />}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Series Folder Option */}

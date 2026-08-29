@@ -30,6 +30,7 @@
             "$APPCACHE/**/*",
             "$HOME/**/*",
             "$DOWNLOAD/**/*",
+            "$DOCUMENT/**/*",
             "**/*"
           ]
         }

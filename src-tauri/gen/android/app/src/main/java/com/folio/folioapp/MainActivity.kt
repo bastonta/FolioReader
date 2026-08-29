@@ -46,23 +46,34 @@ class MainActivity : TauriActivity() {
     ActivityResultContracts.StartActivityForResult()
   ) { result ->
     if (result.resultCode == RESULT_OK) {
-      val uri = result.data?.data ?: return@registerForActivityResult
-      val takeFlags = (result.data?.flags ?: 0) and
-        (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-      try {
-        contentResolver.takePersistableUriPermission(uri, takeFlags)
-      } catch (_: Exception) {}
+      val uri = result.data?.data
+      if (uri != null) {
+        val takeFlags = (result.data?.flags ?: 0) and
+          (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        try {
+          contentResolver.takePersistableUriPermission(uri, takeFlags)
+        } catch (_: Exception) {}
 
-      val path = getPathFromTreeUri(uri)
-      if (path != null) {
-        val escapedPath = path.replace("\\", "\\\\").replace("'", "\\'")
-        mainWebView?.post {
-          mainWebView?.evaluateJavascript(
-            "if (typeof window.onAndroidFolderSelected === 'function') { window.onAndroidFolderSelected('$escapedPath'); }",
-            null
-          )
+        val path = getPathFromTreeUri(uri)
+        if (path != null) {
+          val escapedPath = path.replace("\\", "\\\\").replace("'", "\\'")
+          mainWebView?.post {
+            mainWebView?.evaluateJavascript(
+              "if (typeof window.onAndroidFolderSelected === 'function') { window.onAndroidFolderSelected('$escapedPath'); }",
+              null
+            )
+          }
+          return@registerForActivityResult
         }
       }
+    }
+
+    // Cancelled (e.g. user pressed Back) or path resolution failed
+    mainWebView?.post {
+      mainWebView?.evaluateJavascript(
+        "if (typeof window.onAndroidFolderSelected === 'function') { window.onAndroidFolderSelected(null); }",
+        null
+      )
     }
   }
 
@@ -458,6 +469,12 @@ class MainActivity : TauriActivity() {
             folderPickerLauncher.launch(intent)
           } catch (e: Exception) {
             e.printStackTrace()
+            mainWebView?.post {
+              mainWebView?.evaluateJavascript(
+                "if (typeof window.onAndroidFolderSelected === 'function') { window.onAndroidFolderSelected(null); }",
+                null
+              )
+            }
           }
         }
       }
@@ -465,14 +482,23 @@ class MainActivity : TauriActivity() {
       @JavascriptInterface
       fun getDefaultDownloadDir(): String {
         return try {
-          val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-          val folioDir = File(downloadsDir, "FolioBooks")
+          val isDebug = BuildConfig.DEBUG
+          val baseDir = if (isDebug) {
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+          } else {
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS)
+          }
+          val folioDir = File(baseDir, "FolioBooks")
           if (!folioDir.exists()) {
             folioDir.mkdirs()
           }
           folioDir.absolutePath
         } catch (e: Exception) {
-          "/storage/emulated/0/Download/FolioBooks"
+          if (BuildConfig.DEBUG) {
+            "/storage/emulated/0/Download/FolioBooks"
+          } else {
+            "/storage/emulated/0/Documents/FolioBooks"
+          }
         }
       }
 

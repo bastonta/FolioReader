@@ -72,7 +72,6 @@ export const en = {
     "The app automatically scans all books in this folder and saves new downloads into it.",
   "settings.noFolderSelected": "No folder selected",
   "settings.selectFolder": "Select Folder",
-  "settings.quickAndroidPresets": "Quick Android Folder Presets:",
   "settings.seriesFolderTitle": "Automatically Create Series Folders",
   "settings.seriesFolderDesc":
     "Books belonging to a series will be saved inside a subfolder named after the series",

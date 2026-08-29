@@ -63,13 +63,21 @@ fn sanitize_filename_part(name: &str) -> String {
 #[tauri::command]
 pub async fn get_default_download_dir(app: tauri::AppHandle) -> Result<String, String> {
     use tauri::Manager;
-    let base_dir = app
-        .path()
-        .download_dir()
-        .or_else(|_| app.path().document_dir())
-        .or_else(|_| app.path().app_local_data_dir())
-        .or_else(|_| app.path().app_data_dir())
-        .map_err(|e| format!("Failed to resolve default directory: {e}"))?;
+    let base_dir = if cfg!(debug_assertions) {
+        app.path()
+            .download_dir()
+            .or_else(|_| app.path().document_dir())
+            .or_else(|_| app.path().app_local_data_dir())
+            .or_else(|_| app.path().app_data_dir())
+            .map_err(|e| format!("Failed to resolve default directory: {e}"))?
+    } else {
+        app.path()
+            .document_dir()
+            .or_else(|_| app.path().download_dir())
+            .or_else(|_| app.path().app_local_data_dir())
+            .or_else(|_| app.path().app_data_dir())
+            .map_err(|e| format!("Failed to resolve default directory: {e}"))?
+    };
 
     let folio_dir = base_dir.join("FolioBooks");
     if !folio_dir.exists() {

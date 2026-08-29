@@ -74,7 +74,6 @@ export const ru: Partial<Record<TranslationKey, string>> = {
     "Приложение автоматически сканирует книги в этой папке и сохраняет в неё новые загрузки.",
   "settings.noFolderSelected": "Папка не выбрана",
   "settings.selectFolder": "Выбрать папку",
-  "settings.quickAndroidPresets": "Быстрый выбор папки (Android):",
   "settings.seriesFolderTitle": "Автоматически создавать папки для серий",
   "settings.seriesFolderDesc":
     "Книги, входящие в цикл или серию, будут сохраняться в отдельную подпапку с названием серии",
