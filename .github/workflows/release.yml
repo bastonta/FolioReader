@@ -54,6 +54,10 @@ jobs:
       - name: Sync version from Git tag
         run: node scripts/sync-version.cjs
 
+      - name: Extract release notes from CHANGELOG.md
+        id: changelog
+        run: node scripts/extract-changelog.cjs
+
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
 
@@ -83,13 +87,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Folio ${{ github.ref_name }}"
-          releaseBody: |
-            Folio release ${{ github.ref_name }}.
-
-            ### Included Packages
-            - **Windows**: `.msi` and `.exe` installers
-            - **Linux**: `.deb` and `.AppImage` packages
-            - **Android**: `.apk` packages
+          releaseBody: ${{ steps.changelog.outputs.changelog }}
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
@@ -131,6 +129,10 @@ jobs:
 
       - name: Sync version from Git tag
         run: node scripts/sync-version.cjs
+
+      - name: Extract release notes from CHANGELOG.md
+        id: changelog
+        run: node scripts/extract-changelog.cjs
 
       - name: Setup Java 17
         uses: actions/setup-java@v5
@@ -214,5 +216,6 @@ jobs:
         with:
           files: release-apks/*.apk
           tag_name: ${{ github.ref_name }}
+          body: ${{ steps.changelog.outputs.changelog }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
