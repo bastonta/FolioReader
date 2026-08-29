@@ -343,7 +343,8 @@ pub async fn download_book_file(
         .replace('\\', "/");
     let local_id = format!("local-{}", rel_path.replace(['/', '\\', ' ', '.'], "_"));
 
-    let resolved_title = title.unwrap_or_else(|| file_name.trim_end_matches(".epub").replace('_', " "));
+    let resolved_title =
+        title.unwrap_or_else(|| file_name.trim_end_matches(".epub").replace('_', " "));
     let resolved_author = author.unwrap_or_else(|| "Unknown Author".to_string());
 
     let _ = crate::db::save_book_mapping(&db, &local_id, &book_id, Some(&final_path_str)).await;
@@ -688,7 +689,9 @@ fn configure_linux_command(cmd: &mut std::process::Command) {
         cmd.env_remove("LD_LIBRARY_PATH");
     }
 
-    if let Ok(orig_preload) = std::env::var("LD_PRELOAD_ORIG").or_else(|_| std::env::var("ORIG_LD_PRELOAD")) {
+    if let Ok(orig_preload) =
+        std::env::var("LD_PRELOAD_ORIG").or_else(|_| std::env::var("ORIG_LD_PRELOAD"))
+    {
         if !orig_preload.trim().is_empty() {
             cmd.env("LD_PRELOAD", orig_preload);
         } else {
@@ -705,7 +708,9 @@ fn configure_linux_command(cmd: &mut std::process::Command) {
     cmd.env_remove("PYTHONPATH");
     cmd.env_remove("PERLLIB");
 
-    if let Ok(orig_xdg) = std::env::var("XDG_DATA_DIRS_ORIG").or_else(|_| std::env::var("ORIG_XDG_DATA_DIRS")) {
+    if let Ok(orig_xdg) =
+        std::env::var("XDG_DATA_DIRS_ORIG").or_else(|_| std::env::var("ORIG_XDG_DATA_DIRS"))
+    {
         if !orig_xdg.trim().is_empty() {
             cmd.env("XDG_DATA_DIRS", orig_xdg);
         }
@@ -821,10 +826,10 @@ pub async fn open_external_url(app: tauri::AppHandle, url: String) -> Result<(),
     {
         let mut cmd = std::process::Command::new("cmd");
         cmd.args(["/C", "start", "", &clean_url]);
-        if let Ok(status) = cmd.status() {
-            if status.success() {
-                return Ok(());
-            }
+        if let Ok(status) = cmd.status()
+            && status.success()
+        {
+            return Ok(());
         }
     }
 
@@ -862,6 +867,7 @@ pub async fn open_external_path(app: tauri::AppHandle, path: String) -> Result<(
         .canonicalize()
         .unwrap_or_else(|_| target_path.clone());
     let canonical_str = canonical.to_string_lossy().to_string();
+    #[cfg(target_os = "linux")]
     let file_uri = if canonical_str.starts_with('/') {
         format!("file://{canonical_str}")
     } else {
@@ -963,10 +969,10 @@ pub async fn open_external_path(app: tauri::AppHandle, path: String) -> Result<(
     {
         let mut cmd = std::process::Command::new("explorer");
         cmd.arg(&canonical_str);
-        if let Ok(status) = cmd.status() {
-            if status.success() {
-                return Ok(());
-            }
+        if let Ok(status) = cmd.status()
+            && status.success()
+        {
+            return Ok(());
         }
     }
 
