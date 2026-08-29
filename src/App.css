@@ -1903,10 +1903,6 @@ foliate-view::part(foot) {
 
 /* Mobile Responsiveness for Reader & Settings */
 @media (max-width: 640px) {
-  .header-pin-btn {
-    display: none;
-  }
-
   .header-center-title {
     padding: 0 8px;
   }
@@ -3649,8 +3645,7 @@ foliate-view::part(foot) {
     flex-shrink: 0;
   }
 
-  .sidebar-pin-btn,
-  .header-pin-btn {
+  .sidebar-pin-btn {
     display: none !important;
   }
 

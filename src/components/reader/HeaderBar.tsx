@@ -1,4 +1,4 @@
-import { Library, PanelLeft, Pin, PinOff, Sliders } from "lucide-react";
+import { Library, PanelLeft, Sliders } from "lucide-react";
 import React from "react";
 import { useTranslation } from "../../i18n";
 
@@ -9,8 +9,6 @@ interface HeaderBarProps {
   onToggleSettings?: () => void;
   isSettingsOpen?: boolean;
   settingsBtnRef?: React.RefObject<HTMLButtonElement | null>;
-  onTogglePin?: () => void;
-  isPinned?: boolean;
   chapterTitle?: string;
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
@@ -23,8 +21,6 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   onToggleSettings,
   isSettingsOpen = false,
   settingsBtnRef,
-  onTogglePin,
-  isPinned = false,
   chapterTitle,
   onMouseEnter,
   onMouseLeave,
@@ -52,7 +48,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
 
         <div className="header-separator" />
 
-        {/* Sidebar Toggle & Pin Controls */}
+        {/* Sidebar Toggle Control */}
         <button
           type="button"
           className={`header-icon-btn ${isSidebarOpen ? "active" : ""}`}
@@ -70,18 +66,6 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
         >
           <PanelLeft size={16} />
         </button>
-
-        {onTogglePin && (
-          <button
-            type="button"
-            className={`header-icon-btn header-pin-btn ${isPinned ? "active" : ""}`}
-            onClick={onTogglePin}
-            title={isPinned ? t('reader.unpinSidebar') : t('reader.pinSidebar')}
-            aria-label={isPinned ? t('reader.unpinSidebar') : t('reader.pinSidebar')}
-          >
-            {isPinned ? <Pin size={16} /> : <PinOff size={16} />}
-          </button>
-        )}
       </div>
 
       {/* Center Running Head Title */}

@@ -1584,16 +1584,6 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         }}
         isSettingsOpen={isSettingsOpen}
         settingsBtnRef={settingsBtnRef}
-        onTogglePin={
-          isMobile
-            ? undefined
-            : () =>
-                onUpdateSettings({
-                  sidebarPinned: !settings.sidebarPinned,
-                  sidebarOpen: true,
-                })
-        }
-        isPinned={isPinned}
         chapterTitle={chapterTitle}
         onMouseEnter={() => {
           isHoveringControlsRef.current = true;
