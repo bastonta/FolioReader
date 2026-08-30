@@ -981,12 +981,19 @@ export class Paginator extends HTMLElement {
 
         const index = this.#index
         const detail = { reason, range, index }
-        if (this.scrolled) detail.fraction = this.start / this.viewSize
+        if (this.scrolled) {
+            detail.fraction = this.viewSize > 0 ? this.start / this.viewSize : 0
+            const viewportSize = this.size || 1
+            detail.page = Math.floor(this.start / viewportSize) + 1
+            detail.pages = Math.max(1, Math.ceil(this.viewSize / viewportSize))
+        }
         else if (this.pages > 0) {
             const { page, pages } = this
             this.#header.style.visibility = page > 1 ? 'visible' : 'hidden'
-            detail.fraction = (page - 1) / (pages - 2)
-            detail.size = 1 / (pages - 2)
+            detail.fraction = pages > 2 ? (page - 1) / (pages - 2) : 0
+            detail.size = pages > 2 ? 1 / (pages - 2) : 1
+            detail.page = page
+            detail.pages = pages
         }
         this.dispatchEvent(new CustomEvent('relocate', { detail }))
     }

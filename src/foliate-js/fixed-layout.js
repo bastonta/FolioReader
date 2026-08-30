@@ -251,7 +251,7 @@ export class FixedLayout extends HTMLElement {
     }
     #reportLocation(reason) {
         this.dispatchEvent(new CustomEvent('relocate', { detail:
-            { reason, range: null, index: this.index, fraction: 0, size: 1 } }))
+            { reason, range: null, index: this.index, fraction: 0, size: 1, page: 1, pages: 3 } }))
     }
     getSpreadOf(section) {
         const spreads = this.#spreads

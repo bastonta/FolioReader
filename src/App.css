@@ -951,6 +951,45 @@ foliate-view::part(foot) {
   color: var(--text-muted);
 }
 
+.footer-info-stats {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+  white-space: nowrap;
+  user-select: none;
+}
+
+.footer-book-page {
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.footer-percent {
+  color: var(--text-muted);
+  font-size: 10.5px;
+}
+
+.footer-info-divider {
+  color: var(--border-color);
+  font-size: 9px;
+}
+
+.footer-chapter-page {
+  font-weight: 450;
+  color: var(--text-secondary);
+}
+
+@media (max-width: 480px) {
+  .footer-info-stats {
+    gap: 5px;
+    font-size: 10.5px;
+  }
+}
+
 /* Floating Show Controls Button when hidden */
 .reader-floating-show-btn {
   position: absolute;

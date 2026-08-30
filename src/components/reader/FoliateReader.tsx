@@ -46,6 +46,7 @@ import {
 import { fontManager } from '../../services/fontManager';
 import { LoadedCustomFont } from '../../types/font';
 import { useTranslation } from '../../i18n';
+import { DevicePaginator, DevicePageInfo } from '../../services/devicePaginator';
 
 interface FoliateReaderProps {
   bookId: string;
@@ -335,9 +336,11 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   const [currentHref, setCurrentHref] = useState<string | null>(null);
   const [chapterTitle, setChapterTitle] = useState<string>('');
   const [locationLabel, setLocationLabel] = useState<string>('');
+  const [pageInfo, setPageInfo] = useState<DevicePageInfo | null>(null);
   const [progressFraction, setProgressFraction] = useState<number>(0);
   const [sectionFractions, setSectionFractions] = useState<number[]>([]);
   const [currentCFI, setCurrentCFI] = useState<string>('');
+  const paginatorRef = useRef<DevicePaginator | null>(null);
 
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const annotationsRef = useRef<Annotation[]>(annotations);
@@ -671,6 +674,85 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
     };
   }, [settings.volumeKeysPageTurn, settings.volumeKeysInverted]);
 
+  // Update running feet marginals inside foliate-view
+  const updateRunningFooter = useCallback((info: DevicePageInfo) => {
+    try {
+      const feet = viewRef.current?.renderer?.feet;
+      if (Array.isArray(feet) && feet.length > 0) {
+        const bookPagesText = t('reader.bookPages', {
+          current: info.bookPage,
+          total: info.totalBookPages,
+        });
+        const chapterPagesText = t('reader.chapterPages', {
+          current: info.chapterPage,
+          total: info.totalChapterPages,
+        });
+        const text = `${bookPagesText} (${info.percent}%) · ${chapterPagesText}`;
+        for (const foot of feet) {
+          if (foot) foot.textContent = text;
+        }
+      }
+    } catch (e) {
+      console.warn('Error updating running feet:', e);
+    }
+  }, [t]);
+
+  // Initialize or re-initialize screen-dependent device pagination
+  const initDevicePaginator = useCallback(() => {
+    if (!viewRef.current?.book) return;
+
+    const customFontsCss = fontManager.generateFontsCss(customFonts);
+    const readerCSS = getReaderCSS(settings, customFontsCss);
+    const viewerRect = viewerContainerRef.current?.getBoundingClientRect();
+    const width = viewerRect?.width || window.innerWidth;
+    const height = viewerRect?.height || window.innerHeight;
+
+    paginatorRef.current?.destroy();
+
+    const paginator = new DevicePaginator(
+      bookId,
+      viewRef.current.book,
+      {
+        width,
+        height,
+        flow: settings.flow,
+        columns: settings.columns,
+        fontSize: settings.fontSize,
+        fontFamily: settings.fontFamily,
+        spacing: settings.spacing,
+        margin: settings.margin,
+        readerCSS,
+      },
+      (p) => {
+        const lastLoc = (viewRef.current as any)?.lastLocation;
+        if (lastLoc) {
+          const secIdx = lastLoc.index ?? lastLoc.section?.current ?? 0;
+          const page = lastLoc.page ?? 1;
+          const pages = lastLoc.pages ?? 3;
+          const frac = lastLoc.fraction ?? 0;
+          const info = p.getPageInfo(secIdx, page, pages, frac);
+          setPageInfo(info);
+          updateRunningFooter(info);
+        }
+      }
+    );
+
+    paginatorRef.current = paginator;
+    paginator.startBackgroundMeasurement();
+
+    const lastLoc = (viewRef.current as any)?.lastLocation;
+    if (lastLoc) {
+      const secIdx = lastLoc.index ?? lastLoc.section?.current ?? 0;
+      const page = lastLoc.page ?? 1;
+      const pages = lastLoc.pages ?? 3;
+      const frac = lastLoc.fraction ?? 0;
+      paginator.updateLiveSection(secIdx, page, pages);
+      const info = paginator.getPageInfo(secIdx, page, pages, frac);
+      setPageInfo(info);
+      updateRunningFooter(info);
+    }
+  }, [bookId, customFonts, settings, updateRunningFooter]);
+
   // Update styling in foliate-view
   const applyStyles = useCallback(() => {
     if (viewRef.current?.renderer) {
@@ -695,12 +777,31 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
       viewRef.current.renderer.setAttribute?.('max-column-count', colCount);
       viewRef.current.renderer.setAttribute?.('margin', `${settings.margin}px`);
       viewRef.current.renderer.setAttribute?.('gap', '6%');
+
+      initDevicePaginator();
     }
-  }, [settings, customFonts]);
+  }, [settings, customFonts, initDevicePaginator]);
 
   useEffect(() => {
     applyStyles();
   }, [applyStyles]);
+
+  // Observe container resizing for accurate pagination recalibration
+  useEffect(() => {
+    if (!viewerContainerRef.current) return;
+    let resizeTimer: any;
+    const observer = new ResizeObserver(() => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        initDevicePaginator();
+      }, 250);
+    });
+    observer.observe(viewerContainerRef.current);
+    return () => {
+      clearTimeout(resizeTimer);
+      observer.disconnect();
+    };
+  }, [initDevicePaginator]);
 
   // Helper to determine viewport offset for iframe contents
   const getViewportOffset = useCallback((targetDoc?: Document) => {
@@ -769,15 +870,29 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           setChapterTitle(detail.tocItem.label || '');
         }
 
-        let locText = '';
-        if (detail.pageItem) {
-          locText = `Page ${detail.pageItem.label || detail.pageItem.current || ''}`;
-        } else if (detail.location?.current != null && detail.location?.total != null) {
-          locText = `Loc. ${detail.location.current} of ${detail.location.total}`;
-        } else {
-          locText = `Loc. ${Math.round(fraction * 1000)}`;
-        }
-        setLocationLabel(locText);
+        const sectionIndex = detail.index ?? detail.section?.current ?? 0;
+        const page = detail.page ?? 1;
+        const pages = detail.pages ?? 3;
+
+        paginatorRef.current?.updateLiveSection(sectionIndex, page, pages);
+
+        const info = paginatorRef.current?.getPageInfo(sectionIndex, page, pages, fraction) || {
+          bookPage: Math.max(1, Math.round(fraction * 100)),
+          totalBookPages: 100,
+          chapterPage: Math.max(1, page),
+          totalChapterPages: Math.max(1, pages > 2 ? pages - 2 : pages),
+          percent: Math.round(fraction * 100),
+          isEstimated: false,
+          sectionIndex,
+        };
+
+        setPageInfo(info);
+        updateRunningFooter(info);
+
+        const bookPagesText = t('reader.bookPages', { current: info.bookPage, total: info.totalBookPages });
+        const chapterPagesText = t('reader.chapterPages', { current: info.chapterPage, total: info.totalChapterPages });
+        const fullLocText = `${bookPagesText} (${info.percent}%) · ${chapterPagesText}`;
+        setLocationLabel(fullLocText);
       });
 
       // Footnote / Endnote interception & external link handling on link events
@@ -1387,6 +1502,8 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
 
     return () => {
       isCancelled = true;
+      paginatorRef.current?.destroy();
+      paginatorRef.current = null;
       if (viewRef.current) {
         try {
           viewRef.current.close?.();
@@ -1713,6 +1830,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           {/* Bottom Progress Scrubber */}
           <ProgressScrubber
             fraction={progressFraction}
+            pageInfo={pageInfo}
             locationLabel={locationLabel}
             onSeek={(frac) => {
               if (selectionRef.current) {
@@ -1773,6 +1891,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         metadata={metadata}
         progressPercent={progressFraction * 100}
         currentChapter={chapterTitle}
+        pageInfo={pageInfo}
         onSyncProgress={handleSyncProgress}
         isSyncing={isSyncing}
         syncMessage={syncMessage}

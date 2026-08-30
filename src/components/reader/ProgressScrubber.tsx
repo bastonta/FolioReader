@@ -2,8 +2,11 @@ import React from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { useTranslation } from '../../i18n';
 
+import { DevicePageInfo } from '../../services/devicePaginator';
+
 interface ProgressScrubberProps {
   fraction: number; // 0 to 1
+  pageInfo?: DevicePageInfo | null;
   locationLabel?: string;
   onSeek: (fraction: number) => void;
   onPrev: () => void;
@@ -15,6 +18,7 @@ interface ProgressScrubberProps {
 
 export const ProgressScrubber: React.FC<ProgressScrubberProps> = ({
   fraction,
+  pageInfo,
   locationLabel,
   onSeek,
   onPrev,
@@ -24,7 +28,11 @@ export const ProgressScrubber: React.FC<ProgressScrubberProps> = ({
   onMouseLeave,
 }) => {
   const { t } = useTranslation();
-  const percent = Math.round(fraction * 100);
+  const percent = Math.round((fraction || 0) * 100);
+
+  const tooltipTitle = pageInfo
+    ? `${t('reader.bookPages', { current: pageInfo.bookPage, total: pageInfo.totalBookPages })} (${pageInfo.percent}%) · ${t('reader.chapterPages', { current: pageInfo.chapterPage, total: pageInfo.totalChapterPages })}`
+    : `${percent}% · ${locationLabel || ''}`;
 
   return (
     <footer
@@ -53,7 +61,7 @@ export const ProgressScrubber: React.FC<ProgressScrubberProps> = ({
             onChange={(e) => onSeek(parseFloat(e.target.value))}
             className="footer-progress-slider"
             list="chapter-ticks"
-            title={`${percent}% · ${locationLabel || ''}`}
+            title={tooltipTitle}
           />
           <datalist id="chapter-ticks">
             {sectionFractions.map((f, i) => (
@@ -63,9 +71,28 @@ export const ProgressScrubber: React.FC<ProgressScrubberProps> = ({
         </div>
 
         <div className="footer-info-row">
-          <span className="footer-location-text">
-            {locationLabel ? `${locationLabel} (${percent}%)` : `${percent}%`}
-          </span>
+          {pageInfo ? (
+            <div className="footer-info-stats">
+              <span className="footer-book-page">
+                {t('reader.bookPages', {
+                  current: pageInfo.bookPage,
+                  total: pageInfo.totalBookPages,
+                })}
+                <span className="footer-percent"> ({pageInfo.percent}%)</span>
+              </span>
+              <span className="footer-info-divider">•</span>
+              <span className="footer-chapter-page">
+                {t('reader.chapterPages', {
+                  current: pageInfo.chapterPage,
+                  total: pageInfo.totalChapterPages,
+                })}
+              </span>
+            </div>
+          ) : (
+            <span className="footer-location-text">
+              {locationLabel ? `${locationLabel} (${percent}%)` : `${percent}%`}
+            </span>
+          )}
         </div>
       </div>
 

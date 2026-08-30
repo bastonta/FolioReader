@@ -17,12 +17,15 @@ import {
 import { useTranslation } from '../../i18n';
 import { formatContributor, formatLanguageMap, parseSubjects } from '../../services/storage';
 
+import { DevicePageInfo } from '../../services/devicePaginator';
+
 interface BookInfoModalProps {
   isOpen: boolean;
   onClose: () => void;
   metadata: BookMetadata | null;
   progressPercent?: number;
   currentChapter?: string;
+  pageInfo?: DevicePageInfo | null;
   onSyncProgress?: () => Promise<void> | void;
   isSyncing?: boolean;
   syncMessage?: string | null;
@@ -58,6 +61,7 @@ export const BookInfoModal: React.FC<BookInfoModalProps> = ({
   metadata,
   progressPercent,
   currentChapter,
+  pageInfo,
   onSyncProgress,
   isSyncing = false,
   syncMessage,
@@ -99,54 +103,55 @@ export const BookInfoModal: React.FC<BookInfoModalProps> = ({
           )}
         </div>
 
-        {/* Core Metadata */}
-        <div className="book-info-details">
-          <h3 className="book-info-title">{formatLanguageMap(metadata.title) || t('common.untitledBook')}</h3>
-          <p className="book-info-author">{formatContributor(metadata.author) || t('common.unknownAuthor')}</p>
+        {/* Essential Metadata Info */}
+        <div className="book-info-main-details">
+          <h3 className="book-info-title" title={formatLanguageMap(metadata.title)}>
+            {formatLanguageMap(metadata.title) || t('common.untitledBook')}
+          </h3>
+          <h4 className="book-info-author" title={formatContributor(metadata.author)}>
+            {formatContributor(metadata.author) || t('common.unknownAuthor')}
+          </h4>
 
           <div className="book-info-meta-list">
             {metadata.publisher && (
-              <div className="book-info-meta-item">
-                <Building size={15} className="book-info-icon" />
+              <div className="book-info-meta-row">
+                <Building size={14} className="book-info-icon" />
                 <span className="book-info-meta-label">{t('reader.publisher')}:</span>
-                <span className="book-info-meta-val">{formatContributor(metadata.publisher)}</span>
+                <span className="book-info-meta-value">{formatContributor(metadata.publisher)}</span>
               </div>
             )}
 
             {metadata.published && (
-              <div className="book-info-meta-item">
-                <Calendar size={15} className="book-info-icon" />
+              <div className="book-info-meta-row">
+                <Calendar size={14} className="book-info-icon" />
                 <span className="book-info-meta-label">{t('reader.published')}:</span>
-                <span className="book-info-meta-val">{formatLanguageMap(metadata.published)}</span>
+                <span className="book-info-meta-value">{formatLanguageMap(metadata.published)}</span>
               </div>
             )}
 
             {metadata.language && (
-              <div className="book-info-meta-item">
-                <Globe size={15} className="book-info-icon" />
+              <div className="book-info-meta-row">
+                <Globe size={14} className="book-info-icon" />
                 <span className="book-info-meta-label">{t('reader.language')}:</span>
-                <span className="book-info-meta-val">{formatLanguage(metadata.language)}</span>
+                <span className="book-info-meta-value">{formatLanguage(metadata.language)}</span>
               </div>
             )}
 
             {metadata.identifier && (
-              <div className="book-info-meta-item" style={{ alignItems: 'flex-start' }}>
-                <Hash size={15} className="book-info-icon" style={{ marginTop: 2 }} />
+              <div className="book-info-meta-row">
+                <Hash size={14} className="book-info-icon" />
                 <span className="book-info-meta-label">{t('reader.bookId')}:</span>
-                <div className="book-info-id-wrapper">
-                  <span className="book-info-id-badge" title={formatLanguageMap(metadata.identifier)}>
-                    {formatLanguageMap(metadata.identifier)}
-                  </span>
-                  <button
-                    type="button"
-                    className="book-info-copy-btn"
-                    onClick={handleCopyIdentifier}
-                    title={t('reader.copyIdentifier')}
-                    aria-label={t('reader.copyIdentifier')}
-                  >
-                    {copiedId ? <Check size={12} style={{ color: '#22c55e' }} /> : <Copy size={12} />}
-                  </button>
-                </div>
+                <span className="book-info-meta-value book-info-id-value" title={formatLanguageMap(metadata.identifier)}>
+                  {formatLanguageMap(metadata.identifier)}
+                </span>
+                <button
+                  type="button"
+                  className="book-info-copy-btn"
+                  onClick={handleCopyIdentifier}
+                  title={copiedId ? t('common.copied') : t('reader.copyIdentifier')}
+                >
+                  {copiedId ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                </button>
               </div>
             )}
           </div>
@@ -171,7 +176,7 @@ export const BookInfoModal: React.FC<BookInfoModalProps> = ({
       )}
 
       {/* Reading Progress & Server Sync Card */}
-      {(progressPercent !== undefined || onSyncProgress) && (
+      {(progressPercent !== undefined || onSyncProgress || pageInfo) && (
         <div className="book-info-progress-card">
           <div className="book-info-progress-header">
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -191,6 +196,13 @@ export const BookInfoModal: React.FC<BookInfoModalProps> = ({
                 className="book-info-progress-fill"
                 style={{ width: `${Math.max(0, Math.min(100, progressPercent))}%` }}
               />
+            </div>
+          )}
+
+          {pageInfo && (
+            <div className="book-info-pages-stats" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
+              <span>{t('reader.bookPages', { current: pageInfo.bookPage, total: pageInfo.totalBookPages })}</span>
+              <span>{t('reader.chapterPages', { current: pageInfo.chapterPage, total: pageInfo.totalChapterPages })}</span>
             </div>
           )}
 
