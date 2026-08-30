@@ -11,6 +11,7 @@ export interface SyncResult {
   progressSynced: boolean;
   bookmarksSynced: number;
   annotationsSynced: number;
+  sessionsSynced: number;
 }
 
 export interface PullProgressResult {

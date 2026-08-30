@@ -252,20 +252,20 @@ export const BookInfoModal: React.FC<BookInfoModalProps> = ({
               <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{t('reader.totalReadingTime')}</div>
               <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginTop: 2 }}>
                 {Math.floor(readingStats.totalDurationSeconds / 3600) > 0
-                  ? `${Math.floor(readingStats.totalDurationSeconds / 3600)} ч ${Math.round((readingStats.totalDurationSeconds % 3600) / 60)} мин`
-                  : `${Math.max(1, Math.round(readingStats.totalDurationSeconds / 60))} мин`}
+                  ? t('reader.durationHoursMinutes', { hours: Math.floor(readingStats.totalDurationSeconds / 3600), minutes: Math.round((readingStats.totalDurationSeconds % 3600) / 60) })
+                  : t('reader.durationMinutes', { minutes: Math.max(1, Math.round(readingStats.totalDurationSeconds / 60)) })}
               </div>
             </div>
 
             {readingStats.estimatedRemainingSeconds !== undefined && readingStats.estimatedRemainingSeconds !== null && (
               <div style={{ padding: '8px 10px', background: 'var(--bg-secondary)', borderRadius: 6 }}>
-                <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{t('reader.timeLeftBook', { time: '' }).replace(/^[~Осталось\s]+/, '').trim() || 'Осталось'}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{t('reader.timeRemaining')}</div>
                 <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginTop: 2 }}>
                   {readingStats.estimatedRemainingSeconds <= 0
-                    ? 'Книга прочитана'
+                    ? t('reader.bookFinished')
                     : Math.floor(readingStats.estimatedRemainingSeconds / 3600) > 0
-                    ? `~${Math.floor(readingStats.estimatedRemainingSeconds / 3600)} ч ${Math.round((readingStats.estimatedRemainingSeconds % 3600) / 60)} мин`
-                    : `~${Math.max(1, Math.round(readingStats.estimatedRemainingSeconds / 60))} мин`}
+                    ? `~${t('reader.durationHoursMinutes', { hours: Math.floor(readingStats.estimatedRemainingSeconds / 3600), minutes: Math.round((readingStats.estimatedRemainingSeconds % 3600) / 60) })}`
+                    : `~${t('reader.durationMinutes', { minutes: Math.max(1, Math.round(readingStats.estimatedRemainingSeconds / 60)) })}`}
                 </div>
               </div>
             )}

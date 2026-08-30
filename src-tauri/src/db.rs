@@ -955,6 +955,18 @@ pub async fn get_book_reading_stats(
     pool: &DbPool,
     book_id: &str,
 ) -> Result<DbBookReadingStats, sqlx::Error> {
+    let server_id = get_server_book_id(pool, book_id).await.unwrap_or(None);
+    let local_id = if uuid::Uuid::parse_str(book_id).is_ok() {
+        get_local_id_by_server_id(pool, book_id)
+            .await
+            .unwrap_or(None)
+    } else {
+        None
+    };
+
+    let s_id = server_id.as_deref().unwrap_or(book_id);
+    let l_id = local_id.as_deref().unwrap_or(book_id);
+
     #[derive(sqlx::FromRow)]
     struct StatsRow {
         total_duration: Option<i64>,
@@ -973,10 +985,12 @@ pub async fn get_book_reading_stats(
             MIN(start_time) AS first_read_at,
             MAX(end_time) AS last_read_at
         FROM reading_sessions
-        WHERE book_id = ?
+        WHERE book_id = ? OR book_id = ? OR book_id = ?
         "#,
     )
     .bind(book_id)
+    .bind(s_id)
+    .bind(l_id)
     .fetch_one(pool)
     .await?;
 

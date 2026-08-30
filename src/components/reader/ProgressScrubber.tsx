@@ -38,17 +38,17 @@ export const ProgressScrubber: React.FC<ProgressScrubberProps> = ({
   const secondsPerPage = averageSecondsPerPage && averageSecondsPerPage > 0 ? averageSecondsPerPage : 60;
 
   const formatDuration = (totalSeconds: number): string => {
-    if (totalSeconds <= 0) return '< 1 мин';
+    if (totalSeconds <= 0) return t('reader.durationLessThanMinute');
     const minutes = Math.max(1, Math.round(totalSeconds / 60));
     if (minutes < 60) {
-      return `${minutes} мин`;
+      return t('reader.durationMinutes', { minutes });
     }
     const hours = Math.floor(minutes / 60);
     const remainingMins = minutes % 60;
     if (remainingMins === 0) {
-      return `${hours} ч`;
+      return t('reader.durationHoursMinutes', { hours, minutes: 0 }).replace(/\s*0\s*\S*$/, '').trim() || `${hours} h`;
     }
-    return `${hours} ч ${remainingMins} мин`;
+    return t('reader.durationHoursMinutes', { hours, minutes: remainingMins });
   };
 
   const chapterPagesLeft = pageInfo

@@ -21,14 +21,19 @@ export function useReadingTracker({ bookId, currentFraction }: UseReadingTracker
   const pagesReadRef = useRef<number>(0);
   const isIdleRef = useRef<boolean>(false);
   const currentFractionRef = useRef<number>(currentFraction);
+  const bookIdRef = useRef<string>(bookId);
 
-  // Keep currentFraction ref up-to-date
+  // Keep refs up-to-date
   useEffect(() => {
     currentFractionRef.current = currentFraction;
     if (startFractionRef.current === undefined || startFractionRef.current === 0) {
       startFractionRef.current = currentFraction;
     }
   }, [currentFraction]);
+
+  useEffect(() => {
+    bookIdRef.current = bookId;
+  }, [bookId]);
 
   // Load stats from server or local DB
   const refreshStats = useCallback(async () => {
@@ -43,10 +48,12 @@ export function useReadingTracker({ bookId, currentFraction }: UseReadingTracker
     refreshStats();
   }, [refreshStats]);
 
-  // Save current active chunk to DB
-  const saveCurrentChunk = useCallback(async () => {
+  // Stable save function that reads current values from refs
+  const saveCurrentChunkRef = useRef<(() => Promise<void>) | undefined>(undefined);
+  saveCurrentChunkRef.current = async () => {
     const duration = activeSecondsRef.current;
-    if (duration >= 10 && bookId) {
+    const currentBookId = bookIdRef.current;
+    if (duration >= 10 && currentBookId) {
       const now = Date.now();
       const startIso = new Date(startTimeRef.current).toISOString();
       const endIso = new Date(now).toISOString();
@@ -55,7 +62,7 @@ export function useReadingTracker({ bookId, currentFraction }: UseReadingTracker
       const pages = pagesReadRef.current;
 
       await saveDbReadingSession(
-        bookId,
+        currentBookId,
         duration,
         startIso,
         endIso,
@@ -75,7 +82,7 @@ export function useReadingTracker({ bookId, currentFraction }: UseReadingTracker
       // Silently refresh stats
       refreshStats();
     }
-  }, [bookId, refreshStats]);
+  };
 
   // Record a page turn
   const recordPageTurn = useCallback(() => {
@@ -123,7 +130,7 @@ export function useReadingTracker({ bookId, currentFraction }: UseReadingTracker
 
         // Auto-checkpoint
         if (activeSecondsRef.current >= AUTO_CHECKPOINT_SECONDS) {
-          saveCurrentChunk();
+          saveCurrentChunkRef.current?.();
         }
       }
     }, 1000);
@@ -135,10 +142,10 @@ export function useReadingTracker({ bookId, currentFraction }: UseReadingTracker
       window.removeEventListener('keydown', handleUserActivity);
       window.removeEventListener('scroll', handleUserActivity);
 
-      // Save on unmount
-      saveCurrentChunk();
+      // Save on unmount — uses ref to always call the latest version
+      saveCurrentChunkRef.current?.();
     };
-  }, [bookId, saveCurrentChunk]);
+  }, [bookId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return {
     stats,
