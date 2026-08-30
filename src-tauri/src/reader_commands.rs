@@ -1,6 +1,7 @@
 use crate::auth_proxy::AuthHttpClientState;
 use crate::db::{
-    self, DbAnnotation, DbBookProgress, DbBookmark, DbLocalBookMeta, DbPool, DbRecentBook,
+    self, DbAnnotation, DbBookProgress, DbBookReadingStats, DbBookmark, DbLocalBookMeta, DbPool,
+    DbReadingSession, DbRecentBook,
 };
 use crate::sync_manager::{self, PullProgressResult, SyncResult};
 use tauri::State;
@@ -223,10 +224,18 @@ pub async fn sync_all_pending(
     .await
     .unwrap_or_default();
 
+    let pending_session_books = sqlx::query_scalar::<_, String>(
+        "SELECT DISTINCT book_id FROM reading_sessions WHERE sync_status = 'pending'",
+    )
+    .fetch_all(&*db)
+    .await
+    .unwrap_or_default();
+
     let mut all_book_ids = std::collections::HashSet::new();
     all_book_ids.extend(pending_progress_books);
     all_book_ids.extend(pending_bookmark_books);
     all_book_ids.extend(pending_annotation_books);
+    all_book_ids.extend(pending_session_books);
 
     let mut results = Vec::new();
     for book_id in all_book_ids {
@@ -353,4 +362,44 @@ pub async fn db_set_app_kv(
 #[tauri::command]
 pub async fn db_get_app_kv(key: String, db: State<'_, DbPool>) -> Result<Option<String>, String> {
     db::get_app_kv(&db, &key).await.map_err(|e| e.to_string())
+}
+
+// ================= READING SESSIONS COMMANDS =================
+
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+pub async fn db_save_reading_session(
+    book_id: String,
+    device_name: Option<String>,
+    start_time: String,
+    end_time: String,
+    duration_seconds: i32,
+    start_progress: Option<f32>,
+    end_progress: Option<f32>,
+    pages_read: Option<i32>,
+    db: State<'_, DbPool>,
+) -> Result<DbReadingSession, String> {
+    db::save_reading_session(
+        &db,
+        &book_id,
+        device_name.as_deref(),
+        &start_time,
+        &end_time,
+        duration_seconds,
+        start_progress,
+        end_progress,
+        pages_read.unwrap_or(0),
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn db_get_book_reading_stats(
+    book_id: String,
+    db: State<'_, DbPool>,
+) -> Result<DbBookReadingStats, String> {
+    db::get_book_reading_stats(&db, &book_id)
+        .await
+        .map_err(|e| e.to_string())
 }

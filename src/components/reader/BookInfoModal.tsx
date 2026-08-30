@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Modal } from '../common/Modal';
-import { BookMetadata } from '../../types/reader';
+import { BookMetadata, BookReadingStats } from '../../types/reader';
 import {
   Globe,
   Calendar,
@@ -13,6 +13,7 @@ import {
   Check,
   AlignLeft,
   BookmarkCheck,
+  Clock,
 } from 'lucide-react';
 import { useTranslation } from '../../i18n';
 import { formatContributor, formatLanguageMap, parseSubjects } from '../../services/storage';
@@ -26,6 +27,7 @@ interface BookInfoModalProps {
   progressPercent?: number;
   currentChapter?: string;
   pageInfo?: DevicePageInfo | null;
+  readingStats?: BookReadingStats | null;
   onSyncProgress?: () => Promise<void> | void;
   isSyncing?: boolean;
   syncMessage?: string | null;
@@ -62,6 +64,7 @@ export const BookInfoModal: React.FC<BookInfoModalProps> = ({
   progressPercent,
   currentChapter,
   pageInfo,
+  readingStats,
   onSyncProgress,
   isSyncing = false,
   syncMessage,
@@ -229,6 +232,51 @@ export const BookInfoModal: React.FC<BookInfoModalProps> = ({
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Reading Statistics Card */}
+      {readingStats && readingStats.totalDurationSeconds > 0 && (
+        <div className="book-info-progress-card" style={{ marginTop: 12 }}>
+          <div className="book-info-progress-header">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Clock size={16} className="book-info-icon text-amber-500" />
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>
+                {t('reader.readingStats')}
+              </span>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10, marginTop: 8 }}>
+            <div style={{ padding: '8px 10px', background: 'var(--bg-secondary)', borderRadius: 6 }}>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{t('reader.totalReadingTime')}</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginTop: 2 }}>
+                {Math.floor(readingStats.totalDurationSeconds / 3600) > 0
+                  ? `${Math.floor(readingStats.totalDurationSeconds / 3600)} ч ${Math.round((readingStats.totalDurationSeconds % 3600) / 60)} мин`
+                  : `${Math.max(1, Math.round(readingStats.totalDurationSeconds / 60))} мин`}
+              </div>
+            </div>
+
+            {readingStats.estimatedRemainingSeconds !== undefined && readingStats.estimatedRemainingSeconds !== null && (
+              <div style={{ padding: '8px 10px', background: 'var(--bg-secondary)', borderRadius: 6 }}>
+                <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{t('reader.timeLeftBook', { time: '' }).replace(/^[~Осталось\s]+/, '').trim() || 'Осталось'}</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginTop: 2 }}>
+                  {readingStats.estimatedRemainingSeconds <= 0
+                    ? 'Книга прочитана'
+                    : Math.floor(readingStats.estimatedRemainingSeconds / 3600) > 0
+                    ? `~${Math.floor(readingStats.estimatedRemainingSeconds / 3600)} ч ${Math.round((readingStats.estimatedRemainingSeconds % 3600) / 60)} мин`
+                    : `~${Math.max(1, Math.round(readingStats.estimatedRemainingSeconds / 60))} мин`}
+                </div>
+              </div>
+            )}
+
+            <div style={{ padding: '8px 10px', background: 'var(--bg-secondary)', borderRadius: 6 }}>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{t('reader.readingSessions')}</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-primary)', marginTop: 2 }}>
+                {readingStats.sessionCount}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

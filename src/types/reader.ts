@@ -54,6 +54,49 @@ export interface RecentBook {
   fileSize?: number;
 }
 
+export interface ReadingSession {
+  id: string;
+  clientSessionId: string;
+  bookId: string;
+  deviceName?: string;
+  startTime: string;
+  endTime: string;
+  durationSeconds: number;
+  startProgress?: number;
+  endProgress?: number;
+  pagesRead: number;
+  syncStatus?: string;
+  createdAt?: string;
+}
+
+export interface BookReadingStats {
+  bookId: string;
+  totalDurationSeconds: number;
+  sessionCount: number;
+  totalPagesRead: number;
+  averageSecondsPerPage?: number;
+  estimatedRemainingSeconds?: number;
+  firstReadAt?: string;
+  lastReadAt?: string;
+}
+
+export interface ReadingSummary {
+  totalReadingTimeSeconds: number;
+  booksCompletedCount: number;
+  booksInProgressCount: number;
+  totalSessionsCount: number;
+  currentStreakDays: number;
+  longestStreakDays: number;
+  averageSecondsPerDay: number;
+}
+
+export interface DailyActivity {
+  date: string;
+  durationSeconds: number;
+  pagesRead: number;
+  sessionCount: number;
+}
+
 export type ThemeName = 'light' | 'sepia' | 'gray' | 'dark' | 'solarized';
 
 export type PageTurnMethod = 'tap' | 'swipe' | 'both';

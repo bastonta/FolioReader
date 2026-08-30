@@ -1,4 +1,4 @@
-use crate::db::{self, DbAnnotation, DbBookmark, DbPool};
+use crate::db::{self, DbAnnotation, DbBookmark, DbPool, DbReadingSession};
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -13,6 +13,7 @@ pub struct SyncResult {
     pub progress_synced: bool,
     pub bookmarks_synced: usize,
     pub annotations_synced: usize,
+    pub sessions_synced: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -100,6 +101,26 @@ struct ServerUpdateAnnotationPayload {
     pub note: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ServerReadingSessionItem {
+    pub client_session_id: String,
+    pub book_id: Uuid,
+    pub device_name: Option<String>,
+    pub start_time: String,
+    pub end_time: String,
+    pub duration_seconds: i32,
+    pub start_progress: Option<f32>,
+    pub end_progress: Option<f32>,
+    pub pages_read: Option<i32>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ServerBatchSessionsPayload {
+    pub sessions: Vec<ServerReadingSessionItem>,
 }
 
 fn build_headers(token: Option<&str>) -> HeaderMap {
@@ -194,6 +215,7 @@ pub async fn sync_book(
                 progress_synced: false,
                 bookmarks_synced: 0,
                 annotations_synced: 0,
+                sessions_synced: 0,
             });
         }
     };
@@ -207,6 +229,16 @@ pub async fn sync_book(
     let annotations_synced = sync_annotations(pool, client, base, &headers, book_id, &server_id)
         .await
         .unwrap_or(0);
+    let sessions_synced = sync_reading_sessions(
+        pool,
+        client,
+        base,
+        &headers,
+        Some(book_id),
+        Some(&server_id),
+    )
+    .await
+    .unwrap_or(0);
 
     Ok(SyncResult {
         success: true,
@@ -214,6 +246,7 @@ pub async fn sync_book(
         progress_synced,
         bookmarks_synced,
         annotations_synced,
+        sessions_synced,
     })
 }
 
@@ -808,4 +841,102 @@ async fn sync_annotations(
     }
 
     Ok(count)
+}
+
+// ---------------- READING SESSIONS SYNC ----------------
+pub async fn sync_reading_sessions(
+    pool: &DbPool,
+    client: &reqwest::Client,
+    base_url: &str,
+    headers: &HeaderMap,
+    local_book_id: Option<&str>,
+    server_book_id: Option<&str>,
+) -> Result<usize, String> {
+    let pending = if let Some(local_id) = local_book_id {
+        let s_id = server_book_id.unwrap_or(local_id);
+        sqlx::query_as::<_, DbReadingSession>(
+            "SELECT * FROM reading_sessions WHERE (book_id = ? OR book_id = ?) AND sync_status = 'pending' LIMIT 100",
+        )
+        .bind(local_id)
+        .bind(s_id)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default()
+    } else {
+        db::get_pending_reading_sessions(pool, 100)
+            .await
+            .unwrap_or_default()
+    };
+
+    if pending.is_empty() {
+        return Ok(0);
+    }
+
+    let mut payload_items = Vec::new();
+    let mut session_ids = Vec::new();
+
+    for s in &pending {
+        // Resolve target server book id
+        let target_book_id_uuid = if let Ok(uuid) = Uuid::parse_str(&s.book_id) {
+            uuid
+        } else if let Some(mapped) = db::get_server_book_id(pool, &s.book_id)
+            .await
+            .ok()
+            .flatten()
+        {
+            if let Ok(uuid) = Uuid::parse_str(&mapped) {
+                uuid
+            } else {
+                continue;
+            }
+        } else if let Some(srv_id) = server_book_id {
+            if let Ok(uuid) = Uuid::parse_str(srv_id) {
+                uuid
+            } else {
+                continue;
+            }
+        } else {
+            continue;
+        };
+
+        payload_items.push(ServerReadingSessionItem {
+            client_session_id: s.client_session_id.clone(),
+            book_id: target_book_id_uuid,
+            device_name: s
+                .device_name
+                .clone()
+                .or_else(|| Some("FolioApp".to_string())),
+            start_time: s.start_time.clone(),
+            end_time: s.end_time.clone(),
+            duration_seconds: s.duration_seconds,
+            start_progress: s.start_progress,
+            end_progress: s.end_progress,
+            pages_read: Some(s.pages_read),
+        });
+        session_ids.push(s.id.clone());
+    }
+
+    if payload_items.is_empty() {
+        return Ok(0);
+    }
+
+    let url = format!("{base_url}/api/statistics/sessions");
+    let payload = ServerBatchSessionsPayload {
+        sessions: payload_items,
+    };
+
+    let res = client
+        .post(&url)
+        .headers(headers.clone())
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to push reading sessions: {e}"))?;
+
+    if res.status().is_success() {
+        let _ = db::mark_reading_sessions_synced(pool, &session_ids).await;
+        Ok(session_ids.len())
+    } else {
+        Err(format!("Server returned HTTP {}", res.status()))
+    }
 }

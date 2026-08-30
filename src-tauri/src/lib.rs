@@ -97,6 +97,8 @@ pub fn run() {
             reader_commands::sync_book_data,
             reader_commands::pull_book_progress,
             reader_commands::sync_all_pending,
+            reader_commands::db_save_reading_session,
+            reader_commands::db_get_book_reading_stats,
             reader_commands::db_clear_all_data,
             reader_commands::db_save_local_book_meta,
             reader_commands::db_get_all_local_books_meta,

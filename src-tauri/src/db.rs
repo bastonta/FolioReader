@@ -93,6 +93,35 @@ pub struct DbRecentBook {
     pub last_opened_at: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct DbReadingSession {
+    pub id: String,
+    pub client_session_id: String,
+    pub book_id: String,
+    pub device_name: Option<String>,
+    pub start_time: String,
+    pub end_time: String,
+    pub duration_seconds: i32,
+    pub start_progress: Option<f32>,
+    pub end_progress: Option<f32>,
+    pub pages_read: i32,
+    pub sync_status: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DbBookReadingStats {
+    pub book_id: String,
+    pub total_duration_seconds: i64,
+    pub session_count: i64,
+    pub total_pages_read: i64,
+    pub average_seconds_per_page: Option<f32>,
+    pub first_read_at: Option<String>,
+    pub last_read_at: Option<String>,
+}
+
 pub async fn init_db(db_path: &Path) -> Result<DbPool, sqlx::Error> {
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent).ok();
@@ -193,6 +222,23 @@ pub async fn init_db(db_path: &Path) -> Result<DbPool, sqlx::Error> {
             value TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS reading_sessions (
+            id TEXT PRIMARY KEY,
+            client_session_id TEXT NOT NULL,
+            book_id TEXT NOT NULL,
+            device_name TEXT,
+            start_time TEXT NOT NULL,
+            end_time TEXT NOT NULL,
+            duration_seconds INTEGER NOT NULL,
+            start_progress REAL,
+            end_progress REAL,
+            pages_read INTEGER DEFAULT 0,
+            sync_status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_reading_sessions_book_id ON reading_sessions(book_id);
+        CREATE INDEX IF NOT EXISTS idx_reading_sessions_sync_status ON reading_sessions(sync_status);
         "#,
     )
     .execute(&pool)
@@ -820,6 +866,141 @@ pub async fn get_app_kv(pool: &DbPool, key: &str) -> Result<Option<String>, sqlx
     Ok(row)
 }
 
+// ================= READING SESSIONS REPO =================
+
+#[allow(clippy::too_many_arguments)]
+pub async fn save_reading_session(
+    pool: &DbPool,
+    book_id: &str,
+    device_name: Option<&str>,
+    start_time: &str,
+    end_time: &str,
+    duration_seconds: i32,
+    start_progress: Option<f32>,
+    end_progress: Option<f32>,
+    pages_read: i32,
+) -> Result<DbReadingSession, sqlx::Error> {
+    let id = uuid::Uuid::now_v7().to_string();
+    let client_session_id = uuid::Uuid::now_v7().to_string();
+    let now = Utc::now().to_rfc3339();
+
+    let session = sqlx::query_as::<_, DbReadingSession>(
+        r#"
+        INSERT INTO reading_sessions (
+            id, client_session_id, book_id, device_name,
+            start_time, end_time, duration_seconds,
+            start_progress, end_progress, pages_read,
+            sync_status, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+        RETURNING *
+        "#,
+    )
+    .bind(&id)
+    .bind(&client_session_id)
+    .bind(book_id)
+    .bind(device_name)
+    .bind(start_time)
+    .bind(end_time)
+    .bind(duration_seconds)
+    .bind(start_progress)
+    .bind(end_progress)
+    .bind(pages_read)
+    .bind(&now)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(session)
+}
+
+pub async fn get_pending_reading_sessions(
+    pool: &DbPool,
+    limit: i64,
+) -> Result<Vec<DbReadingSession>, sqlx::Error> {
+    let sessions = sqlx::query_as::<_, DbReadingSession>(
+        r#"
+        SELECT * FROM reading_sessions
+        WHERE sync_status = 'pending'
+        ORDER BY start_time ASC
+        LIMIT ?
+        "#,
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(sessions)
+}
+
+pub async fn mark_reading_sessions_synced(
+    pool: &DbPool,
+    ids: &[String],
+) -> Result<(), sqlx::Error> {
+    for id in ids {
+        sqlx::query(
+            r#"
+            UPDATE reading_sessions
+            SET sync_status = 'synced'
+            WHERE id = ?
+            "#,
+        )
+        .bind(id)
+        .execute(pool)
+        .await?;
+    }
+    Ok(())
+}
+
+pub async fn get_book_reading_stats(
+    pool: &DbPool,
+    book_id: &str,
+) -> Result<DbBookReadingStats, sqlx::Error> {
+    #[derive(sqlx::FromRow)]
+    struct StatsRow {
+        total_duration: Option<i64>,
+        session_count: Option<i64>,
+        total_pages_read: Option<i64>,
+        first_read_at: Option<String>,
+        last_read_at: Option<String>,
+    }
+
+    let row = sqlx::query_as::<_, StatsRow>(
+        r#"
+        SELECT 
+            COALESCE(SUM(duration_seconds), 0) AS total_duration,
+            COUNT(*) AS session_count,
+            COALESCE(SUM(pages_read), 0) AS total_pages_read,
+            MIN(start_time) AS first_read_at,
+            MAX(end_time) AS last_read_at
+        FROM reading_sessions
+        WHERE book_id = ?
+        "#,
+    )
+    .bind(book_id)
+    .fetch_one(pool)
+    .await?;
+
+    let total_duration_seconds = row.total_duration.unwrap_or(0);
+    let session_count = row.session_count.unwrap_or(0);
+    let total_pages_read = row.total_pages_read.unwrap_or(0);
+
+    let average_seconds_per_page = if total_pages_read > 0 && total_duration_seconds > 0 {
+        Some((total_duration_seconds as f32) / (total_pages_read as f32))
+    } else {
+        None
+    };
+
+    Ok(DbBookReadingStats {
+        book_id: book_id.to_string(),
+        total_duration_seconds,
+        session_count,
+        total_pages_read,
+        average_seconds_per_page,
+        first_read_at: row.first_read_at,
+        last_read_at: row.last_read_at,
+    })
+}
+
 pub async fn clear_all_data(pool: &DbPool) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
@@ -829,6 +1010,7 @@ pub async fn clear_all_data(pool: &DbPool) -> Result<(), sqlx::Error> {
         DELETE FROM book_mappings;
         DELETE FROM local_books_metadata;
         DELETE FROM recent_books;
+        DELETE FROM reading_sessions;
         DELETE FROM app_kv;
         VACUUM;
         "#,
@@ -1009,8 +1191,54 @@ mod tests {
             .expect("must exist");
         assert_eq!(kv_val, "test_val");
 
-        // 8. Clear all data
+        // 8. Reading sessions
+        let session = save_reading_session(
+            &pool,
+            book_id,
+            Some("Desktop"),
+            "2026-08-30T10:00:00Z",
+            "2026-08-30T10:30:00Z",
+            1800,
+            Some(0.1),
+            Some(0.35),
+            25,
+        )
+        .await
+        .expect("save reading session");
+        assert_eq!(session.book_id, book_id);
+        assert_eq!(session.duration_seconds, 1800);
+        assert_eq!(session.pages_read, 25);
+        assert_eq!(session.sync_status, "pending");
+
+        let pending_sessions = get_pending_reading_sessions(&pool, 10)
+            .await
+            .expect("get pending sessions");
+        assert_eq!(pending_sessions.len(), 1);
+
+        let stats = get_book_reading_stats(&pool, book_id)
+            .await
+            .expect("get book stats");
+        assert_eq!(stats.total_duration_seconds, 1800);
+        assert_eq!(stats.session_count, 1);
+        assert_eq!(stats.total_pages_read, 25);
+        assert_eq!(stats.average_seconds_per_page, Some(72.0));
+
+        mark_reading_sessions_synced(&pool, &[session.id])
+            .await
+            .expect("mark synced");
+        let pending_after = get_pending_reading_sessions(&pool, 10)
+            .await
+            .expect("get pending after sync");
+        assert_eq!(pending_after.len(), 0);
+
+        // 9. Clear all data
         clear_all_data(&pool).await.expect("clear all data");
+
+        let stats_after_clear = get_book_reading_stats(&pool, book_id)
+            .await
+            .expect("get stats after clear");
+        assert_eq!(stats_after_clear.session_count, 0);
+        assert_eq!(stats_after_clear.total_duration_seconds, 0);
 
         let prog_after_clear = get_progress(&pool, book_id)
             .await

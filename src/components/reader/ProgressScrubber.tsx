@@ -12,9 +12,12 @@ interface ProgressScrubberProps {
   onPrev: () => void;
   onNext: () => void;
   sectionFractions: number[];
+  averageSecondsPerPage?: number;
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
 }
+
+export type FooterDisplayMode = 'pages' | 'chapter_ttr' | 'book_ttr' | 'percent';
 
 export const ProgressScrubber: React.FC<ProgressScrubberProps> = ({
   fraction,
@@ -24,11 +27,49 @@ export const ProgressScrubber: React.FC<ProgressScrubberProps> = ({
   onPrev,
   onNext,
   sectionFractions,
+  averageSecondsPerPage,
   onMouseEnter,
   onMouseLeave,
 }) => {
   const { t } = useTranslation();
+  const [displayMode, setDisplayMode] = React.useState<FooterDisplayMode>('pages');
   const percent = Math.round((fraction || 0) * 100);
+
+  const secondsPerPage = averageSecondsPerPage && averageSecondsPerPage > 0 ? averageSecondsPerPage : 60;
+
+  const formatDuration = (totalSeconds: number): string => {
+    if (totalSeconds <= 0) return '< 1 мин';
+    const minutes = Math.max(1, Math.round(totalSeconds / 60));
+    if (minutes < 60) {
+      return `${minutes} мин`;
+    }
+    const hours = Math.floor(minutes / 60);
+    const remainingMins = minutes % 60;
+    if (remainingMins === 0) {
+      return `${hours} ч`;
+    }
+    return `${hours} ч ${remainingMins} мин`;
+  };
+
+  const chapterPagesLeft = pageInfo
+    ? Math.max(0, pageInfo.totalChapterPages - pageInfo.chapterPage)
+    : 0;
+  const bookPagesLeft = pageInfo
+    ? Math.max(0, pageInfo.totalBookPages - pageInfo.bookPage)
+    : 0;
+
+  const chapterTimeLeftStr = formatDuration(chapterPagesLeft * secondsPerPage);
+  const bookTimeLeftStr = formatDuration(bookPagesLeft * secondsPerPage);
+
+  const cycleDisplayMode = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setDisplayMode((prev) => {
+      if (prev === 'pages') return 'chapter_ttr';
+      if (prev === 'chapter_ttr') return 'book_ttr';
+      if (prev === 'book_ttr') return 'percent';
+      return 'pages';
+    });
+  };
 
   const tooltipTitle = pageInfo
     ? `${t('reader.bookPages', { current: pageInfo.bookPage, total: pageInfo.totalBookPages })} (${pageInfo.percent}%) · ${t('reader.chapterPages', { current: pageInfo.chapterPage, total: pageInfo.totalChapterPages })}`
@@ -70,23 +111,58 @@ export const ProgressScrubber: React.FC<ProgressScrubberProps> = ({
           </datalist>
         </div>
 
-        <div className="footer-info-row">
+        <div
+          className="footer-info-row cursor-pointer select-none transition-opacity hover:opacity-80"
+          onClick={cycleDisplayMode}
+          title="Нажмите для переключения режима отображения (страницы / время в главе / время в книге / процент)"
+        >
           {pageInfo ? (
             <div className="footer-info-stats">
-              <span className="footer-book-page">
-                {t('reader.bookPages', {
-                  current: pageInfo.bookPage,
-                  total: pageInfo.totalBookPages,
-                })}
-                <span className="footer-percent"> ({pageInfo.percent}%)</span>
-              </span>
-              <span className="footer-info-divider">•</span>
-              <span className="footer-chapter-page">
-                {t('reader.chapterPages', {
-                  current: pageInfo.chapterPage,
-                  total: pageInfo.totalChapterPages,
-                })}
-              </span>
+              {displayMode === 'pages' && (
+                <>
+                  <span className="footer-book-page">
+                    {t('reader.bookPages', {
+                      current: pageInfo.bookPage,
+                      total: pageInfo.totalBookPages,
+                    })}
+                    <span className="footer-percent"> ({pageInfo.percent}%)</span>
+                  </span>
+                  <span className="footer-info-divider">•</span>
+                  <span className="footer-chapter-page">
+                    {t('reader.chapterPages', {
+                      current: pageInfo.chapterPage,
+                      total: pageInfo.totalChapterPages,
+                    })}
+                  </span>
+                </>
+              )}
+
+              {displayMode === 'chapter_ttr' && (
+                <span className="footer-ttr-chapter font-medium text-amber-500/90 dark:text-amber-400">
+                  {t('reader.timeLeftChapter', { time: chapterTimeLeftStr })}
+                  <span className="footer-percent text-xs text-muted-foreground ml-2">
+                    ({pageInfo.percent}%)
+                  </span>
+                </span>
+              )}
+
+              {displayMode === 'book_ttr' && (
+                <span className="footer-ttr-book font-medium text-emerald-500/90 dark:text-emerald-400">
+                  {t('reader.timeLeftBook', { time: bookTimeLeftStr })}
+                  <span className="footer-percent text-xs text-muted-foreground ml-2">
+                    ({pageInfo.percent}%)
+                  </span>
+                </span>
+              )}
+
+              {displayMode === 'percent' && (
+                <span className="footer-percent-only font-medium">
+                  {pageInfo.percent}% · {t('reader.chapterPages', {
+                    current: pageInfo.chapterPage,
+                    total: pageInfo.totalChapterPages,
+                  })}
+                </span>
+              )}
             </div>
           ) : (
             <span className="footer-location-text">

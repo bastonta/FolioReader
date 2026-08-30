@@ -47,6 +47,7 @@ import { fontManager } from '../../services/fontManager';
 import { LoadedCustomFont } from '../../types/font';
 import { useTranslation } from '../../i18n';
 import { DevicePaginator, DevicePageInfo } from '../../services/devicePaginator';
+import { useReadingTracker } from '../../services/useReadingTracker';
 
 interface FoliateReaderProps {
   bookId: string;
@@ -341,6 +342,11 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   const [sectionFractions, setSectionFractions] = useState<number[]>([]);
   const [currentCFI, setCurrentCFI] = useState<string>('');
   const paginatorRef = useRef<DevicePaginator | null>(null);
+
+  const { stats: readingStats, recordPageTurn } = useReadingTracker({
+    bookId,
+    currentFraction: progressFraction,
+  });
 
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const annotationsRef = useRef<Annotation[]>(annotations);
@@ -862,6 +868,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           saveLastLocation(bookId, detail.cfi, fraction);
           if (!isInitialLoadRef.current) {
             saveDbLastLocation(bookId, detail.cfi, fraction);
+            recordPageTurn();
           }
         }
 
@@ -1832,6 +1839,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
             fraction={progressFraction}
             pageInfo={pageInfo}
             locationLabel={locationLabel}
+            averageSecondsPerPage={readingStats?.averageSecondsPerPage}
             onSeek={(frac) => {
               if (selectionRef.current) {
                 setSelection(null);
@@ -1892,6 +1900,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         progressPercent={progressFraction * 100}
         currentChapter={chapterTitle}
         pageInfo={pageInfo}
+        readingStats={readingStats}
         onSyncProgress={handleSyncProgress}
         isSyncing={isSyncing}
         syncMessage={syncMessage}

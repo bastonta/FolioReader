@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { Annotation, Bookmark, getAnnotationColorKey } from '../types/reader';
+import { Annotation, Bookmark, getAnnotationColorKey, BookReadingStats, ReadingSummary, DailyActivity } from '../types/reader';
 import { getServerUrl, getAccessToken } from '../api/tokenManager';
 import { apiGet, apiPut, apiDelete } from '../api/client';
 import { resetRecentBookProgress, saveLastLocation } from './storage';
@@ -434,4 +434,96 @@ export async function clearDbAllData(): Promise<void> {
     console.error('Failed to clear SQLite database:', err);
   }
 }
+
+// ================= READING SESSIONS & STATISTICS =================
+
+export async function saveDbReadingSession(
+  bookId: string,
+  durationSeconds: number,
+  startTime: string,
+  endTime: string,
+  startProgress?: number,
+  endProgress?: number,
+  pagesRead: number = 0,
+  deviceName: string = 'FolioApp'
+): Promise<void> {
+  if (!isTauri()) return;
+  if (durationSeconds < 10) return; // Ignore accidental opens under 10 seconds
+
+  try {
+    await invoke('db_save_reading_session', {
+      bookId,
+      deviceName,
+      startTime,
+      endTime,
+      durationSeconds: Math.floor(durationSeconds),
+      startProgress: startProgress !== undefined ? startProgress * 100 : null,
+      endProgress: endProgress !== undefined ? endProgress * 100 : null,
+      pagesRead,
+    });
+  } catch (err) {
+    console.error('Failed to save reading session to SQLite:', err);
+  }
+}
+
+export async function getDbBookReadingStats(bookId: string): Promise<BookReadingStats | null> {
+  if (!isTauri()) return null;
+
+  try {
+    const stats = await invoke<BookReadingStats>('db_get_book_reading_stats', { bookId });
+    return stats;
+  } catch (err) {
+    console.warn('Failed to get book reading stats from SQLite:', err);
+    return null;
+  }
+}
+
+export async function fetchServerBookStatistics(bookId: string): Promise<BookReadingStats | null> {
+  try {
+    let serverBookId: string | null = null;
+    if (isUuid(bookId)) {
+      serverBookId = bookId;
+    } else {
+      serverBookId = await getDbServerBookId(bookId);
+    }
+
+    if (!serverBookId || serverBookId.startsWith('local-')) {
+      return await getDbBookReadingStats(bookId);
+    }
+
+    const res = await apiGet<BookReadingStats>(`/books/${serverBookId}/statistics`);
+    return res;
+  } catch (err) {
+    console.warn(`Failed to fetch server statistics for book ${bookId}:`, err);
+    return await getDbBookReadingStats(bookId);
+  }
+}
+
+export async function fetchServerReadingSummary(): Promise<ReadingSummary | null> {
+  try {
+    const res = await apiGet<ReadingSummary>('/statistics/summary');
+    return res;
+  } catch (err) {
+    console.warn('Failed to fetch reading summary from server:', err);
+    return null;
+  }
+}
+
+export async function fetchServerReadingActivity(
+  from?: string,
+  to?: string
+): Promise<DailyActivity[]> {
+  try {
+    const query = new URLSearchParams();
+    if (from) query.set('from', from);
+    if (to) query.set('to', to);
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    const res = await apiGet<DailyActivity[]>(`/statistics/activity${qs}`);
+    return res || [];
+  } catch (err) {
+    console.warn('Failed to fetch reading activity from server:', err);
+    return [];
+  }
+}
+
 
