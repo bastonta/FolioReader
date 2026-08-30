@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-30
+
+### Added
+- Reading session tracking with automatic sync to Folio server, including Time-to-Read estimations for books and individual chapters.
+- Device screen pagination displaying current page and total pages for the whole book and per chapter.
+
+### Changed
+- Upgraded dependencies to latest versions: Tauri packages (@tauri-apps/api, opener, cli), React 19.2.x, Vite 8.2.2, plugin-react 6.1.1, lucide-react, and react-router-dom.
+
+### Fixed
+- Resolved reading statistics tracking and sync issues with session data persistence.
+
 ## [0.2.6] - 2026-08-29
 
 ### Added
