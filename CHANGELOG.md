@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-31
+
+### Added
+- Reading progress display mode settings (`pages`, `chapter_ttr`, `book_ttr`, `percent`) with session persistence and live footer synchronization.
+- Localized time formatting service (`timeFormat`) supporting readable duration strings in English and Russian across reader scrubber and book info modals.
+- Top and bottom gesture deadzones for tap and swipe navigation in the reader with safe-area insets support to prevent accidental page flips.
+- Distinct emerald-badged development build icons for desktop, Android, and web platforms to differentiate debug builds.
+
+### Changed
+- Renamed project from FolioApp to FolioReader across package names, Rust crate/binary identifiers, Android namespace (`com.folio.folioreader`), and repository links.
+
 ## [0.3.0] - 2026-08-30
 
 ### Added
