@@ -971,6 +971,29 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           }
         });
 
+        doc.addEventListener('pointerup', (ev: PointerEvent) => {
+          if (pointerMoved) {
+            const iframe = (doc.defaultView?.frameElement as HTMLElement) || null;
+            const frameTop = iframe ? iframe.getBoundingClientRect().top : 0;
+            const startScreenY = frameTop + pointerStartY;
+            const endScreenY = frameTop + ev.clientY;
+            const winHeight = window.innerHeight;
+            const sat = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sat') || '0', 10) || 0;
+            const sab = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sab') || '0', 10) || 0;
+            const topDeadzone = Math.max(84, 62 + sat);
+            const bottomDeadzone = Math.max(84, 62 + sab);
+
+            // If swipe started or ended in top or bottom deadzone, reveal controls
+            if (startScreenY <= topDeadzone || startScreenY >= (winHeight - bottomDeadzone) ||
+                endScreenY <= topDeadzone || endScreenY >= (winHeight - bottomDeadzone)) {
+              if (!showControlsRef.current) {
+                setShowControls(true);
+                scheduleAutoHideRef.current();
+              }
+            }
+          }
+        });
+
         // Mouse move inside iframe for edge reveal & activity reset
         doc.addEventListener('mousemove', (ev: MouseEvent) => {
           if (!showControlsRef.current) {
@@ -1282,10 +1305,16 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
                 const xRatio = tapScreenX / screenWidth;
                 const yRatio = tapScreenY / screenHeight;
 
-                const isCenterTap = xRatio >= 0.35 && xRatio <= 0.65 && yRatio >= 0.35 && yRatio <= 0.65;
-                const isTopBarTap = tapScreenY <= 60;
+                const sat = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sat') || '0', 10) || 0;
+                const sab = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sab') || '0', 10) || 0;
+                const topDeadzone = Math.max(84, 62 + sat);
+                const bottomDeadzone = Math.max(84, 62 + sab);
 
-                if (isCenterTap || isTopBarTap) {
+                const isCenterTap = xRatio >= 0.35 && xRatio <= 0.65 && yRatio >= 0.35 && yRatio <= 0.65;
+                const isTopBarTap = tapScreenY <= topDeadzone;
+                const isBottomBarTap = tapScreenY >= (screenHeight - bottomDeadzone);
+
+                if (isCenterTap || isTopBarTap || isBottomBarTap) {
                   setShowControls(true);
                   scheduleAutoHideRef.current();
                 } else if (xRatio <= 0.30) {
@@ -1808,12 +1837,20 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
                   cancelAutoHide();
                 } else {
                   const rect = e.currentTarget.getBoundingClientRect();
+                  const tapScreenY = e.clientY - rect.top;
                   const xRatio = (e.clientX - rect.left) / rect.width;
                   const yRatio = (e.clientY - rect.top) / rect.height;
-                  const isCenterTap = xRatio >= 0.35 && xRatio <= 0.65 && yRatio >= 0.35 && yRatio <= 0.65;
-                  const isTopBarTap = (e.clientY - rect.top) <= 60;
 
-                  if (isCenterTap || isTopBarTap) {
+                  const sat = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sat') || '0', 10) || 0;
+                  const sab = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sab') || '0', 10) || 0;
+                  const topDeadzone = Math.max(84, 62 + sat);
+                  const bottomDeadzone = Math.max(84, 62 + sab);
+
+                  const isCenterTap = xRatio >= 0.35 && xRatio <= 0.65 && yRatio >= 0.35 && yRatio <= 0.65;
+                  const isTopBarTap = tapScreenY <= topDeadzone;
+                  const isBottomBarTap = tapScreenY >= (rect.height - bottomDeadzone);
+
+                  if (isCenterTap || isTopBarTap || isBottomBarTap) {
                     setShowControls(true);
                     scheduleAutoHide();
                   } else if (xRatio <= 0.30) {

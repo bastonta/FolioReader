@@ -280,7 +280,6 @@ export const en = {
   "reader.durationHoursMinutes": "{hours} h {minutes} min",
   "reader.durationMinutes": "{minutes} min",
   "reader.durationLessThanMinute": "< 1 min",
-  "reader.bookFinished": "Book finished",
   "reader.timeRemaining": "Remaining",
   "reader.readingSpeed": "Reading Speed",
   "reader.pagesInBook": "Pages in book",

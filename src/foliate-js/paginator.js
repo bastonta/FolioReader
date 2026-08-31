@@ -830,18 +830,36 @@ export class Paginator extends HTMLElement {
     }
     #onTouchStart(e) {
         const touch = e.changedTouches[0]
+        if (!touch) return
+
+        let clientY = touch.clientY
+        const iframe = e.target?.ownerDocument?.defaultView?.frameElement
+        if (iframe) {
+            const frameRect = iframe.getBoundingClientRect()
+            clientY += frameRect.top
+        }
+
+        const winHeight = window.innerHeight || document.documentElement.clientHeight || 800
+        const sat = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sat') || '0', 10) || 0
+        const sab = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sab') || '0', 10) || 0
+        const topDeadzone = Math.max(84, 62 + sat)
+        const bottomDeadzone = Math.max(84, 62 + sab)
+
+        const isDeadzone = clientY <= topDeadzone || clientY >= (winHeight - bottomDeadzone)
+
         this.#touchState = {
             x: touch?.screenX, y: touch?.screenY,
             startX: touch?.screenX, startY: touch?.screenY,
             t: e.timeStamp,
             vx: 0, vy: 0,
+            disabled: isDeadzone,
         }
         this.#touchScrolled = false
     }
     #onTouchMove(e) {
         if (this.touchSwipeEnabled === false) return
         const state = this.#touchState
-        if (!state || state.pinched) return
+        if (!state || state.disabled || state.pinched) return
         state.pinched = globalThis.visualViewport.scale > 1
         if (this.scrolled || state.pinched) return
         if (e.touches.length > 1) {
@@ -871,6 +889,8 @@ export class Paginator extends HTMLElement {
     }
     #onTouchEnd() {
         if (this.touchSwipeEnabled === false) return
+        const state = this.#touchState
+        if (!state || state.disabled) return
         const hadScrolled = this.#touchScrolled
         this.#touchScrolled = false
         if (this.scrolled) return

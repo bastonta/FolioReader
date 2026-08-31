@@ -284,7 +284,6 @@ export const ru: Partial<Record<TranslationKey, string>> = {
   "reader.durationHoursMinutes": "{hours} ч {minutes} мин",
   "reader.durationMinutes": "{minutes} мин",
   "reader.durationLessThanMinute": "< 1 мин",
-  "reader.bookFinished": "Книга прочитана",
   "reader.timeRemaining": "Осталось",
   "reader.readingSpeed": "Скорость чтения",
   "reader.pagesInBook": "Страниц в книге",
