@@ -13,6 +13,13 @@ document.addEventListener("contextmenu", (e) => {
   e.preventDefault();
 });
 
+if (import.meta.env.DEV) {
+  const iconLink = document.querySelector<HTMLLinkElement>("link[rel~='icon']");
+  if (iconLink) iconLink.href = "/icon-dev.png";
+  const splashIcon = document.querySelector<HTMLImageElement>(".android-splash-icon");
+  if (splashIcon) splashIcon.src = "/icon-dev.png";
+}
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <HashRouter>
