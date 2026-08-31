@@ -1,8 +1,12 @@
-import React from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { useTranslation } from '../../i18n';
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import React from "react";
+import { useTranslation } from "../../i18n";
 
-import { DevicePageInfo } from '../../services/devicePaginator';
+import { DevicePageInfo } from "../../services/devicePaginator";
+import { formatDuration } from "../../services/timeFormat";
+import { FooterDisplayMode } from "../../types/reader";
+
+export type { FooterDisplayMode } from "../../types/reader";
 
 interface ProgressScrubberProps {
   fraction: number; // 0 to 1
@@ -13,11 +17,11 @@ interface ProgressScrubberProps {
   onNext: () => void;
   sectionFractions: number[];
   averageSecondsPerPage?: number;
+  displayMode?: FooterDisplayMode;
+  onDisplayModeChange?: (mode: FooterDisplayMode) => void;
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
 }
-
-export type FooterDisplayMode = 'pages' | 'chapter_ttr' | 'book_ttr' | 'percent';
 
 export const ProgressScrubber: React.FC<ProgressScrubberProps> = ({
   fraction,
@@ -28,28 +32,18 @@ export const ProgressScrubber: React.FC<ProgressScrubberProps> = ({
   onNext,
   sectionFractions,
   averageSecondsPerPage,
+  displayMode = "pages",
+  onDisplayModeChange,
   onMouseEnter,
   onMouseLeave,
 }) => {
   const { t } = useTranslation();
-  const [displayMode, setDisplayMode] = React.useState<FooterDisplayMode>('pages');
   const percent = Math.round((fraction || 0) * 100);
 
-  const secondsPerPage = averageSecondsPerPage && averageSecondsPerPage > 0 ? averageSecondsPerPage : 60;
-
-  const formatDuration = (totalSeconds: number): string => {
-    if (totalSeconds <= 0) return t('reader.durationLessThanMinute');
-    const minutes = Math.max(1, Math.round(totalSeconds / 60));
-    if (minutes < 60) {
-      return t('reader.durationMinutes', { minutes });
-    }
-    const hours = Math.floor(minutes / 60);
-    const remainingMins = minutes % 60;
-    if (remainingMins === 0) {
-      return t('reader.durationHoursMinutes', { hours, minutes: 0 }).replace(/\s*0\s*\S*$/, '').trim() || `${hours} h`;
-    }
-    return t('reader.durationHoursMinutes', { hours, minutes: remainingMins });
-  };
+  const secondsPerPage =
+    averageSecondsPerPage && averageSecondsPerPage > 0
+      ? averageSecondsPerPage
+      : 60;
 
   const chapterPagesLeft = pageInfo
     ? Math.max(0, pageInfo.totalChapterPages - pageInfo.chapterPage)
@@ -58,22 +52,26 @@ export const ProgressScrubber: React.FC<ProgressScrubberProps> = ({
     ? Math.max(0, pageInfo.totalBookPages - pageInfo.bookPage)
     : 0;
 
-  const chapterTimeLeftStr = formatDuration(chapterPagesLeft * secondsPerPage);
-  const bookTimeLeftStr = formatDuration(bookPagesLeft * secondsPerPage);
+  const chapterTimeLeftStr = formatDuration(
+    chapterPagesLeft * secondsPerPage,
+    t,
+  );
+  const bookTimeLeftStr = formatDuration(bookPagesLeft * secondsPerPage, t);
 
   const cycleDisplayMode = (e: React.MouseEvent) => {
     e.stopPropagation();
-    setDisplayMode((prev) => {
-      if (prev === 'pages') return 'chapter_ttr';
-      if (prev === 'chapter_ttr') return 'book_ttr';
-      if (prev === 'book_ttr') return 'percent';
-      return 'pages';
-    });
+    const nextMode: FooterDisplayMode = (() => {
+      if (displayMode === "pages") return "chapter_ttr";
+      if (displayMode === "chapter_ttr") return "book_ttr";
+      if (displayMode === "book_ttr") return "percent";
+      return "pages";
+    })();
+    onDisplayModeChange?.(nextMode);
   };
 
   const tooltipTitle = pageInfo
-    ? `${t('reader.bookPages', { current: pageInfo.bookPage, total: pageInfo.totalBookPages })} (${pageInfo.percent}%) · ${t('reader.chapterPages', { current: pageInfo.chapterPage, total: pageInfo.totalChapterPages })}`
-    : `${percent}% · ${locationLabel || ''}`;
+    ? `${t("reader.bookPages", { current: pageInfo.bookPage, total: pageInfo.totalBookPages })} (${pageInfo.percent}%) · ${t("reader.chapterPages", { current: pageInfo.chapterPage, total: pageInfo.totalChapterPages })}`
+    : `${percent}% · ${locationLabel || ""}`;
 
   return (
     <footer
@@ -85,8 +83,8 @@ export const ProgressScrubber: React.FC<ProgressScrubberProps> = ({
         type="button"
         className="footer-nav-btn footer-nav-prev"
         onClick={onPrev}
-        title={t('reader.prevPage')}
-        aria-label={t('reader.prevPage')}
+        title={t("reader.prevPage")}
+        aria-label={t("reader.prevPage")}
       >
         <ChevronLeft size={18} />
       </button>
@@ -114,22 +112,25 @@ export const ProgressScrubber: React.FC<ProgressScrubberProps> = ({
         <div
           className="footer-info-row cursor-pointer select-none transition-opacity hover:opacity-80"
           onClick={cycleDisplayMode}
-          title="Нажмите для переключения режима отображения (страницы / время в главе / время в книге / процент)"
+          title={t("reader.cycleDisplayModeTooltip")}
         >
           {pageInfo ? (
             <div className="footer-info-stats">
-              {displayMode === 'pages' && (
+              {displayMode === "pages" && (
                 <>
                   <span className="footer-book-page">
-                    {t('reader.bookPages', {
+                    {t("reader.bookPages", {
                       current: pageInfo.bookPage,
                       total: pageInfo.totalBookPages,
                     })}
-                    <span className="footer-percent"> ({pageInfo.percent}%)</span>
+                    <span className="footer-percent">
+                      {" "}
+                      ({pageInfo.percent}%)
+                    </span>
                   </span>
                   <span className="footer-info-divider">•</span>
                   <span className="footer-chapter-page">
-                    {t('reader.chapterPages', {
+                    {t("reader.chapterPages", {
                       current: pageInfo.chapterPage,
                       total: pageInfo.totalChapterPages,
                     })}
@@ -137,27 +138,28 @@ export const ProgressScrubber: React.FC<ProgressScrubberProps> = ({
                 </>
               )}
 
-              {displayMode === 'chapter_ttr' && (
+              {displayMode === "chapter_ttr" && (
                 <span className="footer-ttr-chapter font-medium text-amber-500/90 dark:text-amber-400">
-                  {t('reader.timeLeftChapter', { time: chapterTimeLeftStr })}
+                  {t("reader.timeLeftChapter", { time: chapterTimeLeftStr })}
                   <span className="footer-percent text-xs text-muted-foreground ml-2">
                     ({pageInfo.percent}%)
                   </span>
                 </span>
               )}
 
-              {displayMode === 'book_ttr' && (
+              {displayMode === "book_ttr" && (
                 <span className="footer-ttr-book font-medium text-emerald-500/90 dark:text-emerald-400">
-                  {t('reader.timeLeftBook', { time: bookTimeLeftStr })}
+                  {t("reader.timeLeftBook", { time: bookTimeLeftStr })}
                   <span className="footer-percent text-xs text-muted-foreground ml-2">
                     ({pageInfo.percent}%)
                   </span>
                 </span>
               )}
 
-              {displayMode === 'percent' && (
+              {displayMode === "percent" && (
                 <span className="footer-percent-only font-medium">
-                  {pageInfo.percent}% · {t('reader.chapterPages', {
+                  {pageInfo.percent}% ·{" "}
+                  {t("reader.chapterPages", {
                     current: pageInfo.chapterPage,
                     total: pageInfo.totalChapterPages,
                   })}
@@ -176,12 +178,11 @@ export const ProgressScrubber: React.FC<ProgressScrubberProps> = ({
         type="button"
         className="footer-nav-btn footer-nav-next"
         onClick={onNext}
-        title={t('reader.nextPage')}
-        aria-label={t('reader.nextPage')}
+        title={t("reader.nextPage")}
+        aria-label={t("reader.nextPage")}
       >
         <ChevronRight size={18} />
       </button>
     </footer>
   );
 };
-

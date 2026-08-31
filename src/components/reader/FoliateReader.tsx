@@ -12,6 +12,7 @@ import {
   getAnnotationColor,
   getAnnotationColorKey,
 } from '../../types/reader';
+import { formatPageLocationText } from '../../services/timeFormat';
 import { Sidebar } from './Sidebar';
 import { HeaderBar } from './HeaderBar';
 import { ProgressScrubber } from './ProgressScrubber';
@@ -347,6 +348,8 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
     bookId,
     currentFraction: progressFraction,
   });
+  const readingStatsRef = useRef(readingStats);
+  readingStatsRef.current = readingStats;
 
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const annotationsRef = useRef<Annotation[]>(annotations);
@@ -685,23 +688,35 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
     try {
       const feet = viewRef.current?.renderer?.feet;
       if (Array.isArray(feet) && feet.length > 0) {
-        const bookPagesText = t('reader.bookPages', {
-          current: info.bookPage,
-          total: info.totalBookPages,
-        });
-        const chapterPagesText = t('reader.chapterPages', {
-          current: info.chapterPage,
-          total: info.totalChapterPages,
-        });
-        const text = `${bookPagesText} (${info.percent}%) · ${chapterPagesText}`;
+        const mode = settingsRef.current.footerDisplayMode || 'pages';
+        const secondsPerPage = readingStatsRef.current?.averageSecondsPerPage && readingStatsRef.current.averageSecondsPerPage > 0
+          ? readingStatsRef.current.averageSecondsPerPage
+          : 60;
+        const text = formatPageLocationText(info, mode, secondsPerPage, t);
         for (const foot of feet) {
-          if (foot) foot.textContent = text;
+          if (foot) {
+            foot.textContent = text;
+            foot.onclick = null;
+            foot.style.cursor = '';
+          }
         }
       }
     } catch (e) {
       console.warn('Error updating running feet:', e);
     }
   }, [t]);
+
+  // Re-render running feet and location label whenever footerDisplayMode or reading stats change
+  useEffect(() => {
+    if (pageInfo) {
+      updateRunningFooter(pageInfo);
+      const secondsPerPage = readingStats?.averageSecondsPerPage && readingStats.averageSecondsPerPage > 0
+        ? readingStats.averageSecondsPerPage
+        : 60;
+      const fullLocText = formatPageLocationText(pageInfo, settings.footerDisplayMode || 'pages', secondsPerPage, t);
+      setLocationLabel(fullLocText);
+    }
+  }, [settings.footerDisplayMode, pageInfo, updateRunningFooter, readingStats?.averageSecondsPerPage, t]);
 
   // Initialize or re-initialize screen-dependent device pagination
   const initDevicePaginator = useCallback(() => {
@@ -896,9 +911,10 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         setPageInfo(info);
         updateRunningFooter(info);
 
-        const bookPagesText = t('reader.bookPages', { current: info.bookPage, total: info.totalBookPages });
-        const chapterPagesText = t('reader.chapterPages', { current: info.chapterPage, total: info.totalChapterPages });
-        const fullLocText = `${bookPagesText} (${info.percent}%) · ${chapterPagesText}`;
+        const secondsPerPage = readingStatsRef.current?.averageSecondsPerPage && readingStatsRef.current.averageSecondsPerPage > 0
+          ? readingStatsRef.current.averageSecondsPerPage
+          : 60;
+        const fullLocText = formatPageLocationText(info, settingsRef.current.footerDisplayMode || 'pages', secondsPerPage, t);
         setLocationLabel(fullLocText);
       });
 
@@ -1840,6 +1856,8 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
             pageInfo={pageInfo}
             locationLabel={locationLabel}
             averageSecondsPerPage={readingStats?.averageSecondsPerPage}
+            displayMode={settings.footerDisplayMode || 'pages'}
+            onDisplayModeChange={(mode) => onUpdateSettings({ footerDisplayMode: mode })}
             onSeek={(frac) => {
               if (selectionRef.current) {
                 setSelection(null);

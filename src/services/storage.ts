@@ -31,6 +31,7 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   libraryViewMode: 'grid',
   autoCheckUpdates: true,
   includePrereleases: false,
+  footerDisplayMode: 'pages',
 };
 
 const isTauri = (): boolean => {

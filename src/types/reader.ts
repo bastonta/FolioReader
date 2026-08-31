@@ -105,6 +105,8 @@ export type ScreenTimeoutOption = 'system' | '2' | '5' | '10' | '15' | '30' | 'n
 
 export type Language = 'system' | 'en' | 'ru';
 
+export type FooterDisplayMode = 'pages' | 'chapter_ttr' | 'book_ttr' | 'percent';
+
 export interface ReaderSettings {
   flow: 'paginated' | 'scrolled';
   columns: 'auto' | 1 | 2;
@@ -129,6 +131,7 @@ export interface ReaderSettings {
   libraryViewMode?: 'grid' | 'list';
   autoCheckUpdates?: boolean;
   includePrereleases?: boolean;
+  footerDisplayMode?: FooterDisplayMode;
 }
 
 export interface FootnoteData {

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ReaderSettings, ThemeName, ScreenTimeoutOption } from '../../types/reader';
+import { ReaderSettings, ThemeName, ScreenTimeoutOption, FooterDisplayMode } from '../../types/reader';
 import { fileManager } from '../../services/fileManager';
 import { fontManager } from '../../services/fontManager';
 import { LoadedCustomFont } from '../../types/font';
@@ -689,6 +689,39 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 { value: 'never', label: t('settings.screenTimeoutNever') },
               ]}
               aria-label={t('settings.screenTimeoutTitle')}
+            />
+          </div>
+
+          {/* Reader Footer Progress Display Mode */}
+          <div className="settings-block" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 16 }}>
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                fontSize: 14,
+                fontWeight: 600,
+                color: 'var(--text-primary)',
+                marginBottom: 6,
+              }}
+            >
+              <Sparkles size={18} style={{ color: 'var(--accent-color)' }} />
+              <span>{t('settings.footerDisplayModeTitle')}</span>
+            </label>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 10 }}>
+              {t('settings.footerDisplayModeDesc')}
+            </p>
+
+            <Select<FooterDisplayMode>
+              value={settings.footerDisplayMode || 'pages'}
+              onChange={(val) => onUpdateSettings({ footerDisplayMode: val })}
+              options={[
+                { value: 'pages', label: t('reader.footerModePages') },
+                { value: 'chapter_ttr', label: t('reader.footerModeChapterTtr') },
+                { value: 'book_ttr', label: t('reader.footerModeBookTtr') },
+                { value: 'percent', label: t('reader.footerModePercent') },
+              ]}
+              aria-label={t('settings.footerDisplayModeTitle')}
             />
           </div>
 

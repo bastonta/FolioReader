@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { ReaderSettings, ThemeName, ScreenTimeoutOption } from '../../types/reader';
+import { ReaderSettings, ThemeName, ScreenTimeoutOption, FooterDisplayMode } from '../../types/reader';
 import { isMobileDevice } from '../../services/systemUi';
 import { fontManager } from '../../services/fontManager';
 import { LoadedCustomFont } from '../../types/font';
@@ -349,6 +349,29 @@ export const SettingsPopover: React.FC<SettingsPopoverProps> = ({
               : settings.screenTimeout === 'system'
               ? t('settings.screenTimeoutSystemDesc')
               : t('settings.screenTimeoutMinutesDesc', { count: settings.screenTimeout || 5 })}
+          </p>
+        </div>
+
+        <div className="settings-divider" />
+
+        {/* Bottom Progress Bar Display Mode */}
+        <div className="settings-section">
+          <div className="settings-row-between" style={{ marginBottom: 6 }}>
+            <label className="settings-label" style={{ marginBottom: 0 }}>{t('reader.footerDisplayMode')}</label>
+          </div>
+          <Select<FooterDisplayMode>
+            value={settings.footerDisplayMode || 'pages'}
+            onChange={(val) => onUpdateSettings({ footerDisplayMode: val })}
+            options={[
+              { value: 'pages', label: t('reader.footerModePages') },
+              { value: 'chapter_ttr', label: t('reader.footerModeChapterTtr') },
+              { value: 'book_ttr', label: t('reader.footerModeBookTtr') },
+              { value: 'percent', label: t('reader.footerModePercent') },
+            ]}
+            aria-label={t('reader.footerDisplayMode')}
+          />
+          <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4, marginBottom: 0 }}>
+            {t('reader.footerDisplayModeDesc')}
           </p>
         </div>
 
