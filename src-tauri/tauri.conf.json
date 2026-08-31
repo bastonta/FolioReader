@@ -16,7 +16,7 @@
         "title": "Folio Reader",
         "width": 700,
         "height": 800,
-        "minWidth": 600,
+        "minWidth": 500,
         "minHeight": 600,
         "visible": false
       }

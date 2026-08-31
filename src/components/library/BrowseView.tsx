@@ -16,6 +16,7 @@ import {
   Search,
   Sparkles,
   WifiOff,
+  X,
 } from "lucide-react";
 import React, { useCallback, useEffect, useState } from "react";
 import { BrowseParams, libraryApi } from "../../api/libraryApi";
@@ -639,17 +640,57 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                 onChange={handleSearchInputChange}
                 placeholder={t("browse.searchPlaceholder")}
                 className="auth-input"
-                style={{ paddingLeft: 36, height: 38, fontSize: 13 }}
+                style={{
+                  paddingLeft: 36,
+                  paddingRight: searchInput ? 32 : 12,
+                  height: 38,
+                  fontSize: 13,
+                }}
                 autoComplete="off"
                 autoCorrect="off"
                 autoCapitalize="off"
                 spellCheck={false}
               />
+              {searchInput && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchInput("");
+                    setSearch("");
+                    setPage(1);
+                  }}
+                  style={{
+                    position: "absolute",
+                    right: 10,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    color: "var(--text-muted)",
+                    padding: 2,
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                  title={t("library.clearSearch")}
+                >
+                  <X size={14} />
+                </button>
+              )}
             </form>
 
-            <div style={{ display: "flex", gap: 8, flex: "1 1 auto" }}>
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                flex: "1 1 auto",
+                minWidth: 0,
+                alignItems: "center",
+              }}
+            >
               {/* Filter Scope */}
-              <div style={{ flex: 1, minWidth: 100 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <Select<'all' | 'title' | 'author' | 'series'>
                   value={searchBy}
                   onChange={(val) => {
@@ -661,6 +702,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                     backgroundColor: "var(--bg-card)",
                     fontSize: 12,
                     height: 38,
+                    padding: "0 8px",
                   }}
                   options={[
                     { value: "all", label: t("browse.allFields") },
@@ -673,7 +715,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
               </div>
 
               {/* Sort Dropdown */}
-              <div style={{ flex: 1, minWidth: 100 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
                 <Select<'name' | 'recent' | 'sortOrder'>
                   value={sortBy}
                   onChange={(val) => {
@@ -685,6 +727,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                     backgroundColor: "var(--bg-card)",
                     fontSize: 12,
                     height: 38,
+                    padding: "0 8px",
                   }}
                   options={[
                     { value: "name", label: t("browse.byName") },
@@ -696,7 +739,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
               </div>
 
               {/* View mode toggle (Grid / List) */}
-              <div className="view-mode-toggle-group">
+              <div className="view-mode-toggle-group" style={{ flexShrink: 0 }}>
                 <button
                   type="button"
                   className={`view-mode-btn ${viewMode === "grid" ? "active" : ""}`}

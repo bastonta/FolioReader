@@ -1432,6 +1432,7 @@ foliate-view::part(foot) {
   position: relative;
   display: flex;
   width: 100%;
+  min-width: 0;
 }
 
 .custom-select-container.disabled {
@@ -1445,6 +1446,7 @@ foliate-view::part(foot) {
   justify-content: space-between;
   gap: 8px;
   width: 100%;
+  min-width: 0;
   border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
   background-color: var(--bg-secondary);
@@ -1511,6 +1513,7 @@ foliate-view::part(foot) {
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
+  min-width: 0;
   font-weight: 500;
 }
 
@@ -2969,6 +2972,7 @@ foliate-view::part(foot) {
   padding: 2px;
   height: 38px;
   box-sizing: border-box;
+  flex-shrink: 0;
 }
 
 .view-mode-btn {
