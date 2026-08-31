@@ -5,7 +5,7 @@ import { openExternalUrl } from './appOpener';
 
 // Constants
 export const GITHUB_REPO_OWNER = 'bastonta';
-export const GITHUB_REPO_NAME = 'FolioApp';
+export const GITHUB_REPO_NAME = 'FolioReader';
 export const GITHUB_API_URL = `https://api.github.com/repos/${GITHUB_REPO_OWNER}/${GITHUB_REPO_NAME}/releases`;
 export const GITHUB_RELEASES_PAGE = `https://github.com/${GITHUB_REPO_OWNER}/${GITHUB_REPO_NAME}/releases`;
 
@@ -368,7 +368,7 @@ export async function fetchReleases(timeoutMs = 12000): Promise<GitHubRelease[]>
       method: 'GET',
       headers: {
         Accept: 'application/vnd.github.v3+json',
-        'User-Agent': 'FolioApp',
+        'User-Agent': 'FolioReader',
       },
       signal: controller.signal,
     });

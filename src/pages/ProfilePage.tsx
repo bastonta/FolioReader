@@ -539,12 +539,12 @@ export const ProfilePage: React.FC = () => {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0' }}>
               <span style={{ fontSize: 13.5, color: 'var(--text-secondary)' }}>{t('profile.source')}</span>
               <a
-                href="https://github.com/bastonta/FolioApp"
+                href="https://github.com/bastonta/FolioReader"
                 target="_blank"
                 rel="noreferrer"
                 onClick={(e) => {
                   e.preventDefault();
-                  openExternalUrl('https://github.com/bastonta/FolioApp');
+                  openExternalUrl('https://github.com/bastonta/FolioReader');
                 }}
                 style={{ fontSize: 13.5, color: 'var(--accent-color)', textDecoration: 'none', cursor: 'pointer' }}
               >

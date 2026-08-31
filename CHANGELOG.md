@@ -140,7 +140,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Initial public release of FolioApp cross-platform e-reader.
+- Initial public release of FolioReader cross-platform e-reader.
 - Cross-platform EPUB reader powered by foliate-js and Tauri 2 (Windows, Linux, Android).
 - Local library management with folder support and automatic cover extraction.
 - Folio Server authentication, session persistence, 2FA setup, and book catalog browsing.

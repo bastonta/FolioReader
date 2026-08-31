@@ -1,9 +1,9 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Folio Reader",
-  "mainBinaryName": "folioapp",
+  "mainBinaryName": "folioreader",
   "version": "0.0.1-dev",
-  "identifier": "com.folio.folioapp",
+  "identifier": "com.folio.folioreader",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -49,10 +49,10 @@
     "longDescription": "Modern cross-platform e-book reader with cloud sync support.",
     "linux": {
       "deb": {
-        "desktopTemplate": "./templates/folioapp.desktop"
+        "desktopTemplate": "./templates/folioreader.desktop"
       },
       "rpm": {
-        "desktopTemplate": "./templates/folioapp.desktop"
+        "desktopTemplate": "./templates/folioreader.desktop"
       }
     },
     "android": {

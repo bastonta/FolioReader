@@ -1,6 +1,6 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme. -->
-    <style name="Theme.folioapp" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+    <style name="Theme.folioreader" parent="Theme.MaterialComponents.DayNight.NoActionBar">
         <!-- System bars -->
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>

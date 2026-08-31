@@ -1,4 +1,4 @@
-# Folio Reader (FolioApp) 📱📖
+# Folio Reader 📱📖
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Tauri: v2](https://img.shields.io/badge/Tauri-v2-24C8D8.svg?logo=tauri&logoColor=white)](https://tauri.app/)
@@ -7,7 +7,7 @@
 [![Rust](https://img.shields.io/badge/Rust-2024%20Edition-orange.svg?logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![Vite](https://img.shields.io/badge/Vite-8.x-646CFF.svg?logo=vite&logoColor=white)](https://vitejs.dev/)
 
-**FolioApp** is a modern, high-performance, cross-platform e-book reader application designed for desktop (Linux, Windows, macOS) and mobile (Android). Built with **Tauri v2**, **React 19**, and the **Foliate.js** rendering engine, FolioApp functions both as a standalone local e-book reader and as a client for the [Folio](https://github.com/bastonta/folio) self-hosted digital library ecosystem.
+**Folio Reader** is a modern, high-performance, cross-platform e-book reader application designed for desktop (Linux, Windows, macOS) and mobile (Android). Built with **Tauri v2**, **React 19**, and the **Foliate.js** rendering engine, Folio Reader functions both as a standalone local e-book reader and as a client for the [Folio](https://github.com/bastonta/folio) self-hosted digital library ecosystem.
 
 ---
 
@@ -57,7 +57,7 @@
 
 ## 🏗️ Architecture
 
-FolioApp utilizes Tauri v2 to bridge a modern React 19 frontend with a performant Rust backend runtime:
+Folio Reader utilizes Tauri v2 to bridge a modern React 19 frontend with a performant Rust backend runtime:
 
 ```text
 ┌────────────────────────────────────────────────────────┐
@@ -87,7 +87,7 @@ FolioApp utilizes Tauri v2 to bridge a modern React 19 frontend with a performan
 ## 📂 Project Structure
 
 ```text
-FolioApp/
+FolioReader/
 ├── src/                          # Frontend Application (React 19 + TypeScript)
 │   ├── api/                      # REST API client & auth token management
 │   │   ├── authApi.ts            # Authentication endpoints & session calls
@@ -169,8 +169,8 @@ Ensure you have the following installed on your machine:
 Clone the repository and install frontend dependencies:
 
 ```bash
-git clone https://github.com/bastonta/FolioApp.git
-cd FolioApp
+git clone https://github.com/bastonta/FolioReader.git
+cd FolioReader
 npm install
 ```
 
@@ -208,7 +208,7 @@ The compiled binaries will be output to `src-tauri/target/release/` or `src-taur
 
 ## ⚙️ Configuration & Server Connection
 
-1. **First Launch**: When launching FolioApp for the first time, you will be prompted to enter your **Folio Server URL** (e.g. `https://folio.example.com` or `http://192.168.1.100:5144`).
+1. **First Launch**: When launching Folio Reader for the first time, you will be prompted to enter your **Folio Server URL** (e.g. `https://folio.example.com` or `http://192.168.1.100:5144`).
 2. **Authentication**: Log in with your Folio account credentials or register a new user.
 3. **Download Folder**: Open **Settings** (⚙️) to select your preferred local storage directory for downloaded e-books.
 4. **Standalone Mode**: If you don't use a Folio server, you can still open and read any local `.epub` book directly from your filesystem.
@@ -217,7 +217,7 @@ The compiled binaries will be output to `src-tauri/target/release/` or `src-taur
 
 ## 🌐 Folio Ecosystem
 
-FolioApp is part of the Folio e-book ecosystem:
+Folio Reader is part of the Folio e-book ecosystem:
 
 - **[Folio Server](https://github.com/bastonta/folio)**: Self-hosted e-book library server with metadata processing and multi-user progress sync.
 - **[FolioSync KOPlugin](https://github.com/bastonta/FolioSync.koplugin)**: KOReader plugin to sync reading progress and bookmarks from e-ink readers directly to Folio.

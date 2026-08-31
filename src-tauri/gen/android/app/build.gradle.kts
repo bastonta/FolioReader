@@ -17,10 +17,10 @@ val tauriProperties = Properties().apply {
 
 configure<ApplicationExtension> {
     compileSdk = 37
-    namespace = "com.folio.folioapp"
+    namespace = "com.folio.folioreader"
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
-        applicationId = "com.folio.folioapp"
+        applicationId = "com.folio.folioreader"
         minSdk = 24
         targetSdk = 37
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()

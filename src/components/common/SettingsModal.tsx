@@ -1112,12 +1112,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 6, borderTop: '1px dashed var(--border-subtle)' }}>
                 <span style={{ color: 'var(--text-muted)' }}>{t('profile.source')}</span>
                 <a
-                  href="https://github.com/bastonta/FolioApp"
+                  href="https://github.com/bastonta/FolioReader"
                   target="_blank"
                   rel="noreferrer"
                   onClick={(e) => {
                     e.preventDefault();
-                    openExternalUrl('https://github.com/bastonta/FolioApp');
+                    openExternalUrl('https://github.com/bastonta/FolioReader');
                   }}
                   style={{ color: 'var(--accent-color)', textDecoration: 'none', cursor: 'pointer' }}
                 >

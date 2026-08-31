@@ -8,7 +8,7 @@
     <application
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
-        android:theme="@style/Theme.folioapp"
+        android:theme="@style/Theme.folioreader"
         android:requestLegacyExternalStorage="true"
         android:usesCleartextTraffic="${usesCleartextTraffic}">
         <activity

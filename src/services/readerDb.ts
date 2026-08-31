@@ -446,7 +446,7 @@ export async function saveDbReadingSession(
   startProgress?: number,
   endProgress?: number,
   pagesRead: number = 0,
-  deviceName: string = 'FolioApp'
+  deviceName: string = 'FolioReader'
 ): Promise<void> {
   if (!isTauri()) return;
   if (durationSeconds < 10) return; // Ignore accidental opens under 10 seconds

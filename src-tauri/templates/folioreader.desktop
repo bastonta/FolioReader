@@ -11,5 +11,5 @@ Keywords[ru]=книга;книги;читалка;электронная кни�
 Exec={{exec}} %F
 Icon={{icon}}
 Categories={{categories}}
-StartupWMClass=folioapp
+StartupWMClass=folioreader
 Terminal=false

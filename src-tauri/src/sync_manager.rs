@@ -905,7 +905,7 @@ pub async fn sync_reading_sessions(
             device_name: s
                 .device_name
                 .clone()
-                .or_else(|| Some("FolioApp".to_string())),
+                .or_else(|| Some("FolioReader".to_string())),
             start_time: s.start_time.clone(),
             end_time: s.end_time.clone(),
             duration_seconds: s.duration_seconds,

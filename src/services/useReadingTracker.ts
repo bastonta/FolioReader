@@ -69,7 +69,7 @@ export function useReadingTracker({ bookId, currentFraction }: UseReadingTracker
         startProg,
         endProg,
         pages,
-        'FolioApp'
+        'FolioReader'
       );
 
       // Reset chunk trackers

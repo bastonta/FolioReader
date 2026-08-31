@@ -1,4 +1,4 @@
-package com.folio.folioapp
+package com.folio.folioreader
 
 import android.Manifest
 import android.app.SearchManager
