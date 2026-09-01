@@ -729,23 +729,43 @@ pub async fn save_local_book_meta(
 }
 
 pub async fn get_all_local_books_meta(pool: &DbPool) -> Result<Vec<DbLocalBookMeta>, sqlx::Error> {
-    sqlx::query_as::<_, DbLocalBookMeta>(
+    let mut rows = sqlx::query_as::<_, DbLocalBookMeta>(
         "SELECT book_id, file_path, title, author, cover_path, extracted != 0 AS extracted, updated_at FROM local_books_metadata",
     )
     .fetch_all(pool)
-    .await
+    .await?;
+
+    for row in &mut rows {
+        if let Some(ref path) = row.cover_path {
+            if !Path::new(path).is_file() {
+                row.cover_path = None;
+            }
+        }
+    }
+
+    Ok(rows)
 }
 
 pub async fn get_local_book_meta(
     pool: &DbPool,
     book_id: &str,
 ) -> Result<Option<DbLocalBookMeta>, sqlx::Error> {
-    sqlx::query_as::<_, DbLocalBookMeta>(
+    let mut item = sqlx::query_as::<_, DbLocalBookMeta>(
         "SELECT book_id, file_path, title, author, cover_path, extracted != 0 AS extracted, updated_at FROM local_books_metadata WHERE book_id = ? LIMIT 1",
     )
     .bind(book_id)
     .fetch_optional(pool)
-    .await
+    .await?;
+
+    if let Some(ref mut row) = item {
+        if let Some(ref path) = row.cover_path {
+            if !Path::new(path).is_file() {
+                row.cover_path = None;
+            }
+        }
+    }
+
+    Ok(item)
 }
 
 // ================= RECENT BOOKS REPO =================
@@ -791,12 +811,22 @@ pub async fn save_recent_book(pool: &DbPool, book: &DbRecentBook) -> Result<(), 
 }
 
 pub async fn get_recent_books(pool: &DbPool, limit: i64) -> Result<Vec<DbRecentBook>, sqlx::Error> {
-    sqlx::query_as::<_, DbRecentBook>(
+    let mut rows = sqlx::query_as::<_, DbRecentBook>(
         "SELECT id, title, author, cover_path, cover_url, file_path, file_name, file_size, last_location, progress_fraction, last_opened_at FROM recent_books ORDER BY last_opened_at DESC LIMIT ?",
     )
     .bind(limit)
     .fetch_all(pool)
-    .await
+    .await?;
+
+    for row in &mut rows {
+        if let Some(ref path) = row.cover_path {
+            if !Path::new(path).is_file() {
+                row.cover_path = None;
+            }
+        }
+    }
+
+    Ok(rows)
 }
 
 pub async fn remove_recent_book(pool: &DbPool, id: &str) -> Result<(), sqlx::Error> {

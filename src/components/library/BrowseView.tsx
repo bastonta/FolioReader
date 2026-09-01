@@ -37,6 +37,7 @@ import {
   saveLastLocation,
   saveLocalBookCache,
 } from "../../services/storage";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { BrowseItem, BookDetail } from "../../types/browse";
 import { ReaderSettings } from "../../types/reader";
 
@@ -424,6 +425,16 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
       const localId = fileManager.getLocalBookId(savedPath, settings.downloadPath);
       await saveDbBookMapping(localId, book.id, savedPath);
 
+      let coverUrl: string | undefined;
+      try {
+        const diskPath = await fileManager.getBookCoverPath(localId);
+        if (diskPath) {
+          coverUrl = convertFileSrc(diskPath);
+        }
+      } catch {
+        // ignore
+      }
+
       // Update in-memory caches if progress was present
       if (progress) {
         const pct = progress.progressPercent ?? 0;
@@ -437,6 +448,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
             id: localId,
             title,
             author,
+            coverUrl,
             filePath: savedPath,
             progressFraction: pct / 100,
             lastOpenedAt,
@@ -450,6 +462,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
         {
           title,
           author,
+          coverUrl,
           extracted: true,
         },
         savedPath,

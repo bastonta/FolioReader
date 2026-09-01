@@ -418,15 +418,17 @@ export async function loadRecentBooksAsync(): Promise<RecentBook[]> {
     const rows = await invoke<DbRecentBookRow[]>('db_get_recent_books', { limit: 100 });
     const books: RecentBook[] = await Promise.all(
       rows.map(async (r) => {
-        let coverUrl = r.coverUrl;
-        if (r.coverPath) {
-          coverUrl = convertFileSrc(r.coverPath);
-        } else {
-          const diskPath = await fileManager.getBookCoverPath(r.id);
-          if (diskPath) {
-            coverUrl = convertFileSrc(diskPath);
-          }
+        let coverUrl: string | undefined;
+        let diskPath = r.coverPath;
+        if (!diskPath) {
+          diskPath = (await fileManager.getBookCoverPath(r.id)) || undefined;
         }
+        if (diskPath) {
+          coverUrl = convertFileSrc(diskPath);
+        } else if (r.coverUrl && !r.coverUrl.startsWith('asset://') && !r.coverUrl.startsWith('http://asset.localhost')) {
+          coverUrl = r.coverUrl;
+        }
+
         return {
           id: r.id,
           title: r.title,
@@ -585,13 +587,12 @@ export async function loadLocalBooksCacheAsync(): Promise<Record<string, LocalBo
     const result: Record<string, LocalBookCacheItem> = {};
     for (const r of rows) {
       let coverUrl: string | undefined;
-      if (r.coverPath) {
-        coverUrl = convertFileSrc(r.coverPath);
-      } else {
-        const diskPath = await fileManager.getBookCoverPath(r.bookId);
-        if (diskPath) {
-          coverUrl = convertFileSrc(diskPath);
-        }
+      let diskPath = r.coverPath;
+      if (!diskPath) {
+        diskPath = (await fileManager.getBookCoverPath(r.bookId)) || undefined;
+      }
+      if (diskPath) {
+        coverUrl = convertFileSrc(diskPath);
       }
 
       result[r.bookId] = {
@@ -620,6 +621,10 @@ export function saveLocalBookCache(
 
   if (isTauri()) {
     fileManager.getBookCoverPath(bookId).then((diskCoverPath) => {
+      if (diskCoverPath && !updated.coverUrl) {
+        updated.coverUrl = convertFileSrc(diskCoverPath);
+        cachedLocalMeta[bookId] = updated;
+      }
       invoke('db_save_local_book_meta', {
         bookId,
         filePath: filePath || '',
