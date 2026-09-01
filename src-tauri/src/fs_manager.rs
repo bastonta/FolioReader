@@ -822,14 +822,28 @@ pub async fn open_external_url(app: tauri::AppHandle, url: String) -> Result<(),
         }
     }
 
+    // 5. Try Tauri Opener Plugin (uses native Windows ShellExecuteW / macOS NSWorkspace)
+    use tauri_plugin_opener::OpenerExt;
+    if app.opener().open_url(&clean_url, None::<&str>).is_ok() {
+        return Ok(());
+    }
+
     #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
         let mut cmd = std::process::Command::new("cmd");
         cmd.args(["/C", "start", "", &clean_url]);
-        if let Ok(status) = cmd.status()
-            && status.success()
-        {
-            return Ok(());
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        if let Ok(mut child) = cmd.spawn() {
+            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+            if let Ok(Some(status)) = child.try_wait() {
+                if status.success() {
+                    return Ok(());
+                }
+            } else {
+                return Ok(());
+            }
         }
     }
 
@@ -844,11 +858,7 @@ pub async fn open_external_url(app: tauri::AppHandle, url: String) -> Result<(),
         }
     }
 
-    // 5. Fallback to Tauri Opener Plugin
-    use tauri_plugin_opener::OpenerExt;
-    app.opener()
-        .open_url(&clean_url, None::<&str>)
-        .map_err(|e| format!("Failed to open url: {e}"))
+    Err("Failed to open URL".to_string())
 }
 
 #[tauri::command]
@@ -866,7 +876,15 @@ pub async fn open_external_path(app: tauri::AppHandle, path: String) -> Result<(
     let canonical = target_path
         .canonicalize()
         .unwrap_or_else(|_| target_path.clone());
-    let canonical_str = canonical.to_string_lossy().to_string();
+    let raw_canonical_str = canonical.to_string_lossy().to_string();
+    #[cfg(target_os = "windows")]
+    let canonical_str = raw_canonical_str
+        .strip_prefix(r"\\?\")
+        .unwrap_or(&raw_canonical_str)
+        .to_string();
+    #[cfg(not(target_os = "windows"))]
+    let canonical_str = raw_canonical_str;
+
     #[cfg(target_os = "linux")]
     let file_uri = if canonical_str.starts_with('/') {
         format!("file://{canonical_str}")
@@ -965,13 +983,20 @@ pub async fn open_external_path(app: tauri::AppHandle, path: String) -> Result<(
         }
     }
 
+    // Try Tauri Opener Plugin (uses native Windows ShellExecuteW / macOS NSWorkspace)
+    use tauri_plugin_opener::OpenerExt;
+    if app.opener().open_path(&canonical_str, None::<&str>).is_ok() {
+        return Ok(());
+    }
+
     #[cfg(target_os = "windows")]
     {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
         let mut cmd = std::process::Command::new("explorer");
         cmd.arg(&canonical_str);
-        if let Ok(status) = cmd.status()
-            && status.success()
-        {
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        if let Ok(_) = cmd.spawn() {
             return Ok(());
         }
     }
@@ -987,11 +1012,7 @@ pub async fn open_external_path(app: tauri::AppHandle, path: String) -> Result<(
         }
     }
 
-    // 5. Fallback to Tauri Opener Plugin
-    use tauri_plugin_opener::OpenerExt;
-    app.opener()
-        .open_path(canonical_str, None::<&str>)
-        .map_err(|e| format!("Failed to open path: {e}"))
+    Err("Failed to open path".to_string())
 }
 
 #[tauri::command]
