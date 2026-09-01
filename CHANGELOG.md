@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-01
+
+### Added
+- Reading progress background synchronization when the app is minimized or the screen turns off (`visibilitychange`).
+- Periodic reading progress sync (60-second interval) when pages have been turned during a reading session.
+- Automatic missing book cover verification and recovery via EPUB cover extraction and server fallback on library refresh or image loading error.
+- Dedicated `bookMetaExtractor` service for client-side metadata and cover extraction from local EPUB files.
+- Clear search button in the browse catalog search bar.
+
+### Changed
+- Updated package dependencies to latest versions.
+
+### Fixed
+- Fixed grid and list view mode toggle button overflow and enabled responsive shrinking for filter and sort controls on mobile screens in BrowseView.
+- Validated physical file existence of book covers on disk in SQLite database queries and storage cache to prevent 404 errors.
+- Immediately persist cover URLs when downloading books from server catalog.
+
 ## [0.4.0] - 2026-08-31
 
 ### Added
