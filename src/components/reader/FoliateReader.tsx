@@ -374,6 +374,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   const [isBookInfoOpen, setIsBookInfoOpen] = useState<boolean>(false);
   const [customFonts, setCustomFonts] = useState<LoadedCustomFont[]>(() => fontManager.getCachedFonts());
   const isInitialLoadRef = useRef<boolean>(true);
+  const hasUnsyncedProgressRef = useRef<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [syncToast, setSyncToast] = useState<{ message: string; type?: 'info' | 'success' | 'error' } | null>(null);
@@ -460,6 +461,29 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('folio:connection-restored', handleOnline);
     };
+  }, [bookId]);
+
+  // Sync progress when app goes to background (Android minimize / screen off)
+  useEffect(() => {
+    const handleBackgroundSync = () => {
+      if (document.visibilityState === 'hidden' && hasUnsyncedProgressRef.current) {
+        hasUnsyncedProgressRef.current = false;
+        syncBookData(bookId).catch(console.warn);
+      }
+    };
+    document.addEventListener('visibilitychange', handleBackgroundSync);
+    return () => document.removeEventListener('visibilitychange', handleBackgroundSync);
+  }, [bookId]);
+
+  // Periodically sync progress every 60 seconds if there were page turns
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      if (hasUnsyncedProgressRef.current) {
+        hasUnsyncedProgressRef.current = false;
+        syncBookData(bookId).catch(console.warn);
+      }
+    }, 60_000);
+    return () => window.clearInterval(intervalId);
   }, [bookId]);
 
   // Refs for tracking active modal/hover state inside timer callbacks
@@ -884,6 +908,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           if (!isInitialLoadRef.current) {
             saveDbLastLocation(bookId, detail.cfi, fraction);
             recordPageTurn();
+            hasUnsyncedProgressRef.current = true;
           }
         }
 
