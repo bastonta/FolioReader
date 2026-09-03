@@ -9,6 +9,7 @@ import {
   Filter,
   Folder,
   Home,
+  Info,
   LayoutGrid,
   List as ListIcon,
   Loader2,
@@ -31,7 +32,11 @@ import { useDialog } from "../../context/DialogContext";
 import { useTranslation } from "../../i18n";
 import { useBackHandler } from "../../services/backHandler";
 import { fileManager } from "../../services/fileManager";
-import { saveDbBookMapping } from "../../services/readerDb";
+import {
+  saveDbBookMapping,
+  fetchServerBookStatistics,
+  deleteBookStatistics,
+} from "../../services/readerDb";
 import {
   saveRecentBook,
   saveLastLocation,
@@ -39,7 +44,8 @@ import {
 } from "../../services/storage";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { BrowseItem, BookDetail } from "../../types/browse";
-import { ReaderSettings } from "../../types/reader";
+import { ReaderSettings, BookMetadata, BookReadingStats } from "../../types/reader";
+import { BookInfoModal } from "../reader/BookInfoModal";
 
 interface BrowseViewProps {
   settings: ReaderSettings;
@@ -135,6 +141,94 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
   const [downloadedPaths, setDownloadedPaths] = useState<
     Record<string, string>
   >({});
+
+  // Book Info Modal state
+  const [selectedBookForInfo, setSelectedBookForInfo] = useState<{
+    isOpen: boolean;
+    book: BrowseItem | null;
+    metadata: BookMetadata | null;
+    progressPercent?: number;
+    stats: BookReadingStats | null;
+  }>({
+    isOpen: false,
+    book: null,
+    metadata: null,
+    stats: null,
+  });
+
+  useBackHandler(
+    () => {
+      setSelectedBookForInfo((prev) => ({ ...prev, isOpen: false, book: null }));
+      return true;
+    },
+    selectedBookForInfo.isOpen,
+    110
+  );
+
+  const handleOpenBookInfo = async (book: BrowseItem, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+
+    const progressPct = book.progress?.progressPercent ?? 0;
+    const coverUrl = libraryApi.getBookCoverUrl(book.id);
+
+    const initialMeta: BookMetadata = {
+      title: book.name,
+      author: book.author || t("common.unknownAuthor"),
+      coverUrl,
+    };
+
+    setSelectedBookForInfo({
+      isOpen: true,
+      book,
+      metadata: initialMeta,
+      progressPercent: progressPct,
+      stats: null,
+    });
+
+    try {
+      const [detail, stats] = await Promise.all([
+        libraryApi.getBook(book.id, "cfi").catch(() => null),
+        fetchServerBookStatistics(book.id).catch(() => null),
+      ]);
+
+      setSelectedBookForInfo((prev) => {
+        if (prev.book?.id !== book.id) return prev;
+        return {
+          ...prev,
+          metadata: {
+            title: detail?.title || book.name,
+            author: detail?.author || book.author || t("common.unknownAuthor"),
+            coverUrl,
+            description: detail?.description || undefined,
+            language: detail?.language || undefined,
+          },
+          stats,
+        };
+      });
+    } catch (err) {
+      console.warn("Failed to load full book details/stats in browse view:", err);
+    }
+  };
+
+  const handleResetStatsInBrowse = async () => {
+    const currentBook = selectedBookForInfo.book;
+    if (!currentBook) return;
+    await deleteBookStatistics(currentBook.id);
+    setSelectedBookForInfo((prev) => ({
+      ...prev,
+      stats: {
+        bookId: currentBook.id,
+        totalDurationSeconds: 0,
+        sessionCount: 0,
+        totalPagesRead: 0,
+        averageSecondsPerPage: null,
+        estimatedRemainingSeconds: null,
+        firstReadAt: null,
+        lastReadAt: null,
+        deviceBreakdown: [],
+      },
+    }));
+  };
 
   const seriesMapRef = React.useRef<Map<string, any> | null>(null);
 
@@ -1003,6 +1097,33 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                         </span>
                       )}
 
+                    {/* Book Info Button */}
+                    <button
+                      type="button"
+                      style={{
+                        position: "absolute",
+                        top: 6,
+                        left: 6,
+                        backgroundColor: "rgba(0, 0, 0, 0.6)",
+                        color: "#ffffff",
+                        border: "none",
+                        borderRadius: "50%",
+                        width: 24,
+                        height: 24,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        cursor: "pointer",
+                        zIndex: 6,
+                        backdropFilter: "blur(4px)",
+                      }}
+                      onClick={(e) => handleOpenBookInfo(item, e)}
+                      title={t("browse.bookDetails")}
+                      aria-label={t("browse.bookDetails")}
+                    >
+                      <Info size={13} />
+                    </button>
+
                     {isDownloaded && (
                       <span
                         style={{
@@ -1358,8 +1479,27 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                   {/* Action button */}
                   <div
                     className="book-list-actions"
+                    style={{ display: "flex", alignItems: "center", gap: 6 }}
                     onClick={(e) => e.stopPropagation()}
                   >
+                    <button
+                      type="button"
+                      className="auth-btn-secondary"
+                      style={{
+                        padding: "6px 8px",
+                        fontSize: 12,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 4,
+                        whiteSpace: "nowrap",
+                      }}
+                      onClick={(e) => handleOpenBookInfo(item, e)}
+                      title={t("browse.bookDetails")}
+                      aria-label={t("browse.bookDetails")}
+                    >
+                      <Info size={13} />
+                    </button>
+
                     {isDownloaded &&
                     downloadedPaths[item.id] &&
                     onOpenBookFromPath ? (
@@ -1473,6 +1613,25 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
           </div>
         )}
       </main>
+
+      {/* Book Details & Statistics Modal */}
+      {selectedBookForInfo.isOpen && selectedBookForInfo.book && (
+        <BookInfoModal
+          isOpen={selectedBookForInfo.isOpen}
+          onClose={() =>
+            setSelectedBookForInfo((prev) => ({
+              ...prev,
+              isOpen: false,
+              book: null,
+            }))
+          }
+          metadata={selectedBookForInfo.metadata}
+          bookId={selectedBookForInfo.book.id}
+          progressPercent={selectedBookForInfo.progressPercent}
+          readingStats={selectedBookForInfo.stats}
+          onResetStats={handleResetStatsInBrowse}
+        />
+      )}
     </div>
   );
 };

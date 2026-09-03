@@ -996,7 +996,7 @@ pub async fn open_external_path(app: tauri::AppHandle, path: String) -> Result<(
         let mut cmd = std::process::Command::new("explorer");
         cmd.arg(&canonical_str);
         cmd.creation_flags(CREATE_NO_WINDOW);
-        if let Ok(_) = cmd.spawn() {
+        if cmd.spawn().is_ok() {
             return Ok(());
         }
     }

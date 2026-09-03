@@ -198,9 +198,11 @@ export const en = {
   "browse.needDownloadFolderAlert":
     "Please configure a download folder in Settings first",
   "browse.serverNotConfiguredAlert": "Server URL is not configured",
+  "browse.bookDetails": "Book Details",
   "browse.downloadFailedAlert": "Failed to download book: {error}",
 
   // Book Context Menu & Reset Modal
+  "contextMenu.bookInfo": "Info & Statistics",
   "contextMenu.markAsRead": "Mark as read",
   "contextMenu.markAsUnread": "Mark as unread",
   "contextMenu.resetProgress": "Reset reading progress...",
@@ -277,6 +279,16 @@ export const en = {
   "reader.readingStats": "Reading Statistics",
   "reader.totalReadingTime": "Reading Time",
   "reader.readingSessions": "Reading Sessions",
+  "reader.totalPagesRead": "Pages Read",
+  "reader.firstRead": "First Read",
+  "reader.lastRead": "Last Read",
+  "reader.deviceDistribution": "Device Distribution",
+  "reader.resetStats": "Reset Statistics",
+  "reader.resetStatsConfirm": "Are you sure you want to reset reading statistics for this book?",
+  "reader.resetStatsSuccess": "Reading statistics reset successfully",
+  "reader.noStatsYet": "No reading statistics yet",
+  "reader.secondsPerPage": "{sec}s / page",
+  "reader.minutesPerPage": "{min}m / page",
   "reader.durationHoursMinutes": "{hours} h {minutes} min",
   "reader.durationMinutes": "{minutes} min",
   "reader.durationLessThanMinute": "< 1 min",

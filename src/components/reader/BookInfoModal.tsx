@@ -10,16 +10,24 @@ import {
   Globe,
   Hash,
   RefreshCw,
+  RotateCcw,
   Tag,
 } from "lucide-react";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useTranslation } from "../../i18n";
+import { useDialog } from "../../context/DialogContext";
 import {
   formatContributor,
   formatLanguageMap,
   parseSubjects,
 } from "../../services/storage";
-import { formatDuration } from "../../services/timeFormat";
+import {
+  formatDuration,
+  formatReadingSpeed,
+  getDeviceDisplayInfo,
+  formatDateOnly,
+} from "../../services/timeFormat";
+import { deleteBookStatistics } from "../../services/readerDb";
 import { BookMetadata, BookReadingStats } from "../../types/reader";
 import { Modal } from "../common/Modal";
 
@@ -29,6 +37,7 @@ interface BookInfoModalProps {
   isOpen: boolean;
   onClose: () => void;
   metadata: BookMetadata | null;
+  bookId?: string;
   progressPercent?: number;
   currentChapter?: string;
   pageInfo?: DevicePageInfo | null;
@@ -36,6 +45,7 @@ interface BookInfoModalProps {
   onSyncProgress?: () => Promise<void> | void;
   isSyncing?: boolean;
   syncMessage?: string | null;
+  onResetStats?: () => Promise<void> | void;
 }
 
 const formatLanguage = (lang?: any): string => {
@@ -66,6 +76,7 @@ export const BookInfoModal: React.FC<BookInfoModalProps> = ({
   isOpen,
   onClose,
   metadata,
+  bookId,
   progressPercent,
   currentChapter,
   pageInfo,
@@ -73,9 +84,60 @@ export const BookInfoModal: React.FC<BookInfoModalProps> = ({
   onSyncProgress,
   isSyncing = false,
   syncMessage,
+  onResetStats,
 }) => {
-  const { t } = useTranslation();
+  const { t, resolvedLanguage } = useTranslation();
+  const { confirm, alert } = useDialog();
   const [copiedId, setCopiedId] = useState(false);
+  const [localStats, setLocalStats] = useState<BookReadingStats | null | undefined>(readingStats);
+  const [isResetting, setIsResetting] = useState(false);
+
+  useEffect(() => {
+    setLocalStats(readingStats);
+  }, [readingStats]);
+
+  const stats = localStats !== undefined ? localStats : readingStats;
+  const hasStats = Boolean(
+    stats && (stats.totalDurationSeconds > 0 || stats.sessionCount > 0)
+  );
+
+  const handleResetStatistics = async () => {
+    const isConfirmed = await confirm({
+      title: t("reader.resetStats"),
+      message: t("reader.resetStatsConfirm"),
+      type: "danger",
+    });
+    if (!isConfirmed) return;
+
+    setIsResetting(true);
+    try {
+      if (onResetStats) {
+        await onResetStats();
+      } else if (bookId) {
+        await deleteBookStatistics(bookId);
+      }
+      setLocalStats({
+        bookId: bookId || "",
+        totalDurationSeconds: 0,
+        sessionCount: 0,
+        totalPagesRead: 0,
+        averageSecondsPerPage: null,
+        estimatedRemainingSeconds: null,
+        firstReadAt: null,
+        lastReadAt: null,
+        deviceBreakdown: [],
+      });
+      alert({
+        title: t("reader.readingStats"),
+        message: t("reader.resetStatsSuccess"),
+        type: "success",
+      });
+    } catch (err: any) {
+      console.warn("Failed to reset book stats:", err);
+    } finally {
+      setIsResetting(false);
+    }
+  };
 
   if (!metadata) return null;
 
@@ -312,104 +374,209 @@ export const BookInfoModal: React.FC<BookInfoModalProps> = ({
       )}
 
       {/* Reading Statistics Card */}
-      {readingStats && readingStats.totalDurationSeconds > 0 && (
-        <div className="book-info-progress-card" style={{ marginTop: 12 }}>
-          <div className="book-info-progress-header">
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <Clock size={16} className="book-info-icon text-amber-500" />
-              <span
-                style={{
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: "var(--text-primary)",
-                }}
-              >
-                {t("reader.readingStats")}
-              </span>
-            </div>
-          </div>
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
-              gap: 10,
-              marginTop: 8,
-            }}
-          >
-            <div
+      <div className="book-info-progress-card" style={{ marginTop: 12 }}>
+        <div className="book-info-progress-header">
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <Clock size={16} className="book-info-icon" style={{ color: "#3b82f6" }} />
+            <span
               style={{
-                padding: "8px 10px",
-                background: "var(--bg-secondary)",
-                borderRadius: 6,
+                fontSize: 13,
+                fontWeight: 600,
+                color: "var(--text-primary)",
               }}
             >
-              <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
-                {t("reader.totalReadingTime")}
-              </div>
-              <div
-                style={{
-                  fontSize: 14,
-                  fontWeight: 600,
-                  color: "var(--text-primary)",
-                  marginTop: 2,
-                }}
-              >
-                {formatDuration(readingStats.totalDurationSeconds, t)}
-              </div>
-            </div>
+              {t("reader.readingStats")}
+            </span>
+          </div>
+          {hasStats && (bookId || onResetStats) && (
+            <button
+              type="button"
+              className="book-info-reset-btn"
+              onClick={handleResetStatistics}
+              disabled={isResetting}
+              title={t("reader.resetStats")}
+            >
+              <RotateCcw size={13} className={isResetting ? "animate-spin" : ""} />
+            </button>
+          )}
+        </div>
 
-            {readingStats.estimatedRemainingSeconds !== undefined &&
-              readingStats.estimatedRemainingSeconds !== null && (
-                <div
-                  style={{
-                    padding: "8px 10px",
-                    background: "var(--bg-secondary)",
-                    borderRadius: 6,
-                  }}
-                >
-                  <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
-                    {t("reader.estimatedRemaining")}
+        {hasStats && stats ? (
+          <>
+            <div className="book-info-stats-grid">
+              {/* 1. Total Reading Time */}
+              <div className="book-info-stat-tile">
+                <div className="book-info-stat-label">
+                  {t("reader.totalReadingTime")}
+                </div>
+                <div className="book-info-stat-value">
+                  {formatDuration(stats.totalDurationSeconds, t)}
+                </div>
+              </div>
+
+              {/* 2. Reading Speed / Pace */}
+              <div className="book-info-stat-tile">
+                <div className="book-info-stat-label">
+                  {t("reader.readingSpeed")}
+                </div>
+                <div className="book-info-stat-value">
+                  {formatReadingSpeed(stats.averageSecondsPerPage, t)}
+                </div>
+              </div>
+
+              {/* 3. Estimated Remaining */}
+              <div className="book-info-stat-tile">
+                <div className="book-info-stat-label">
+                  {t("reader.estimatedRemaining")}
+                </div>
+                <div className="book-info-stat-value" style={{ color: "var(--accent-color)" }}>
+                  {progressPercent !== undefined && progressPercent >= 99.9 ? (
+                    <span style={{ color: "#10b981" }}>{t("reader.bookFinished")}</span>
+                  ) : stats.estimatedRemainingSeconds !== undefined && stats.estimatedRemainingSeconds !== null ? (
+                    stats.estimatedRemainingSeconds <= 0 ? (
+                      <span style={{ color: "#10b981" }}>{t("reader.bookFinished")}</span>
+                    ) : (
+                      `~${formatDuration(stats.estimatedRemainingSeconds, t)}`
+                    )
+                  ) : (
+                    "—"
+                  )}
+                </div>
+              </div>
+
+              {/* 4. Reading Sessions */}
+              <div className="book-info-stat-tile">
+                <div className="book-info-stat-label">
+                  {t("reader.readingSessions")}
+                </div>
+                <div className="book-info-stat-value">
+                  {stats.sessionCount}
+                </div>
+              </div>
+
+              {/* 5. Total Pages Read */}
+              {stats.totalPagesRead > 0 && (
+                <div className="book-info-stat-tile">
+                  <div className="book-info-stat-label">
+                    {t("reader.totalPagesRead")}
                   </div>
-                  <div
-                    style={{
-                      fontSize: 14,
-                      fontWeight: 600,
-                      color: "var(--text-primary)",
-                      marginTop: 2,
-                    }}
-                  >
-                    {readingStats.estimatedRemainingSeconds <= 0
-                      ? t("reader.bookFinished")
-                      : `~${formatDuration(readingStats.estimatedRemainingSeconds, t)}`}
+                  <div className="book-info-stat-value">
+                    {stats.totalPagesRead}
                   </div>
                 </div>
               )}
 
-            <div
-              style={{
-                padding: "8px 10px",
-                background: "var(--bg-secondary)",
-                borderRadius: 6,
-              }}
-            >
-              <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
-                {t("reader.readingSessions")}
-              </div>
-              <div
-                style={{
-                  fontSize: 14,
-                  fontWeight: 600,
-                  color: "var(--text-primary)",
-                  marginTop: 2,
-                }}
-              >
-                {readingStats.sessionCount}
-              </div>
+              {/* 6. First Read Date */}
+              {stats.firstReadAt && (
+                <div className="book-info-stat-tile">
+                  <div className="book-info-stat-label">
+                    {t("reader.firstRead")}
+                  </div>
+                  <div className="book-info-stat-value">
+                    {formatDateOnly(stats.firstReadAt, resolvedLanguage)}
+                  </div>
+                </div>
+              )}
+
+              {/* 7. Last Read Date */}
+              {stats.lastReadAt && (
+                <div className="book-info-stat-tile">
+                  <div className="book-info-stat-label">
+                    {t("reader.lastRead")}
+                  </div>
+                  <div className="book-info-stat-value">
+                    {formatDateOnly(stats.lastReadAt, resolvedLanguage)}
+                  </div>
+                </div>
+              )}
             </div>
+
+            {/* Per-book Device Distribution */}
+            {stats.deviceBreakdown && stats.deviceBreakdown.length > 0 && (
+              <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--border-subtle)" }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-secondary)", marginBottom: 6 }}>
+                  {t("reader.deviceDistribution")}
+                </div>
+
+                {/* Multi-segment progress bar */}
+                <div
+                  style={{
+                    width: "100%",
+                    height: 6,
+                    borderRadius: 9999,
+                    backgroundColor: "var(--bg-tertiary)",
+                    overflow: "hidden",
+                    display: "flex",
+                  }}
+                >
+                  {stats.deviceBreakdown.map((dev, dIdx) => {
+                    const devInfo = getDeviceDisplayInfo(dev.deviceName);
+                    return (
+                      <div
+                        key={dIdx}
+                        style={{
+                          width: `${dev.percentage}%`,
+                          backgroundColor: devInfo.barColor,
+                          height: "100%",
+                          transition: "width 0.3s ease",
+                        }}
+                        title={`${devInfo.label}: ${dev.percentage.toFixed(1)}% (${formatDuration(dev.durationSeconds, t)})`}
+                      />
+                    );
+                  })}
+                </div>
+
+                {/* Device Badges with Percentages */}
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                  {stats.deviceBreakdown.map((dev, dIdx) => {
+                    const devInfo = getDeviceDisplayInfo(dev.deviceName);
+                    return (
+                      <span
+                        key={dIdx}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 5,
+                          padding: "3px 8px",
+                          borderRadius: 6,
+                          fontSize: 11,
+                          fontWeight: 500,
+                          backgroundColor: "var(--bg-tertiary)",
+                          border: `1px solid ${devInfo.borderColor}`,
+                          color: "var(--text-primary)",
+                        }}
+                      >
+                        <span
+                          style={{
+                            width: 6,
+                            height: 6,
+                            borderRadius: "50%",
+                            backgroundColor: devInfo.barColor,
+                          }}
+                        />
+                        <span>
+                          {devInfo.shortLabel}: {Math.round(dev.percentage)}% ({formatDuration(dev.durationSeconds, t)})
+                        </span>
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </>
+        ) : (
+          <div
+            style={{
+              padding: "12px 10px",
+              textAlign: "center",
+              fontSize: 12,
+              color: "var(--text-muted)",
+            }}
+          >
+            {t("reader.noStatsYet")}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Book Description */}
       {metadata.description && (

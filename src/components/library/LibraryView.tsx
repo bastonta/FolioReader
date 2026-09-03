@@ -36,15 +36,18 @@ import {
   verifyAndRecreateMissingCovers,
 } from '../../services/bookMetaExtractor';
 import { LocalBookFile } from '../../types/browse';
-import { ReaderSettings, RecentBook } from '../../types/reader';
+import { ReaderSettings, RecentBook, BookMetadata, BookReadingStats } from '../../types/reader';
 import { FolderStackCover } from './FolderStackCover';
 import { BookContextMenu } from './BookContextMenu';
 import { ResetProgressModal } from './ResetProgressModal';
+import { BookInfoModal } from '../reader/BookInfoModal';
 import {
   pullBookProgress,
   loadDbLastLocation,
   resetBookProgress,
   setBookReadStatus,
+  fetchServerBookStatistics,
+  deleteBookStatistics,
 } from '../../services/readerDb';
 import { useBackHandler } from '../../services/backHandler';
 import { useTranslation, formatPluralRussian } from '../../i18n';
@@ -111,7 +114,24 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     title: '',
   });
 
+  // Book Info & Statistics modal state
+  const [bookInfoState, setBookInfoState] = useState<{
+    isOpen: boolean;
+    book: LocalBookFile | null;
+    metadata: BookMetadata | null;
+    progressPercent?: number;
+    stats: BookReadingStats | null;
+    isSyncing?: boolean;
+    syncMessage?: string | null;
+  }>({
+    isOpen: false,
+    book: null,
+    metadata: null,
+    stats: null,
+  });
+
   // Back button handling in LibraryView (highest to lowest priority)
+  useBackHandler(() => { setBookInfoState((prev) => ({ ...prev, isOpen: false })); return true; }, bookInfoState.isOpen, 105);
   useBackHandler(() => { setCurrentFolderPath((prev) => prev.slice(0, -1)); return true; }, currentFolderPath.length > 0, 40);
   useBackHandler(() => { setSearchQuery(''); return true; }, Boolean(searchQuery), 30);
 
@@ -336,6 +356,96 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
 
     // 2. Persist to DB / Server
     await setBookReadStatus(book.id, nextIsRead);
+  };
+
+  // Open Book Info & Statistics Modal
+  const handleOpenBookInfoForBook = async (book: LocalBookFile) => {
+    const meta = metaCache[book.id];
+    const dbLoc = dbProgressMap[book.id];
+    const recentLoc = loadLastLocation(book.id);
+    const fraction = dbLoc?.fraction ?? recentLoc?.fraction ?? 0;
+    const progressPercent = Math.round(fraction * 100);
+
+    const initialMetadata: BookMetadata = {
+      title: meta?.title || book.fileName.replace(/\.[^/.]+$/, ''),
+      author: meta?.author || t('common.unknownAuthor'),
+      coverUrl: meta?.coverUrl,
+    };
+
+    setBookInfoState({
+      isOpen: true,
+      book,
+      metadata: initialMetadata,
+      progressPercent,
+      stats: null,
+      isSyncing: false,
+      syncMessage: null,
+    });
+
+    // Fetch stats in background
+    try {
+      const stats = await fetchServerBookStatistics(book.id);
+      setBookInfoState((prev) => (prev.book?.id === book.id ? { ...prev, stats } : prev));
+    } catch (e) {
+      console.warn('Failed to load book statistics in library view:', e);
+    }
+  };
+
+  const handleSyncBookProgressFromModal = async () => {
+    const currentBook = bookInfoState.book;
+    if (!currentBook) return;
+
+    setBookInfoState((prev) => ({ ...prev, isSyncing: true, syncMessage: t('reader.syncing') }));
+    try {
+      const res = await pullBookProgress(currentBook.id);
+      if (res?.success && res.location) {
+        const percent = res.progressPercent || 0;
+        setDbProgressMap((prev) => ({
+          ...prev,
+          [currentBook.id]: { fraction: percent / 100, isRead: res.isRead },
+        }));
+        setBookInfoState((prev) => ({
+          ...prev,
+          progressPercent: percent,
+          syncMessage: t('reader.syncSuccess', { percent }),
+        }));
+      } else {
+        setBookInfoState((prev) => ({
+          ...prev,
+          syncMessage: res?.message || t('reader.syncUpToDate'),
+        }));
+      }
+
+      const stats = await fetchServerBookStatistics(currentBook.id);
+      setBookInfoState((prev) => ({ ...prev, stats }));
+    } catch (err: any) {
+      setBookInfoState((prev) => ({
+        ...prev,
+        syncMessage: t('reader.syncFailed', { error: err?.message || 'Sync error' }),
+      }));
+    } finally {
+      setBookInfoState((prev) => ({ ...prev, isSyncing: false }));
+    }
+  };
+
+  const handleResetStatsFromModal = async () => {
+    const currentBook = bookInfoState.book;
+    if (!currentBook) return;
+    await deleteBookStatistics(currentBook.id);
+    setBookInfoState((prev) => ({
+      ...prev,
+      stats: {
+        bookId: currentBook.id,
+        totalDurationSeconds: 0,
+        sessionCount: 0,
+        totalPagesRead: 0,
+        averageSecondsPerPage: null,
+        estimatedRemainingSeconds: null,
+        firstReadAt: null,
+        lastReadAt: null,
+        deviceBreakdown: [],
+      },
+    }));
   };
 
   // Open Reset Progress Modal
@@ -1090,6 +1200,11 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           position={menuState.position}
           isRead={menuState.isRead}
           onClose={handleCloseBookMenu}
+          onOpenBookInfo={() => {
+            if (menuState.book) {
+              handleOpenBookInfoForBook(menuState.book);
+            }
+          }}
           onMarkAsRead={() => {
             if (menuState.book) {
               handleToggleReadStatus(menuState.book, menuState.isRead || false);
@@ -1109,6 +1224,22 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
               handleDeleteBook(menuState.book);
             }
           }}
+        />
+      )}
+
+      {/* Book Info & Statistics Modal */}
+      {bookInfoState.isOpen && bookInfoState.book && (
+        <BookInfoModal
+          isOpen={bookInfoState.isOpen}
+          onClose={() => setBookInfoState((prev) => ({ ...prev, isOpen: false, book: null }))}
+          metadata={bookInfoState.metadata}
+          bookId={bookInfoState.book.id}
+          progressPercent={bookInfoState.progressPercent}
+          readingStats={bookInfoState.stats}
+          onSyncProgress={handleSyncBookProgressFromModal}
+          isSyncing={bookInfoState.isSyncing}
+          syncMessage={bookInfoState.syncMessage}
+          onResetStats={handleResetStatsFromModal}
         />
       )}
 

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useLayoutEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CheckCircle2, Circle, RotateCcw, Trash2 } from 'lucide-react';
+import { CheckCircle2, Circle, Info, RotateCcw, Trash2 } from 'lucide-react';
 import { useTranslation } from '../../i18n';
 
 export interface BookContextMenuProps {
@@ -8,6 +8,7 @@ export interface BookContextMenuProps {
   position: { x: number; y: number };
   isRead?: boolean;
   onClose: () => void;
+  onOpenBookInfo?: () => void;
   onMarkAsRead: () => void;
   onOpenResetModal: () => void;
   onDeleteBook: () => void;
@@ -18,6 +19,7 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
   position,
   isRead = false,
   onClose,
+  onOpenBookInfo,
   onMarkAsRead,
   onOpenResetModal,
   onDeleteBook,
@@ -102,6 +104,21 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
       onClick={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}
     >
+      {/* 0. Info & Statistics */}
+      {onOpenBookInfo && (
+        <button
+          type="button"
+          className="book-context-menu-item"
+          onClick={() => {
+            onClose();
+            onOpenBookInfo();
+          }}
+        >
+          <Info size={16} className="context-menu-icon" />
+          <span>{t('contextMenu.bookInfo')}</span>
+        </button>
+      )}
+
       {/* 1. Mark as Read / Unread */}
       <button
         type="button"

@@ -53,3 +53,147 @@ export function formatPageLocationText(
   });
   return `${bookPagesText} (${info.percent}%) · ${chapterPagesText}`;
 }
+
+export interface DeviceDisplayInfo {
+  label: string;
+  shortLabel: string;
+  badgeClass: string;
+  barColor: string;
+  textColor: string;
+  borderColor: string;
+}
+
+export function formatReadingSpeed(
+  secondsPerPage?: number | null,
+  t?: (key: TranslationKey, params?: TranslationParams) => string
+): string {
+  if (!secondsPerPage || secondsPerPage <= 0) {
+    return '—';
+  }
+
+  if (secondsPerPage < 60) {
+    const sec = Math.round(secondsPerPage);
+    return t ? t('reader.secondsPerPage', { sec }) : `${sec}s / page`;
+  }
+
+  const mins = (secondsPerPage / 60).toFixed(1);
+  return t ? t('reader.minutesPerPage', { min: mins }) : `${mins}m / page`;
+}
+
+export function getDeviceDisplayInfo(rawDeviceName?: string | null): DeviceDisplayInfo {
+  const name = (rawDeviceName || '').trim();
+  const lower = name.toLowerCase();
+
+  if (
+    lower.includes('koreader') ||
+    lower.includes('foliosync') ||
+    lower.includes('kobo') ||
+    lower.includes('kindle')
+  ) {
+    return {
+      label: 'FolioSync (KOReader)',
+      shortLabel: 'FolioSync',
+      badgeClass: 'badge-device-emerald',
+      barColor: '#10b981',
+      textColor: 'var(--success-color, #10b981)',
+      borderColor: 'rgba(16, 185, 129, 0.3)',
+    };
+  }
+
+  if (
+    lower.includes('folioreader') ||
+    lower.includes('desktop') ||
+    lower.includes('mobile') ||
+    lower.includes('android') ||
+    lower.includes('ios')
+  ) {
+    return {
+      label: 'FolioReader',
+      shortLabel: 'FolioReader',
+      badgeClass: 'badge-device-blue',
+      barColor: '#3b82f6',
+      textColor: 'var(--accent-color, #3b82f6)',
+      borderColor: 'rgba(59, 130, 246, 0.3)',
+    };
+  }
+
+  if (lower.includes('web') || lower.includes('browser')) {
+    return {
+      label: 'Folio Web',
+      shortLabel: 'Web',
+      badgeClass: 'badge-device-purple',
+      barColor: '#a855f7',
+      textColor: '#a855f7',
+      borderColor: 'rgba(168, 85, 247, 0.3)',
+    };
+  }
+
+  return {
+    label: name || 'Other Device',
+    shortLabel: name || 'Other',
+    badgeClass: 'badge-device-amber',
+    barColor: '#f59e0b',
+    textColor: '#f59e0b',
+    borderColor: 'rgba(245, 158, 11, 0.3)',
+  };
+}
+
+export function formatDateOnly(dateInput?: string | Date | null, locale?: string): string {
+  if (!dateInput) return '—';
+  if (dateInput instanceof Date) {
+    return isNaN(dateInput.getTime()) ? '—' : dateInput.toLocaleDateString(locale);
+  }
+
+  let str = String(dateInput).trim().replace(/(\.\d{3})\d+/, '$1');
+  const d = new Date(str);
+  if (!isNaN(d.getTime())) {
+    return d.toLocaleDateString(locale, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+  }
+
+  const d2 = new Date(str.replace(' ', 'T'));
+  if (!isNaN(d2.getTime())) {
+    return d2.toLocaleDateString(locale, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+  }
+
+  return str;
+}
+
+export function formatDate(dateInput?: string | Date | null, locale?: string): string {
+  if (!dateInput) return '—';
+  if (dateInput instanceof Date) {
+    return isNaN(dateInput.getTime()) ? '—' : dateInput.toLocaleString(locale);
+  }
+
+  let str = String(dateInput).trim().replace(/(\.\d{3})\d+/, '$1');
+  const d = new Date(str);
+  if (!isNaN(d.getTime())) {
+    return d.toLocaleString(locale, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+
+  const d2 = new Date(str.replace(' ', 'T'));
+  if (!isNaN(d2.getTime())) {
+    return d2.toLocaleString(locale, {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  }
+
+  return str;
+}

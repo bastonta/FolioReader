@@ -203,9 +203,11 @@ export const ru: Partial<Record<TranslationKey, string>> = {
   "browse.needDownloadFolderAlert":
     "Пожалуйста, сначала укажите папку для загрузки в настройках",
   "browse.serverNotConfiguredAlert": "Адрес сервера не настроен",
+  "browse.bookDetails": "Информация о книге",
   "browse.downloadFailedAlert": "Не удалось скачать книгу: {error}",
 
   // Book Context Menu & Reset Modal
+  "contextMenu.bookInfo": "Информация и статистика",
   "contextMenu.markAsRead": "Отметить как прочитанную",
   "contextMenu.markAsUnread": "Отметить как непрочитанную",
   "contextMenu.resetProgress": "Сбросить прогресс чтения...",
@@ -281,6 +283,16 @@ export const ru: Partial<Record<TranslationKey, string>> = {
   "reader.readingStats": "Статистика чтения",
   "reader.totalReadingTime": "Время чтения",
   "reader.readingSessions": "Сессий чтения",
+  "reader.totalPagesRead": "Прочитано страниц",
+  "reader.firstRead": "Первое чтение",
+  "reader.lastRead": "Последнее чтение",
+  "reader.deviceDistribution": "Распределение по устройствам",
+  "reader.resetStats": "Сбросить статистику",
+  "reader.resetStatsConfirm": "Вы уверены, что хотите сбросить статистику чтения для этой книги?",
+  "reader.resetStatsSuccess": "Статистика чтения сброшена",
+  "reader.noStatsYet": "Статистика чтения пока отсутствует",
+  "reader.secondsPerPage": "{sec} с / стр",
+  "reader.minutesPerPage": "{min} мин / стр",
   "reader.durationHoursMinutes": "{hours} ч {minutes} мин",
   "reader.durationMinutes": "{minutes} мин",
   "reader.durationLessThanMinute": "< 1 мин",

@@ -112,14 +112,25 @@ pub struct DbReadingSession {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DbDeviceStats {
+    pub device_name: String,
+    pub duration_seconds: i64,
+    pub session_count: i64,
+    pub percentage: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DbBookReadingStats {
     pub book_id: String,
     pub total_duration_seconds: i64,
     pub session_count: i64,
     pub total_pages_read: i64,
     pub average_seconds_per_page: Option<f32>,
+    pub estimated_remaining_seconds: Option<i64>,
     pub first_read_at: Option<String>,
     pub last_read_at: Option<String>,
+    pub device_breakdown: Vec<DbDeviceStats>,
 }
 
 pub async fn init_db(db_path: &Path) -> Result<DbPool, sqlx::Error> {
@@ -736,11 +747,10 @@ pub async fn get_all_local_books_meta(pool: &DbPool) -> Result<Vec<DbLocalBookMe
     .await?;
 
     for row in &mut rows {
-        if let Some(ref path) = row.cover_path {
-            if !Path::new(path).is_file() {
+        if let Some(ref path) = row.cover_path
+            && !Path::new(path).is_file() {
                 row.cover_path = None;
             }
-        }
     }
 
     Ok(rows)
@@ -757,13 +767,11 @@ pub async fn get_local_book_meta(
     .fetch_optional(pool)
     .await?;
 
-    if let Some(ref mut row) = item {
-        if let Some(ref path) = row.cover_path {
-            if !Path::new(path).is_file() {
+    if let Some(ref mut row) = item
+        && let Some(ref path) = row.cover_path
+            && !Path::new(path).is_file() {
                 row.cover_path = None;
             }
-        }
-    }
 
     Ok(item)
 }
@@ -819,11 +827,10 @@ pub async fn get_recent_books(pool: &DbPool, limit: i64) -> Result<Vec<DbRecentB
     .await?;
 
     for row in &mut rows {
-        if let Some(ref path) = row.cover_path {
-            if !Path::new(path).is_file() {
+        if let Some(ref path) = row.cover_path
+            && !Path::new(path).is_file() {
                 row.cover_path = None;
             }
-        }
     }
 
     Ok(rows)
@@ -1034,15 +1041,89 @@ pub async fn get_book_reading_stats(
         None
     };
 
+    #[derive(sqlx::FromRow)]
+    struct DeviceRow {
+        device_name: Option<String>,
+        duration: Option<i64>,
+        session_count: Option<i64>,
+    }
+
+    let device_rows = sqlx::query_as::<_, DeviceRow>(
+        r#"
+        SELECT 
+            COALESCE(device_name, 'FolioReader') AS device_name,
+            COALESCE(SUM(duration_seconds), 0) AS duration,
+            COUNT(*) AS session_count
+        FROM reading_sessions
+        WHERE book_id = ? OR book_id = ? OR book_id = ?
+        GROUP BY COALESCE(device_name, 'FolioReader')
+        ORDER BY duration DESC
+        "#,
+    )
+    .bind(book_id)
+    .bind(s_id)
+    .bind(l_id)
+    .fetch_all(pool)
+    .await
+    .unwrap_or_default();
+
+    let device_breakdown = device_rows
+        .into_iter()
+        .map(|r| {
+            let dur = r.duration.unwrap_or(0);
+            let pct = if total_duration_seconds > 0 {
+                ((dur as f32) / (total_duration_seconds as f32)) * 100.0
+            } else {
+                0.0
+            };
+            DbDeviceStats {
+                device_name: r.device_name.unwrap_or_else(|| "FolioReader".to_string()),
+                duration_seconds: dur,
+                session_count: r.session_count.unwrap_or(0),
+                percentage: pct,
+            }
+        })
+        .collect();
+
     Ok(DbBookReadingStats {
         book_id: book_id.to_string(),
         total_duration_seconds,
         session_count,
         total_pages_read,
         average_seconds_per_page,
+        estimated_remaining_seconds: None,
         first_read_at: row.first_read_at,
         last_read_at: row.last_read_at,
+        device_breakdown,
     })
+}
+
+pub async fn delete_book_reading_stats(pool: &DbPool, book_id: &str) -> Result<(), sqlx::Error> {
+    let server_id = get_server_book_id(pool, book_id).await.unwrap_or(None);
+    let local_id = if uuid::Uuid::parse_str(book_id).is_ok() {
+        get_local_id_by_server_id(pool, book_id)
+            .await
+            .unwrap_or(None)
+    } else {
+        None
+    };
+
+    let s_id = server_id.as_deref().unwrap_or(book_id);
+    let l_id = local_id.as_deref().unwrap_or(book_id);
+
+    sqlx::query(
+        r#"
+        DELETE FROM reading_sessions
+        WHERE book_id = ? OR book_id = ? OR book_id = ?
+        "#,
+    )
+    .bind(book_id)
+    .bind(s_id)
+    .bind(l_id)
+    .execute(pool)
+    .await?;
+
+    Ok(())
 }
 
 pub async fn clear_all_data(pool: &DbPool) -> Result<(), sqlx::Error> {

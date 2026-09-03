@@ -500,6 +500,33 @@ export async function fetchServerBookStatistics(bookId: string): Promise<BookRea
   }
 }
 
+export async function deleteBookStatistics(bookId: string): Promise<void> {
+  // 1. Delete from SQLite
+  if (isTauri()) {
+    try {
+      await invoke('db_delete_book_reading_stats', { bookId });
+    } catch (err) {
+      console.warn('Failed to delete book reading stats from SQLite:', err);
+    }
+  }
+
+  // 2. Delete from server if connected
+  try {
+    let serverBookId: string | null = null;
+    if (isUuid(bookId)) {
+      serverBookId = bookId;
+    } else {
+      serverBookId = await getDbServerBookId(bookId);
+    }
+
+    if (serverBookId && !serverBookId.startsWith('local-')) {
+      await statisticsApi.deleteBookStatistics(serverBookId);
+    }
+  } catch (err) {
+    console.warn(`Failed to delete reading stats on server for book ${bookId}:`, err);
+  }
+}
+
 export async function fetchServerReadingSummary(): Promise<ReadingSummary | null> {
   try {
     return await statisticsApi.getSummary();

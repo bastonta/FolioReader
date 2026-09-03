@@ -403,3 +403,13 @@ pub async fn db_get_book_reading_stats(
         .await
         .map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn db_delete_book_reading_stats(
+    book_id: String,
+    db: State<'_, DbPool>,
+) -> Result<(), String> {
+    db::delete_book_reading_stats(&db, &book_id)
+        .await
+        .map_err(|e| e.to_string())
+}

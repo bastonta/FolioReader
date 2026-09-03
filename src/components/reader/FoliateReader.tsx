@@ -344,7 +344,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   const [currentCFI, setCurrentCFI] = useState<string>('');
   const paginatorRef = useRef<DevicePaginator | null>(null);
 
-  const { stats: readingStats, recordPageTurn } = useReadingTracker({
+  const { stats: readingStats, recordPageTurn, refreshStats } = useReadingTracker({
     bookId,
     currentFraction: progressFraction,
   });
@@ -1977,6 +1977,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         isOpen={isBookInfoOpen}
         onClose={() => setIsBookInfoOpen(false)}
         metadata={metadata}
+        bookId={bookId}
         progressPercent={progressFraction * 100}
         currentChapter={chapterTitle}
         pageInfo={pageInfo}
@@ -1984,6 +1985,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         onSyncProgress={handleSyncProgress}
         isSyncing={isSyncing}
         syncMessage={syncMessage}
+        onResetStats={refreshStats}
       />
 
       {/* Sync Toast Notification */}
