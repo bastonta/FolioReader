@@ -69,15 +69,18 @@ export interface ReadingSession {
   createdAt?: string;
 }
 
+import type { DeviceStatsResponse } from './statistics';
+
 export interface BookReadingStats {
   bookId: string;
   totalDurationSeconds: number;
   sessionCount: number;
   totalPagesRead: number;
-  averageSecondsPerPage?: number;
-  estimatedRemainingSeconds?: number;
-  firstReadAt?: string;
-  lastReadAt?: string;
+  averageSecondsPerPage?: number | null;
+  estimatedRemainingSeconds?: number | null;
+  firstReadAt?: string | null;
+  lastReadAt?: string | null;
+  deviceBreakdown?: DeviceStatsResponse[];
 }
 
 export interface ReadingSummary {
@@ -88,6 +91,8 @@ export interface ReadingSummary {
   currentStreakDays: number;
   longestStreakDays: number;
   averageSecondsPerDay: number;
+  topDeviceName?: string | null;
+  deviceBreakdown?: DeviceStatsResponse[];
 }
 
 export interface DailyActivity {

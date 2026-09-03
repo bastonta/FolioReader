@@ -1917,7 +1917,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
             fraction={progressFraction}
             pageInfo={pageInfo}
             locationLabel={locationLabel}
-            averageSecondsPerPage={readingStats?.averageSecondsPerPage}
+            averageSecondsPerPage={readingStats?.averageSecondsPerPage ?? undefined}
             displayMode={settings.footerDisplayMode || 'pages'}
             onDisplayModeChange={(mode) => onUpdateSettings({ footerDisplayMode: mode })}
             onSeek={(frac) => {

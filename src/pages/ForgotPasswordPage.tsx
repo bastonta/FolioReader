@@ -42,9 +42,9 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
 
     try {
       setLoading(true);
-      await authApi.passwordForgot(email);
+      const res = await authApi.passwordForgot(email);
       setStep('VERIFY');
-      setCountdown(60);
+      setCountdown(res?.resendAfter || 60);
     } catch (err) {
       setError((err as any)?.message || t('auth.sendResetCodeFailed'));
     } finally {
@@ -102,8 +102,8 @@ export const ForgotPasswordPage: React.FC<ForgotPasswordPageProps> = ({ theme, o
     try {
       setLoading(true);
       setError('');
-      await authApi.passwordForgot(email);
-      setCountdown(60);
+      const res = await authApi.passwordForgot(email);
+      setCountdown(res?.resendAfter || 60);
     } catch (err) {
       setError((err as any)?.message || t('auth.resendFailed'));
     } finally {

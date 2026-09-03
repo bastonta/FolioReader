@@ -38,11 +38,15 @@ export const ConfirmEmailPage: React.FC<ConfirmEmailPageProps> = ({ theme, onTog
 
   useEffect(() => {
     if (initialResendAfter) {
-      const targetTime = new Date(initialResendAfter).getTime();
-      const now = Date.now();
-      const diff = Math.ceil((targetTime - now) / 1000);
-      if (diff > 0) {
-        setCountdown(diff);
+      const num = Number(initialResendAfter);
+      if (!isNaN(num) && num < 10000) {
+        setCountdown(num);
+      } else {
+        const targetTime = new Date(initialResendAfter).getTime();
+        const diff = Math.ceil((targetTime - Date.now()) / 1000);
+        if (diff > 0) {
+          setCountdown(diff);
+        }
       }
     }
   }, [initialResendAfter]);
@@ -81,10 +85,16 @@ export const ConfirmEmailPage: React.FC<ConfirmEmailPageProps> = ({ theme, onTog
       setLoading(true);
       setError('');
       const res = await authApi.emailConfirmResend(userId!);
-      if (res.resendAfter) {
+      if (typeof res.resendAfter === 'number') {
+        if (res.resendAfter < 10000) {
+          setCountdown(res.resendAfter);
+        } else {
+          const diff = Math.ceil((res.resendAfter - Date.now()) / 1000);
+          setCountdown(Math.max(0, diff));
+        }
+      } else if (res.resendAfter) {
         const targetTime = new Date(res.resendAfter).getTime();
-        const now = Date.now();
-        setCountdown(Math.max(0, Math.ceil((targetTime - now) / 1000)));
+        setCountdown(Math.max(0, Math.ceil((targetTime - Date.now()) / 1000)));
       } else {
         setCountdown(60);
       }

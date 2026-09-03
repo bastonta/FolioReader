@@ -1053,7 +1053,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                     <h4 className="book-card-title" title={item.name}>
                       {item.name}
                     </h4>
-                    <p className="book-card-author" title={item.author}>
+                    <p className="book-card-author" title={item.author ?? undefined}>
                       {item.author || t("common.unknownAuthor")}
                     </p>
 
@@ -1077,7 +1077,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                             onOpenBookFromPath(
                               downloadedPaths[item.id],
                               item.name,
-                              item.author,
+                              item.author ?? undefined,
                               item.id,
                             )
                           }
@@ -1230,7 +1230,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                       onOpenBookFromPath(
                         downloadedPaths[item.id],
                         item.name,
-                        item.author,
+                        item.author ?? undefined,
                         item.id,
                       );
                     }
@@ -1287,7 +1287,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                         )}
                     </div>
 
-                    <p className="book-list-author" title={item.author}>
+                    <p className="book-list-author" title={item.author ?? undefined}>
                       {item.author || t("common.unknownAuthor")}
                     </p>
 
@@ -1378,7 +1378,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                           onOpenBookFromPath(
                             downloadedPaths[item.id],
                             item.name,
-                            item.author,
+                            item.author ?? undefined,
                             item.id,
                           )
                         }

@@ -1,7 +1,3 @@
-/**
- * Profile API functions (without API key management).
- */
-
 import { apiGet, apiPost, apiPut } from './client';
 import type {
   User,

@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { Annotation, Bookmark, getAnnotationColorKey, BookReadingStats, ReadingSummary, DailyActivity } from '../types/reader';
 import { getServerUrl, getAccessToken } from '../api/tokenManager';
 import { apiGet, apiPut, apiDelete } from '../api/client';
+import { statisticsApi } from '../api/statisticsApi';
 import { resetRecentBookProgress, saveLastLocation } from './storage';
 import { parseCfiRange, toCfiRange } from '../utils/cfi';
 
@@ -492,8 +493,7 @@ export async function fetchServerBookStatistics(bookId: string): Promise<BookRea
       return await getDbBookReadingStats(bookId);
     }
 
-    const res = await apiGet<BookReadingStats>(`/books/${serverBookId}/statistics`);
-    return res;
+    return await statisticsApi.getBookStatistics(serverBookId);
   } catch (err) {
     console.warn(`Failed to fetch server statistics for book ${bookId}:`, err);
     return await getDbBookReadingStats(bookId);
@@ -502,8 +502,7 @@ export async function fetchServerBookStatistics(bookId: string): Promise<BookRea
 
 export async function fetchServerReadingSummary(): Promise<ReadingSummary | null> {
   try {
-    const res = await apiGet<ReadingSummary>('/statistics/summary');
-    return res;
+    return await statisticsApi.getSummary();
   } catch (err) {
     console.warn('Failed to fetch reading summary from server:', err);
     return null;
@@ -515,11 +514,7 @@ export async function fetchServerReadingActivity(
   to?: string
 ): Promise<DailyActivity[]> {
   try {
-    const query = new URLSearchParams();
-    if (from) query.set('from', from);
-    if (to) query.set('to', to);
-    const qs = query.toString() ? `?${query.toString()}` : '';
-    const res = await apiGet<DailyActivity[]>(`/statistics/activity${qs}`);
+    const res = await statisticsApi.getActivity({ from, to });
     return res || [];
   } catch (err) {
     console.warn('Failed to fetch reading activity from server:', err);

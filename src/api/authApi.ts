@@ -126,11 +126,20 @@ export const authApi = {
   },
 
   emailConfirmResend: async (
-    userId: string,
+    userIdOrParams?: string | { userId?: string; email?: string },
+    email?: string,
   ): Promise<EmailConfirmResendResponse> => {
+    let payload: { userId?: string; email?: string } = {};
+    if (typeof userIdOrParams === 'string') {
+      payload = { userId: userIdOrParams, email };
+    } else if (userIdOrParams && typeof userIdOrParams === 'object') {
+      payload = userIdOrParams;
+    } else if (email) {
+      payload = { email };
+    }
     return apiPost<EmailConfirmResendResponse>(
       '/identity/email-confirm-resend',
-      { userId },
+      payload,
     );
   },
 
