@@ -26,6 +26,7 @@ import { openExternalUrl } from '../../services/appOpener';
 import { useBackHandler } from '../../services/backHandler';
 import {
   saveLastLocation,
+  flushPendingRecentBook,
   storeBookCover,
   blobToThumbnailDataUrl,
   updateRecentBookMetadata,
@@ -379,6 +380,44 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   const isSyncNavigatingRef = useRef<boolean>(false);
   const isClosingRef = useRef<boolean>(false);
   const hasUnsyncedProgressRef = useRef<boolean>(false);
+  const isScrubberSeekingRef = useRef<boolean>(false);
+  const saveProgressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingProgressRef = useRef<{ cfi: string; fraction: number } | null>(null);
+
+  const flushPendingLocationSave = useCallback(() => {
+    if (saveProgressTimerRef.current) {
+      clearTimeout(saveProgressTimerRef.current);
+      saveProgressTimerRef.current = null;
+    }
+    if (pendingProgressRef.current && bookId) {
+      const { cfi, fraction } = pendingProgressRef.current;
+      saveDbLastLocation(bookId, cfi, fraction);
+      flushPendingRecentBook(bookId);
+      hasUnsyncedProgressRef.current = true;
+    }
+  }, [bookId]);
+
+  const scheduleSaveDbProgress = useCallback((cfi: string, fraction: number) => {
+    pendingProgressRef.current = { cfi, fraction };
+    if (saveProgressTimerRef.current) {
+      clearTimeout(saveProgressTimerRef.current);
+    }
+    saveProgressTimerRef.current = setTimeout(() => {
+      saveProgressTimerRef.current = null;
+      if (pendingProgressRef.current && bookId) {
+        saveDbLastLocation(bookId, pendingProgressRef.current.cfi, pendingProgressRef.current.fraction);
+        hasUnsyncedProgressRef.current = true;
+      }
+    }, 800);
+  }, [bookId]);
+
+  // Flush pending location save on unmount
+  useEffect(() => {
+    return () => {
+      flushPendingLocationSave();
+    };
+  }, [flushPendingLocationSave]);
+
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [syncToast, setSyncToast] = useState<{ message: string; type?: 'info' | 'success' | 'error' } | null>(null);
@@ -389,6 +428,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   const handleClose = useCallback(async () => {
     if (isClosingRef.current) return;
     isClosingRef.current = true;
+    flushPendingLocationSave();
     try {
       await flushSession();
     } catch (e) {
@@ -400,7 +440,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
       console.warn('Failed to sync book data on close:', e);
     }
     onBackToLibrary();
-  }, [flushSession, bookId, onBackToLibrary]);
+  }, [flushPendingLocationSave, flushSession, bookId, onBackToLibrary]);
 
   // Subscribe to custom fonts updates
   useEffect(() => {
@@ -502,25 +542,29 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   // Sync progress when app goes to background (Android minimize / screen off)
   useEffect(() => {
     const handleBackgroundSync = () => {
-      if (document.visibilityState === 'hidden' && hasUnsyncedProgressRef.current) {
-        hasUnsyncedProgressRef.current = false;
-        syncBookData(bookId).catch(console.warn);
+      if (document.visibilityState === 'hidden') {
+        flushPendingLocationSave();
+        if (hasUnsyncedProgressRef.current) {
+          hasUnsyncedProgressRef.current = false;
+          syncBookData(bookId).catch(console.warn);
+        }
       }
     };
     document.addEventListener('visibilitychange', handleBackgroundSync);
     return () => document.removeEventListener('visibilitychange', handleBackgroundSync);
-  }, [bookId]);
+  }, [bookId, flushPendingLocationSave]);
 
   // Periodically sync progress every 60 seconds if there were page turns
   useEffect(() => {
     const intervalId = window.setInterval(() => {
       if (hasUnsyncedProgressRef.current) {
+        flushPendingLocationSave();
         hasUnsyncedProgressRef.current = false;
         syncBookData(bookId).catch(console.warn);
       }
     }, 60_000);
     return () => window.clearInterval(intervalId);
-  }, [bookId]);
+  }, [bookId, flushPendingLocationSave]);
 
   // Refs for tracking active modal/hover state inside timer callbacks
   const isSettingsOpenRef = useRef(isSettingsOpen);
@@ -942,9 +986,14 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           setCurrentCFI(detail.cfi);
           saveLastLocation(bookId, detail.cfi, fraction);
           if (!isInitialLoadRef.current && !isSyncNavigatingRef.current) {
-            saveDbLastLocation(bookId, detail.cfi, fraction);
-            recordPageTurn();
-            hasUnsyncedProgressRef.current = true;
+            scheduleSaveDbProgress(detail.cfi, fraction);
+            const reason = detail.reason;
+            const isScrubberSeek = isScrubberSeekingRef.current;
+            isScrubberSeekingRef.current = false;
+            const isNavigation = reason === 'navigation' || reason === 'anchor' || isScrubberSeek;
+            if (!isNavigation) {
+              recordPageTurn();
+            }
           }
         }
 
@@ -963,7 +1012,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           bookPage: Math.max(1, Math.round(fraction * 100)),
           totalBookPages: 100,
           chapterPage: Math.max(1, page),
-          totalChapterPages: Math.max(1, pages > 2 ? pages - 2 : pages),
+          totalChapterPages: paginatorRef.current?.calculateSectionPages(pages) || (settingsRef.current.flow === 'scrolled' ? Math.max(1, pages) : Math.max(1, pages > 2 ? pages - 2 : pages)),
           percent: Math.round(fraction * 100),
           isEstimated: false,
           sectionIndex,
@@ -1990,6 +2039,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
                 setSelection(null);
                 clearAllSelections();
               }
+              isScrubberSeekingRef.current = true;
               viewRef.current?.goToFraction(frac);
             }}
             onPrev={() => viewRef.current?.goLeft()}

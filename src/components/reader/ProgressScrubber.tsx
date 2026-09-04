@@ -38,7 +38,40 @@ export const ProgressScrubber: React.FC<ProgressScrubberProps> = ({
   onMouseLeave,
 }) => {
   const { t } = useTranslation();
-  const percent = Math.round((fraction || 0) * 100);
+  const [isDragging, setIsDragging] = React.useState(false);
+  const [dragFraction, setDragFraction] = React.useState<number | null>(null);
+
+  const isDraggingRef = React.useRef(false);
+  const dragFractionRef = React.useRef<number | null>(null);
+  isDraggingRef.current = isDragging;
+  dragFractionRef.current = dragFraction;
+
+  const effectiveFraction = isDragging && dragFraction !== null ? dragFraction : fraction;
+  const percent = Math.round((effectiveFraction || 0) * 100);
+
+  const commitSeek = React.useCallback(
+    (targetFraction: number) => {
+      setIsDragging(false);
+      setDragFraction(null);
+      onSeek(targetFraction);
+    },
+    [onSeek]
+  );
+
+  React.useEffect(() => {
+    const handleGlobalPointerUp = () => {
+      if (isDraggingRef.current && dragFractionRef.current !== null) {
+        commitSeek(dragFractionRef.current);
+      }
+    };
+
+    window.addEventListener("pointerup", handleGlobalPointerUp);
+    window.addEventListener("touchend", handleGlobalPointerUp);
+    return () => {
+      window.removeEventListener("pointerup", handleGlobalPointerUp);
+      window.removeEventListener("touchend", handleGlobalPointerUp);
+    };
+  }, [commitSeek]);
 
   const secondsPerPage =
     averageSecondsPerPage && averageSecondsPerPage > 0
@@ -70,7 +103,7 @@ export const ProgressScrubber: React.FC<ProgressScrubberProps> = ({
   };
 
   const tooltipTitle = pageInfo
-    ? `${t("reader.bookPages", { current: pageInfo.bookPage, total: pageInfo.totalBookPages })} (${pageInfo.percent}%) · ${t("reader.chapterPages", { current: pageInfo.chapterPage, total: pageInfo.totalChapterPages })}`
+    ? `${t("reader.bookPages", { current: pageInfo.bookPage, total: pageInfo.totalBookPages })} (${isDragging ? percent : pageInfo.percent}%) · ${t("reader.chapterPages", { current: pageInfo.chapterPage, total: pageInfo.totalChapterPages })}`
     : `${percent}% · ${locationLabel || ""}`;
 
   return (
@@ -96,8 +129,35 @@ export const ProgressScrubber: React.FC<ProgressScrubberProps> = ({
             min={0}
             max={1}
             step={0.001}
-            value={isNaN(fraction) ? 0 : fraction}
-            onChange={(e) => onSeek(parseFloat(e.target.value))}
+            value={isNaN(effectiveFraction) ? 0 : effectiveFraction}
+            onPointerDown={() => {
+              setIsDragging(true);
+              setDragFraction(fraction);
+            }}
+            onTouchStart={() => {
+              setIsDragging(true);
+              setDragFraction(fraction);
+            }}
+            onChange={(e) => {
+              const val = parseFloat(e.target.value);
+              if (isDragging) {
+                setDragFraction(val);
+              } else {
+                commitSeek(val);
+              }
+            }}
+            onPointerUp={(e) => {
+              if (isDragging && dragFraction !== null) {
+                commitSeek(dragFraction);
+              } else {
+                commitSeek(parseFloat(e.currentTarget.value));
+              }
+            }}
+            onTouchEnd={() => {
+              if (isDraggingRef.current && dragFractionRef.current !== null) {
+                commitSeek(dragFractionRef.current);
+              }
+            }}
             className="footer-progress-slider"
             list="chapter-ticks"
             title={tooltipTitle}

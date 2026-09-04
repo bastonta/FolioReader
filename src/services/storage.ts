@@ -455,33 +455,92 @@ export function loadLastOpenedBook(): RecentBook | null {
   return cachedRecentBooks.length > 0 ? cachedRecentBooks[0] : null;
 }
 
-export function saveRecentBook(book: RecentBook): void {
+const saveRecentBookDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const pendingRecentBooks = new Map<string, RecentBook>();
+
+function persistRecentBookToDb(book: RecentBook): void {
+  if (!isTauri()) return;
+  fileManager.getBookCoverPath(book.id).then((diskCoverPath) => {
+    invoke('db_save_recent_book', {
+      book: {
+        id: book.id,
+        title: book.title,
+        author: book.author,
+        coverPath: diskCoverPath || null,
+        coverUrl: book.coverUrl || null,
+        filePath: book.filePath || null,
+        fileName: book.fileName || null,
+        fileSize: book.fileSize || null,
+        lastLocation: book.lastLocation || null,
+        progressFraction: book.progressFraction || 0.0,
+        lastOpenedAt: book.lastOpenedAt || new Date().toISOString(),
+      },
+    }).catch((err) => {
+      console.error('Failed to save recent book to SQLite:', err);
+    });
+  });
+}
+
+/**
+ * Immediately writes any debounced recent book updates to SQLite.
+ */
+export function flushPendingRecentBook(bookId?: string): void {
+  if (bookId) {
+    const timer = saveRecentBookDebounceTimers.get(bookId);
+    if (timer) {
+      clearTimeout(timer);
+      saveRecentBookDebounceTimers.delete(bookId);
+    }
+    const book = pendingRecentBooks.get(bookId);
+    if (book) {
+      pendingRecentBooks.delete(bookId);
+      persistRecentBookToDb(book);
+    }
+  } else {
+    for (const [_, timer] of saveRecentBookDebounceTimers.entries()) {
+      clearTimeout(timer);
+    }
+    saveRecentBookDebounceTimers.clear();
+    for (const [_, book] of pendingRecentBooks.entries()) {
+      persistRecentBookToDb(book);
+    }
+    pendingRecentBooks.clear();
+  }
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    flushPendingRecentBook();
+  });
+}
+
+export function saveRecentBook(book: RecentBook, debounceMs: number = 800): void {
   cachedRecentBooks = [
     book,
     ...cachedRecentBooks.filter((b) => b.id !== book.id && (book.filePath ? b.filePath !== book.filePath : true)),
   ];
 
-  if (isTauri()) {
-    fileManager.getBookCoverPath(book.id).then((diskCoverPath) => {
-      invoke('db_save_recent_book', {
-        book: {
-          id: book.id,
-          title: book.title,
-          author: book.author,
-          coverPath: diskCoverPath || null,
-          coverUrl: book.coverUrl || null,
-          filePath: book.filePath || null,
-          fileName: book.fileName || null,
-          fileSize: book.fileSize || null,
-          lastLocation: book.lastLocation || null,
-          progressFraction: book.progressFraction || 0.0,
-          lastOpenedAt: book.lastOpenedAt || new Date().toISOString(),
-        },
-      }).catch((err) => {
-        console.error('Failed to save recent book to SQLite:', err);
-      });
-    });
+  if (!isTauri()) return;
+
+  if (debounceMs <= 0) {
+    flushPendingRecentBook(book.id);
+    persistRecentBookToDb(book);
+    return;
   }
+
+  pendingRecentBooks.set(book.id, book);
+  const existingTimer = saveRecentBookDebounceTimers.get(book.id);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+  }
+  saveRecentBookDebounceTimers.set(
+    book.id,
+    setTimeout(() => {
+      saveRecentBookDebounceTimers.delete(book.id);
+      pendingRecentBooks.delete(book.id);
+      persistRecentBookToDb(book);
+    }, debounceMs)
+  );
 }
 
 export function updateRecentBookMetadata(
@@ -515,6 +574,13 @@ export function updateRecentBookMetadata(
 }
 
 export async function removeRecentBook(id: string): Promise<void> {
+  const timer = saveRecentBookDebounceTimers.get(id);
+  if (timer) {
+    clearTimeout(timer);
+    saveRecentBookDebounceTimers.delete(id);
+  }
+  pendingRecentBooks.delete(id);
+
   cachedRecentBooks = cachedRecentBooks.filter((b) => b.id !== id && b.filePath !== id);
 
   if (isTauri()) {

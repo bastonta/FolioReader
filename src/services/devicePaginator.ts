@@ -117,6 +117,18 @@ export class DevicePaginator {
   }
 
   /**
+   * Uniformly normalizes and calculates the displayable page count for a section
+   * across both background measurements and live Foliate relocation events.
+   */
+  public calculateSectionPages(rawPages: number): number {
+    if (this.isFixedLayout) return 1;
+    if (this.layout.flow === 'scrolled') {
+      return Math.max(1, rawPages);
+    }
+    return Math.max(1, rawPages > 2 ? rawPages - 2 : rawPages);
+  }
+
+  /**
    * Called whenever the live reader relocates or renders a section.
    * This provides ground-truth exact measurements for the currently viewed section.
    */
@@ -124,9 +136,7 @@ export class DevicePaginator {
     if (this.isFixedLayout) return;
     if (sectionIndex < 0 || sectionIndex >= this.sectionPages.length) return;
 
-    const chapterTotal = this.layout.flow === 'scrolled'
-      ? Math.max(1, pages)
-      : Math.max(1, pages - 2);
+    const chapterTotal = this.calculateSectionPages(pages);
 
     const section = this.book?.sections?.[sectionIndex];
     const sectionSize = typeof section?.size === 'number' && section.size > 0 ? section.size : 0;
@@ -192,11 +202,8 @@ export class DevicePaginator {
     if (this.isFixedLayout) {
       totalChapterPages = 1;
       chapterPage = 1;
-    } else if (this.layout.flow === 'scrolled') {
-      totalChapterPages = Math.max(1, pages);
-      chapterPage = Math.max(1, Math.min(page, totalChapterPages));
     } else {
-      totalChapterPages = Math.max(1, pages - 2);
+      totalChapterPages = this.calculateSectionPages(pages);
       chapterPage = Math.max(1, Math.min(page, totalChapterPages));
     }
 
@@ -306,8 +313,8 @@ export class DevicePaginator {
               max-width: ${colWidth}px !important;
             `;
             const scrollH = Math.max(frameDoc.documentElement.scrollHeight, frameDoc.body.scrollHeight);
-            const pageCount = Math.max(1, Math.ceil(scrollH / this.layout.height));
-            this.sectionPages[i] = pageCount;
+            const rawPages = Math.max(1, Math.ceil(scrollH / this.layout.height));
+            this.sectionPages[i] = this.calculateSectionPages(rawPages);
           } else {
             // Paginated column layout
             frameDoc.documentElement.style.cssText = `
@@ -330,8 +337,8 @@ export class DevicePaginator {
             range.selectNodeContents(frameDoc.body);
             const rect = range.getBoundingClientRect();
             const contentWidth = rect.width;
-            const pageCount = Math.max(1, Math.ceil(contentWidth / this.layout.width));
-            this.sectionPages[i] = pageCount;
+            const rawPages = Math.max(1, Math.ceil(contentWidth / this.layout.width));
+            this.sectionPages[i] = this.calculateSectionPages(rawPages);
           }
 
           this.measuredSet.add(i);
