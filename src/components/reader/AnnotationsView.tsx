@@ -6,7 +6,7 @@ import { useTranslation } from '../../i18n';
 interface AnnotationsViewProps {
   annotations: Annotation[];
   onSelectAnnotation: (annotation: Annotation) => void;
-  onDeleteAnnotation: (value: string) => void;
+  onDeleteAnnotation: (idOrValue: string) => void;
 }
 
 export const AnnotationsView: React.FC<AnnotationsViewProps> = ({
@@ -61,7 +61,7 @@ export const AnnotationsView: React.FC<AnnotationsViewProps> = ({
                     className="annotation-delete-btn"
                     onClick={(e) => {
                       e.stopPropagation();
-                      onDeleteAnnotation(ann.value);
+                      onDeleteAnnotation(ann.id || ann.value);
                     }}
                     title={t('reader.deleteAnnotation')}
                     aria-label={t('reader.deleteAnnotation')}

@@ -1726,6 +1726,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
 
   // Annotations management
   const handleSaveAnnotation = async (data: {
+    id?: string;
     value: string;
     text: string;
     color: string;
@@ -1734,17 +1735,24 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
     sectionIndex: number;
   }) => {
     const colorKey = getAnnotationColorKey(data.color);
+    const existing =
+      selection?.existingAnnotation ||
+      annotationsRef.current.find((a) => (data.id && a.id === data.id) || a.value === data.value);
+
     const newAnn: Annotation = {
-      id: `ann-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      id:
+        data.id ||
+        existing?.id ||
+        `ann-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       bookId,
       value: data.value,
       color: colorKey,
-      style: 'highlight',
+      style: data.style || existing?.style || 'highlight',
       text: data.text,
       note: data.note,
-      createdAt: new Date().toISOString(),
-      chapterTitle,
-      sectionIndex: data.sectionIndex,
+      createdAt: existing?.createdAt || new Date().toISOString(),
+      chapterTitle: existing?.chapterTitle || chapterTitle,
+      sectionIndex: data.sectionIndex ?? existing?.sectionIndex,
     };
 
     await saveDbAnnotation(newAnn);
@@ -1756,8 +1764,13 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
     syncBookData(bookId).catch(console.warn);
   };
 
-  const handleDeleteAnnotation = async (value: string) => {
-    await deleteDbAnnotation(bookId, value);
+  const handleDeleteAnnotation = async (idOrValue: string) => {
+    const target = annotationsRef.current.find(
+      (a) => a.id === idOrValue || a.value === idOrValue
+    );
+    const value = target ? target.value : idOrValue;
+
+    await deleteDbAnnotation(bookId, idOrValue);
     const updated = await loadDbAnnotations(bookId);
     updateAnnotations(updated);
     viewRef.current?.deleteAnnotation({ value });

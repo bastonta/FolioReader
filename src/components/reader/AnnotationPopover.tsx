@@ -17,6 +17,7 @@ interface AnnotationPopoverProps {
   onClose: () => void;
   onShowOriginalMenu?: () => void;
   onSave: (annotation: {
+    id?: string;
     value: string;
     text: string;
     color: string;
@@ -24,7 +25,7 @@ interface AnnotationPopoverProps {
     note?: string;
     sectionIndex: number;
   }) => void;
-  onDelete?: (value: string) => void;
+  onDelete?: (idOrValue: string) => void;
 }
 
 export const AnnotationPopover: React.FC<AnnotationPopoverProps> = ({
@@ -95,6 +96,7 @@ export const AnnotationPopover: React.FC<AnnotationPopoverProps> = ({
   const handleSave = (color = selectedColor) => {
     const colorKey = getAnnotationColorKey(color);
     onSave({
+      id: selection.existingAnnotation?.id,
       value: selection.cfi,
       text: selection.text,
       color: colorKey,
@@ -196,7 +198,7 @@ export const AnnotationPopover: React.FC<AnnotationPopoverProps> = ({
             type="button"
             className="popover-action-btn popover-action-delete"
             onClick={() => {
-              onDelete(selection.existingAnnotation!.value);
+              onDelete(selection.existingAnnotation!.id || selection.existingAnnotation!.value);
               onClose();
             }}
             title={t('reader.deleteAnnotation')}

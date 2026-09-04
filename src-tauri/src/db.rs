@@ -628,7 +628,11 @@ pub async fn save_annotation(
             section_index = excluded.section_index,
             updated_at = excluded.updated_at,
             is_deleted = 0,
-            sync_status = excluded.sync_status
+            sync_status = CASE
+                WHEN excluded.sync_status = 'synced' THEN 'synced'
+                WHEN annotations.server_id IS NOT NULL THEN 'pending_update'
+                ELSE 'pending_create'
+            END
         "#,
     )
     .bind(id)
@@ -670,21 +674,23 @@ pub async fn save_annotation(
 }
 
 pub async fn delete_annotation(pool: &DbPool, id_or_value: &str) -> Result<(), sqlx::Error> {
-    let item = sqlx::query_as::<_, DbAnnotation>(
+    let items = sqlx::query_as::<_, DbAnnotation>(
         r#"
         SELECT id, server_id, book_id, location_start, location_end, value, selected_text,
                note, color, style, chapter_title, section_index, created_at, updated_at,
                is_deleted != 0 AS is_deleted, sync_status
         FROM annotations
-        WHERE id = ? OR value = ?
+        WHERE (id = ? OR value = ? OR (value != '' AND value IN (SELECT a2.value FROM annotations a2 WHERE a2.id = ? AND a2.book_id = annotations.book_id)))
+          AND is_deleted = 0
         "#,
     )
     .bind(id_or_value)
     .bind(id_or_value)
-    .fetch_optional(pool)
+    .bind(id_or_value)
+    .fetch_all(pool)
     .await?;
 
-    if let Some(ann) = item {
+    for ann in items {
         if ann.server_id.is_none() && ann.sync_status == "pending_create" {
             sqlx::query("DELETE FROM annotations WHERE id = ?")
                 .bind(&ann.id)
@@ -1392,5 +1398,141 @@ mod tests {
             .await
             .expect("get kv after clear");
         assert!(kv_after_clear.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_annotation_updates_and_duplicate_cleanup() {
+        let pool = init_db(Path::new(":memory:"))
+            .await
+            .expect("init memory db");
+        let book_id = "test-book-dup";
+        let cfi = "epubcfi(/6/4!/4/2:10,/4/2:50)";
+
+        // 1. Save initial annotation
+        let _ann1 = save_annotation(
+            &pool,
+            "ann-1",
+            None,
+            book_id,
+            "epubcfi(/6/4!/4/2:10)",
+            "epubcfi(/6/4!/4/2:50)",
+            cfi,
+            "Original text",
+            Some("Original note"),
+            "yellow",
+            Some("highlight"),
+            Some("Chapter 1"),
+            Some(1),
+            None,
+            true,
+        )
+        .await
+        .expect("save initial annotation");
+
+        // 2. Edit existing annotation with SAME ID (Bug 3.1 fix verification)
+        let _ann1_updated = save_annotation(
+            &pool,
+            "ann-1",
+            None,
+            book_id,
+            "epubcfi(/6/4!/4/2:10)",
+            "epubcfi(/6/4!/4/2:50)",
+            cfi,
+            "Original text",
+            Some("Updated note"),
+            "blue",
+            Some("highlight"),
+            Some("Chapter 1"),
+            Some(1),
+            None,
+            true,
+        )
+        .await
+        .expect("update annotation");
+
+        let anns = get_annotations(&pool, book_id).await.expect("get annotations");
+        assert_eq!(anns.len(), 1, "There should be no duplicates when updating with same ID");
+        assert_eq!(anns[0].id, "ann-1");
+        assert_eq!(anns[0].color, "blue");
+        assert_eq!(anns[0].note.as_deref(), Some("Updated note"));
+
+        // 3. Simulate legacy ghost duplicates (two annotations with different IDs but same CFI value)
+        let _ann2_dup = save_annotation(
+            &pool,
+            "ann-2-ghost",
+            None,
+            book_id,
+            "epubcfi(/6/4!/4/2:10)",
+            "epubcfi(/6/4!/4/2:50)",
+            cfi,
+            "Original text",
+            Some("Ghost note"),
+            "green",
+            Some("highlight"),
+            Some("Chapter 1"),
+            Some(1),
+            None,
+            true,
+        )
+        .await
+        .expect("save ghost duplicate");
+
+        let anns_before_delete = get_annotations(&pool, book_id).await.expect("get annotations before delete");
+        assert_eq!(anns_before_delete.len(), 2, "Should have 2 records (simulated duplicate)");
+
+        // 4. Delete by ID of one of the duplicates - should clean up all duplicates for that CFI in the book (Bug 3.2 fix)
+        delete_annotation(&pool, "ann-1").await.expect("delete annotation by id");
+
+        let anns_after_delete = get_annotations(&pool, book_id).await.expect("get annotations after delete");
+        assert_eq!(anns_after_delete.len(), 0, "All duplicates with same CFI should be deleted");
+
+        // 5. Test deletion of duplicates directly by CFI value
+        let cfi2 = "epubcfi(/6/6!/4/2:0,/4/2:20)";
+        save_annotation(
+            &pool,
+            "ann-3a",
+            None,
+            book_id,
+            "epubcfi(/6/6!/4/2:0)",
+            "epubcfi(/6/6!/4/2:20)",
+            cfi2,
+            "Text 2",
+            None,
+            "yellow",
+            None,
+            None,
+            None,
+            None,
+            true,
+        )
+        .await
+        .expect("save 3a");
+
+        save_annotation(
+            &pool,
+            "ann-3b",
+            None,
+            book_id,
+            "epubcfi(/6/6!/4/2:0)",
+            "epubcfi(/6/6!/4/2:20)",
+            cfi2,
+            "Text 2",
+            None,
+            "red",
+            None,
+            None,
+            None,
+            None,
+            true,
+        )
+        .await
+        .expect("save 3b");
+
+        let anns_cfi2_before = get_annotations(&pool, book_id).await.expect("get annotations");
+        assert_eq!(anns_cfi2_before.len(), 2);
+
+        delete_annotation(&pool, cfi2).await.expect("delete by cfi value");
+        let anns_cfi2_after = get_annotations(&pool, book_id).await.expect("get annotations");
+        assert_eq!(anns_cfi2_after.len(), 0, "All duplicates deleted when deleting by value");
     }
 }
