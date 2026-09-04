@@ -48,41 +48,54 @@ export function useReadingTracker({ bookId, currentFraction }: UseReadingTracker
     refreshStats();
   }, [refreshStats]);
 
-  // Stable save function that reads current values from refs
-  const saveCurrentChunkRef = useRef<(() => Promise<void>) | undefined>(undefined);
-  saveCurrentChunkRef.current = async () => {
+  const isSavingRef = useRef<boolean>(false);
+
+  // Flush current session chunk with re-entrancy protection
+  const flushSession = useCallback(async () => {
+    if (isSavingRef.current) return;
     const duration = activeSecondsRef.current;
     const currentBookId = bookIdRef.current;
     if (duration >= 10 && currentBookId) {
-      const now = Date.now();
-      const startIso = new Date(startTimeRef.current).toISOString();
-      const endIso = new Date(now).toISOString();
-      const startProg = startFractionRef.current;
-      const endProg = currentFractionRef.current;
-      const pages = pagesReadRef.current;
+      isSavingRef.current = true;
+      try {
+        const now = Date.now();
+        const startIso = new Date(startTimeRef.current).toISOString();
+        const endIso = new Date(now).toISOString();
+        const startProg = startFractionRef.current;
+        const endProg = currentFractionRef.current;
+        const pages = pagesReadRef.current;
 
-      await saveDbReadingSession(
-        currentBookId,
-        duration,
-        startIso,
-        endIso,
-        startProg,
-        endProg,
-        pages,
-        'FolioReader'
-      );
+        await saveDbReadingSession(
+          currentBookId,
+          duration,
+          startIso,
+          endIso,
+          startProg,
+          endProg,
+          pages,
+          'FolioReader'
+        );
 
-      // Reset chunk trackers
-      activeSecondsRef.current = 0;
-      setActiveSeconds(0);
-      startTimeRef.current = now;
-      startFractionRef.current = currentFractionRef.current;
-      pagesReadRef.current = 0;
+        // Reset chunk trackers
+        activeSecondsRef.current = 0;
+        setActiveSeconds(0);
+        startTimeRef.current = now;
+        startFractionRef.current = currentFractionRef.current;
+        pagesReadRef.current = 0;
 
-      // Silently refresh stats
-      refreshStats();
+        // Silently refresh stats
+        refreshStats();
+      } catch (e) {
+        console.warn('Failed to save reading session chunk:', e);
+      } finally {
+        isSavingRef.current = false;
+      }
     }
-  };
+  }, [refreshStats]);
+
+  // Stable save function that reads current values from refs
+  const saveCurrentChunkRef = useRef<(() => Promise<void>) | undefined>(undefined);
+  saveCurrentChunkRef.current = flushSession;
 
   // Record a page turn
   const recordPageTurn = useCallback(() => {
@@ -152,5 +165,6 @@ export function useReadingTracker({ bookId, currentFraction }: UseReadingTracker
     activeSeconds,
     recordPageTurn,
     refreshStats,
+    flushSession,
   };
 }

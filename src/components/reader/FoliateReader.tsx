@@ -346,7 +346,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   const [currentCFI, setCurrentCFI] = useState<string>('');
   const paginatorRef = useRef<DevicePaginator | null>(null);
 
-  const { stats: readingStats, recordPageTurn, refreshStats } = useReadingTracker({
+  const { stats: readingStats, recordPageTurn, refreshStats, flushSession } = useReadingTracker({
     bookId,
     currentFraction: progressFraction,
   });
@@ -376,12 +376,31 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   const [isBookInfoOpen, setIsBookInfoOpen] = useState<boolean>(false);
   const [customFonts, setCustomFonts] = useState<LoadedCustomFont[]>(() => fontManager.getCachedFonts());
   const isInitialLoadRef = useRef<boolean>(true);
+  const isSyncNavigatingRef = useRef<boolean>(false);
+  const isClosingRef = useRef<boolean>(false);
   const hasUnsyncedProgressRef = useRef<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [syncToast, setSyncToast] = useState<{ message: string; type?: 'info' | 'success' | 'error' } | null>(null);
 
   const settingsBtnRef = useRef<HTMLButtonElement>(null);
+
+  // Close reader safely awaiting session flush and final sync
+  const handleClose = useCallback(async () => {
+    if (isClosingRef.current) return;
+    isClosingRef.current = true;
+    try {
+      await flushSession();
+    } catch (e) {
+      console.warn('Failed to flush reading session on close:', e);
+    }
+    try {
+      await syncBookData(bookId);
+    } catch (e) {
+      console.warn('Failed to sync book data on close:', e);
+    }
+    onBackToLibrary();
+  }, [flushSession, bookId, onBackToLibrary]);
 
   // Subscribe to custom fonts updates
   useEffect(() => {
@@ -396,7 +415,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   useBackHandler(() => { setSelection(null); return true; }, Boolean(selection), 100);
   useBackHandler(() => { setIsSettingsOpen(false); return true; }, isSettingsOpen, 90);
   useBackHandler(() => { onUpdateSettings({ sidebarOpen: false }); return true; }, Boolean(settings.sidebarOpen), 80);
-  useBackHandler(() => { onBackToLibrary(); return true; }, true, 30);
+  useBackHandler(() => { handleClose(); return true; }, true, 30);
 
   const showSyncToast = useCallback(
     (message: string, type: 'info' | 'success' | 'error' = 'info') => {
@@ -413,15 +432,20 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
     if (isSyncing) return;
     setIsSyncing(true);
     try {
-      const [progressResult, syncResult] = await Promise.all([
-        pullBookProgress(bookId),
-        syncBookData(bookId),
-      ]);
+      // 1. Pull progress first to position reader without race conditions
+      const progressResult = await pullBookProgress(bookId);
 
       if (progressResult?.success && progressResult.location) {
         const pct = Math.round(progressResult.progressPercent || 0);
         if (viewRef.current) {
-          await viewRef.current.goTo(progressResult.location);
+          isSyncNavigatingRef.current = true;
+          try {
+            await viewRef.current.goTo(progressResult.location);
+          } finally {
+            setTimeout(() => {
+              isSyncNavigatingRef.current = false;
+            }, 100);
+          }
         }
         showSyncToast(t('reader.syncSuccess', { percent: pct }), 'success');
       } else if (progressResult?.message) {
@@ -430,19 +454,29 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         showSyncToast(t('reader.syncUpToDate'), 'info');
       }
 
+      // 2. Synchronize rest of book entities (bookmarks, annotations, sessions)
+      const syncResult = await syncBookData(bookId);
+
       // Refresh annotations & bookmarks if synced
       if (syncResult && (syncResult.bookmarksSynced > 0 || syncResult.annotationsSynced > 0)) {
         const [syncedAnns, syncedBms] = await Promise.all([
           loadDbAnnotations(bookId),
           loadDbBookmarks(bookId),
         ]);
-        updateAnnotations(syncedAnns);
-        updateBookmarks(syncedBms);
         if (viewRef.current) {
+          const currentAnns = annotationsRef.current;
+          const removedAnns = currentAnns.filter(
+            (old) => !syncedAnns.some((curr) => curr.value === old.value || curr.id === old.id)
+          );
+          for (const ann of removedAnns) {
+            viewRef.current.deleteAnnotation({ value: ann.value });
+          }
           for (const ann of syncedAnns) {
             viewRef.current.addAnnotation(ann);
           }
         }
+        updateAnnotations(syncedAnns);
+        updateBookmarks(syncedBms);
       }
     } catch (err: any) {
       console.error('Failed to sync progress:', err);
@@ -907,7 +941,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         if (detail.cfi) {
           setCurrentCFI(detail.cfi);
           saveLastLocation(bookId, detail.cfi, fraction);
-          if (!isInitialLoadRef.current) {
+          if (!isInitialLoadRef.current && !isSyncNavigatingRef.current) {
             saveDbLastLocation(bookId, detail.cfi, fraction);
             recordPageTurn();
             hasUnsyncedProgressRef.current = true;
@@ -1519,59 +1553,70 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           await view.init({ showTextStart: true });
         }
 
-        setTimeout(() => {
-          isInitialLoadRef.current = false;
-        }, 800);
-
         if (viewRef.current) {
           for (const ann of loadedAnns) {
             viewRef.current.addAnnotation(ann);
           }
         }
 
-        // Always automatically pull latest progress from server on open
-        pullBookProgress(bookId)
-          .then(async (remoteProgress) => {
-            if (remoteProgress?.success && remoteProgress.location) {
-              const remoteLoc = remoteProgress.location;
-              const remotePct = Math.round(remoteProgress.progressPercent || 0);
-              const localPct = Math.round((savedLoc?.fraction || 0) * 100);
+        // 1. Pull latest progress from server and navigate if remote is ahead
+        try {
+          const remoteProgress = await pullBookProgress(bookId);
+          if (!isCancelled && remoteProgress?.success && remoteProgress.location) {
+            const remoteLoc = remoteProgress.location;
+            const remotePct = Math.round(remoteProgress.progressPercent || 0);
+            const localPct = Math.round((savedLoc?.fraction || 0) * 100);
 
-              if (remoteLoc !== savedLoc?.cfi && (remotePct >= localPct || !savedLoc?.cfi)) {
-                if (viewRef.current) {
-                  await viewRef.current.goTo(remoteLoc);
-                  showSyncToast(t('reader.syncSuccess', { percent: remotePct }), 'success');
-                }
-              }
-            }
-          })
-          .catch((err) => {
-            console.warn('Auto progress fetch on book open failed:', err);
-          });
-
-        // Trigger background sync for bookmarks and annotations
-        syncBookData(bookId)
-          .then(async (res) => {
-            if (
-              res &&
-              (res.bookmarksSynced > 0 || res.annotationsSynced > 0 || res.progressSynced)
-            ) {
-              const [syncedAnns, syncedBms] = await Promise.all([
-                loadDbAnnotations(bookId),
-                loadDbBookmarks(bookId),
-              ]);
-              updateAnnotations(syncedAnns);
-              updateBookmarks(syncedBms);
+            if (remoteLoc !== savedLoc?.cfi && (remotePct >= localPct || !savedLoc?.cfi)) {
               if (viewRef.current) {
-                for (const ann of syncedAnns) {
-                  viewRef.current.addAnnotation(ann);
-                }
+                await viewRef.current.goTo(remoteLoc);
+                showSyncToast(t('reader.syncSuccess', { percent: remotePct }), 'success');
               }
             }
-          })
-          .catch(console.warn);
+          }
+        } catch (err) {
+          console.warn('Auto progress fetch on book open failed:', err);
+        } finally {
+          // Reset initial load flag ONLY after initial position & progress pull navigation is settled
+          if (!isCancelled) {
+            isInitialLoadRef.current = false;
+          }
+        }
 
-        setSectionFractions(view.getSectionFractions() || []);
+        if (!isCancelled) {
+          // 2. Only after progress is settled, trigger background sync for bookmarks, annotations, and sessions
+          syncBookData(bookId)
+            .then(async (res) => {
+              if (isCancelled) return;
+              if (
+                res &&
+                (res.bookmarksSynced > 0 || res.annotationsSynced > 0 || res.progressSynced)
+              ) {
+                const [syncedAnns, syncedBms] = await Promise.all([
+                  loadDbAnnotations(bookId),
+                  loadDbBookmarks(bookId),
+                ]);
+                if (isCancelled) return;
+                if (viewRef.current) {
+                  const currentAnns = annotationsRef.current;
+                  const removedAnns = currentAnns.filter(
+                    (old) => !syncedAnns.some((curr) => curr.value === old.value || curr.id === old.id)
+                  );
+                  for (const ann of removedAnns) {
+                    viewRef.current.deleteAnnotation({ value: ann.value });
+                  }
+                  for (const ann of syncedAnns) {
+                    viewRef.current.addAnnotation(ann);
+                  }
+                }
+                updateAnnotations(syncedAnns);
+                updateBookmarks(syncedBms);
+              }
+            })
+            .catch(console.warn);
+
+          setSectionFractions(view.getSectionFractions() || []);
+        }
       } catch (err) {
         console.error('Failed to open book with foliate-js:', err);
       }
@@ -1590,9 +1635,14 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           console.warn('Error closing foliate view:', e);
         }
       }
-      syncBookData(bookId).catch(console.warn);
+      if (!isClosingRef.current) {
+        // Fallback for unmounts not triggered via handleClose: flush then sync sequentially
+        flushSession()
+          .then(() => syncBookData(bookId))
+          .catch(console.warn);
+      }
     };
-  }, [bookId, bookSource]);
+  }, [bookId, bookSource, flushSession, showSyncToast, t, updateAnnotations, updateBookmarks]);
 
   // Window resize handler for column adjustments
   useEffect(() => {
@@ -1767,7 +1817,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
     >
       {/* Top Header Bar matching Screenshots 1 & 3 */}
       <HeaderBar
-        onBackToLibrary={onBackToLibrary}
+        onBackToLibrary={handleClose}
         onToggleSidebar={() =>
           onUpdateSettings({
             sidebarOpen: !settings.sidebarOpen,

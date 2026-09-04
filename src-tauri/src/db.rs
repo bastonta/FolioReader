@@ -748,9 +748,10 @@ pub async fn get_all_local_books_meta(pool: &DbPool) -> Result<Vec<DbLocalBookMe
 
     for row in &mut rows {
         if let Some(ref path) = row.cover_path
-            && !Path::new(path).is_file() {
-                row.cover_path = None;
-            }
+            && !Path::new(path).is_file()
+        {
+            row.cover_path = None;
+        }
     }
 
     Ok(rows)
@@ -769,9 +770,10 @@ pub async fn get_local_book_meta(
 
     if let Some(ref mut row) = item
         && let Some(ref path) = row.cover_path
-            && !Path::new(path).is_file() {
-                row.cover_path = None;
-            }
+        && !Path::new(path).is_file()
+    {
+        row.cover_path = None;
+    }
 
     Ok(item)
 }
@@ -828,9 +830,10 @@ pub async fn get_recent_books(pool: &DbPool, limit: i64) -> Result<Vec<DbRecentB
 
     for row in &mut rows {
         if let Some(ref path) = row.cover_path
-            && !Path::new(path).is_file() {
-                row.cover_path = None;
-            }
+            && !Path::new(path).is_file()
+        {
+            row.cover_path = None;
+        }
     }
 
     Ok(rows)

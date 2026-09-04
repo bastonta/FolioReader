@@ -518,6 +518,7 @@ async fn sync_bookmarks(
     .await
     .unwrap_or_default();
 
+    let mut pushed_server_ids = std::collections::HashSet::new();
     for bm in pending_created {
         let url = format!("{base_url}/api/books/{server_book_id}/bookmarks?format=cfi");
         let payload = ServerCreateBookmarkPayload {
@@ -535,10 +536,12 @@ async fn sync_bookmarks(
             && r.status().is_success()
             && let Ok(created) = r.json::<ServerBookmarkResponse>().await
         {
+            let created_id_str = created.id.to_string();
+            pushed_server_ids.insert(created_id_str.clone());
             let _ = sqlx::query(
                 "UPDATE bookmarks SET server_id = ?, sync_status = 'synced' WHERE id = ?",
             )
-            .bind(created.id.to_string())
+            .bind(created_id_str)
             .bind(&bm.id)
             .execute(pool)
             .await;
@@ -554,7 +557,11 @@ async fn sync_bookmarks(
         && r.status().is_success()
         && let Ok(remote_bookmarks) = r.json::<Vec<ServerBookmarkResponse>>().await
     {
-        for rbm in remote_bookmarks {
+        let mut remote_ids: std::collections::HashSet<String> =
+            remote_bookmarks.iter().map(|b| b.id.to_string()).collect();
+        remote_ids.extend(pushed_server_ids);
+
+        for rbm in &remote_bookmarks {
             let server_id_str = rbm.id.to_string();
             let existing = sqlx::query_as::<_, DbBookmark>(
                         "SELECT id, server_id, book_id, location, fraction, location_label, chapter_title, created_at, is_deleted != 0 AS is_deleted, sync_status FROM bookmarks WHERE server_id = ? OR (location = ? AND (book_id = ? OR book_id = ?))",
@@ -601,6 +608,27 @@ async fn sync_bookmarks(
                     count += 1;
                 }
             }
+        }
+
+        // Delete local bookmarks that were synced with server but are no longer present on server
+        let local_synced = sqlx::query_as::<_, DbBookmark>(
+            "SELECT id, server_id, book_id, location, fraction, location_label, chapter_title, created_at, is_deleted != 0 AS is_deleted, sync_status FROM bookmarks WHERE (book_id = ? OR book_id = ?) AND sync_status = 'synced' AND server_id IS NOT NULL",
+        )
+        .bind(local_book_id)
+        .bind(server_book_id)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+
+        for bm in local_synced {
+            if let Some(ref sid) = bm.server_id
+                && !remote_ids.contains(sid) {
+                    let _ = sqlx::query("DELETE FROM bookmarks WHERE id = ?")
+                        .bind(&bm.id)
+                        .execute(pool)
+                        .await;
+                    count += 1;
+                }
         }
     }
 
@@ -675,6 +703,7 @@ async fn sync_annotations(
     .await
     .unwrap_or_default();
 
+    let mut pushed_server_ids = std::collections::HashSet::new();
     for ann in pending_created {
         let url = format!("{base_url}/api/books/{server_book_id}/annotations?format=cfi");
         let payload = ServerCreateAnnotationPayload {
@@ -703,10 +732,12 @@ async fn sync_annotations(
             && r.status().is_success()
             && let Ok(created) = r.json::<ServerAnnotationResponse>().await
         {
+            let created_id_str = created.id.to_string();
+            pushed_server_ids.insert(created_id_str.clone());
             let _ = sqlx::query(
                 "UPDATE annotations SET server_id = ?, sync_status = 'synced' WHERE id = ?",
             )
-            .bind(created.id.to_string())
+            .bind(created_id_str)
             .bind(&ann.id)
             .execute(pool)
             .await;
@@ -759,7 +790,13 @@ async fn sync_annotations(
         && r.status().is_success()
         && let Ok(remote_annotations) = r.json::<Vec<ServerAnnotationResponse>>().await
     {
-        for rann in remote_annotations {
+        let mut remote_ids: std::collections::HashSet<String> = remote_annotations
+            .iter()
+            .map(|a| a.id.to_string())
+            .collect();
+        remote_ids.extend(pushed_server_ids);
+
+        for rann in &remote_annotations {
             let server_id_str = rann.id.to_string();
             let existing = sqlx::query_as::<_, DbAnnotation>(
                         "SELECT id, server_id, book_id, location_start, location_end, value, selected_text, note, color, style, chapter_title, section_index, created_at, updated_at, is_deleted != 0 AS is_deleted, sync_status FROM annotations WHERE server_id = ? OR (location_start = ? AND (book_id = ? OR book_id = ?))",
@@ -837,6 +874,27 @@ async fn sync_annotations(
                     count += 1;
                 }
             }
+        }
+
+        // Delete local annotations that were synced with server but are no longer present on server
+        let local_synced = sqlx::query_as::<_, DbAnnotation>(
+            "SELECT id, server_id, book_id, location_start, location_end, value, selected_text, note, color, style, chapter_title, section_index, created_at, updated_at, is_deleted != 0 AS is_deleted, sync_status FROM annotations WHERE (book_id = ? OR book_id = ?) AND sync_status = 'synced' AND server_id IS NOT NULL",
+        )
+        .bind(local_book_id)
+        .bind(server_book_id)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+
+        for ann in local_synced {
+            if let Some(ref sid) = ann.server_id
+                && !remote_ids.contains(sid) {
+                    let _ = sqlx::query("DELETE FROM annotations WHERE id = ?")
+                        .bind(&ann.id)
+                        .execute(pool)
+                        .await;
+                    count += 1;
+                }
         }
     }
 
