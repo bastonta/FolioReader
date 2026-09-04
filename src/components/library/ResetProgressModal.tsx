@@ -1,6 +1,6 @@
 import React from 'react';
 import { Modal } from '../common/Modal';
-import { Smartphone, Globe, RotateCcw, AlertCircle } from 'lucide-react';
+import { RotateCcw, AlertCircle } from 'lucide-react';
 import { useTranslation } from '../../i18n';
 
 export interface ResetProgressModalProps {
@@ -9,7 +9,7 @@ export interface ResetProgressModalProps {
   currentPercent?: number;
   isOffline?: boolean;
   onClose: () => void;
-  onConfirmReset: (resetOnServer: boolean) => void;
+  onConfirmReset: () => void;
 }
 
 export const ResetProgressModal: React.FC<ResetProgressModalProps> = ({
@@ -29,13 +29,23 @@ export const ResetProgressModal: React.FC<ResetProgressModalProps> = ({
       title={t('resetModal.title')}
       maxWidth="480px"
       footer={
-        <div style={{ display: 'flex', justifyContent: 'flex-end', width: '100%' }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', width: '100%' }}>
           <button
             type="button"
-            className="auth-btn-secondary"
+            className="dialog-btn dialog-btn-secondary"
             onClick={onClose}
           >
             {t('common.cancel')}
+          </button>
+          <button
+            type="button"
+            className="dialog-btn dialog-btn-danger"
+            onClick={() => {
+              onConfirmReset();
+              onClose();
+            }}
+          >
+            {t('resetModal.confirmButton')}
           </button>
         </div>
       }
@@ -54,48 +64,6 @@ export const ResetProgressModal: React.FC<ResetProgressModalProps> = ({
         <p className="reset-modal-description">
           {t('resetModal.description')}
         </p>
-
-        <div className="reset-modal-options">
-          {/* Option 1: Client only */}
-          <button
-            type="button"
-            className="reset-option-card"
-            onClick={() => {
-              onConfirmReset(false);
-              onClose();
-            }}
-          >
-            <div className="reset-option-icon-wrap">
-              <Smartphone size={22} />
-            </div>
-            <div className="reset-option-text">
-              <span className="reset-option-title">{t('resetModal.deviceOnlyTitle')}</span>
-              <span className="reset-option-subtitle">
-                {t('resetModal.deviceOnlyDesc')}
-              </span>
-            </div>
-          </button>
-
-          {/* Option 2: Everywhere (Client & Server) */}
-          <button
-            type="button"
-            className="reset-option-card server-option"
-            onClick={() => {
-              onConfirmReset(true);
-              onClose();
-            }}
-          >
-            <div className="reset-option-icon-wrap server-icon">
-              <Globe size={22} />
-            </div>
-            <div className="reset-option-text">
-              <span className="reset-option-title">{t('resetModal.serverTitle')}</span>
-              <span className="reset-option-subtitle">
-                {t('resetModal.serverDesc')}
-              </span>
-            </div>
-          </button>
-        </div>
 
         {isOffline && (
           <div className="reset-modal-offline-hint">

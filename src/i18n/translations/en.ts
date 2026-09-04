@@ -210,13 +210,8 @@ export const en = {
   "resetModal.title": "Reset Book Progress",
   "resetModal.currentProgress": "Current progress: {percent}%",
   "resetModal.description":
-    "Choose where to reset your reading position and progress status:",
-  "resetModal.deviceOnlyTitle": "On this device only",
-  "resetModal.deviceOnlyDesc":
-    "Resets reading progress locally. Data on the Folio server will remain unchanged.",
-  "resetModal.serverTitle": "Everywhere (device & server)",
-  "resetModal.serverDesc":
-    "Resets reading progress locally and deletes saved progress from the Folio server.",
+    "Are you sure you want to reset reading progress for this book? Reading position and progress will be reset both on this device and on the Folio server.",
+  "resetModal.confirmButton": "Reset Progress",
   "resetModal.offlineHint":
     "Device is offline. Server reset will take effect once connection is restored.",
 

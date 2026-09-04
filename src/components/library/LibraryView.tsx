@@ -461,7 +461,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   };
 
   // Confirm Reset Progress
-  const handleConfirmResetProgress = async (resetOnServer: boolean) => {
+  const handleConfirmResetProgress = async () => {
     if (!resetModalState.book) return;
     const book = resetModalState.book;
 
@@ -481,7 +481,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     );
 
     // 2. Perform DB / Server reset
-    await resetBookProgress(book.id, resetOnServer);
+    await resetBookProgress(book.id, true);
     refreshRecentProgress();
   };
 

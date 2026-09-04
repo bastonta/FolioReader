@@ -214,13 +214,9 @@ export const ru: Partial<Record<TranslationKey, string>> = {
   "contextMenu.deleteFromDevice": "Удалить с устройства",
   "resetModal.title": "Сброс прогресса книги",
   "resetModal.currentProgress": "Текущий прогресс: {percent}%",
-  "resetModal.description": "Выберите, где сбросить позицию и прогресс чтения:",
-  "resetModal.deviceOnlyTitle": "Только на этом устройстве",
-  "resetModal.deviceOnlyDesc":
-    "Сбрасывает прогресс чтения локально. Данные на сервере Folio не изменятся.",
-  "resetModal.serverTitle": "Везде (на устройстве и сервере)",
-  "resetModal.serverDesc":
-    "Сбрасывает прогресс чтения локально и удаляет сохраненный прогресс на сервере Folio.",
+  "resetModal.description":
+    "Вы уверены, что хотите сбросить прогресс чтения этой книги? Позиция и прогресс будут сброшены на этом устройстве и на сервере Folio.",
+  "resetModal.confirmButton": "Сбросить прогресс",
   "resetModal.offlineHint":
     "Устройство офлайн. Сброс на сервере выполнится при появлении связи.",
 

@@ -18,7 +18,8 @@
     "@tauri-apps/plugin-http": "^2.6.0",
     "@tauri-apps/plugin-opener": "^2.5.5",
     "@types/qrcode": "^1.5.6",
-    "lucide-react": "^1.38.0",
+    "dompurify": "^3.4.14",
+    "lucide-react": "^1.40.0",
     "qrcode": "^1.5.4",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
@@ -26,8 +27,9 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.4",
+    "@types/dompurify": "^3.2.0",
     "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.5",
+    "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
     "typescript": "~7.0.2",
     "vite": "^8.2.2"

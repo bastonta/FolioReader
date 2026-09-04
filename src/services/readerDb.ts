@@ -155,16 +155,10 @@ function isUuid(str: string): boolean {
 }
 
 /**
- * Resets book progress locally and optionally on the server.
+ * Resets book progress locally and optionally on the server (defaults to true).
  */
-export async function resetBookProgress(bookId: string, resetOnServer: boolean = false): Promise<void> {
-  // 1. Delete from SQLite
-  await deleteDbProgress(bookId);
-
-  // 2. Reset in localStorage recent books
-  resetRecentBookProgress(bookId);
-
-  // 3. Reset on server if requested
+export async function resetBookProgress(bookId: string, resetOnServer: boolean = true): Promise<void> {
+  // 1. Reset on server if requested
   if (resetOnServer) {
     try {
       let serverBookId: string | null = null;
@@ -181,6 +175,12 @@ export async function resetBookProgress(bookId: string, resetOnServer: boolean =
       console.warn(`Failed to reset progress on server for book ${bookId}:`, err);
     }
   }
+
+  // 2. Delete from SQLite
+  await deleteDbProgress(bookId);
+
+  // 3. Reset in localStorage recent books
+  resetRecentBookProgress(bookId);
 }
 
 /**

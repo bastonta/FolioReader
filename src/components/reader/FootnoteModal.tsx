@@ -1,5 +1,6 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { X, ExternalLink } from 'lucide-react';
+import DOMPurify from 'dompurify';
 import { FootnoteData } from '../../types/reader';
 import { useTranslation } from '../../i18n';
 
@@ -27,6 +28,11 @@ export const FootnoteModal: React.FC<FootnoteModalProps> = ({
     }
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [footnote, onClose]);
+
+  const sanitizedHtml = useMemo(() => {
+    if (!footnote?.contentHtml) return '';
+    return DOMPurify.sanitize(footnote.contentHtml, { USE_PROFILES: { html: true } });
+  }, [footnote?.contentHtml]);
 
   if (!footnote) return null;
 
@@ -56,7 +62,7 @@ export const FootnoteModal: React.FC<FootnoteModalProps> = ({
 
         <div
           className="footnote-modal-body"
-          dangerouslySetInnerHTML={{ __html: footnote.contentHtml }}
+          dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
         />
 
         <div className="footnote-modal-footer">

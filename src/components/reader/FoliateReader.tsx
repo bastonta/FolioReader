@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import DOMPurify from 'dompurify';
 import '../../foliate-js/view.js';
 import { Overlayer } from '../../foliate-js/overlayer.js';
 import { RefreshCw } from 'lucide-react';
@@ -151,7 +152,8 @@ export const extractFootnoteData = async (
       'a[role*="doc-backlink"], a[epub\\:type*="backlink"], a[class*="backlink"], a[class*="return"], .footnote-back, .backlink'
     ).forEach((el) => el.remove());
 
-    const contentHtml = clone.innerHTML.trim() || clone.textContent?.trim() || '';
+    const rawHtml = clone.innerHTML.trim() || clone.textContent?.trim() || '';
+    const contentHtml = DOMPurify.sanitize(rawHtml, { USE_PROFILES: { html: true } });
     if (!contentHtml) return null;
 
     const linkText = a?.textContent?.trim() || '';
