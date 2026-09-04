@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-04
+
+### Added
+- Comprehensive book reading statistics in BookInfoModal: total reading time, speed/pace, estimated remaining time, sessions, pages read, first/last read dates, and multi-segment device breakdown.
+- Reading statistics reset capability with confirmation dialog across local SQLite database and Folio server.
+- Book details and statistics inspection shortcuts in Browse catalog (grid and list views) and Library context menu.
+- Folio API client and TypeScript models aligned with OpenAPI 3.1.0 (books, series, bookmarks, annotations, progress, reading summary, daily activity, and system version APIs).
+- Email-based confirmation resend support in authentication API with cooldown handling in confirmation and password reset pages.
+- Batch downloaded book status checks via SQLite mappings and disk verification (`db_check_downloaded_books`) in BrowseView.
+- Localized formatting utilities for reading speed, devices, and dates in Russian and English.
+
+### Changed
+- Standardized section page calculations across background measurement and active section relocation in DevicePaginator to prevent page count jumps.
+- Debounced SQLite persistence for recent books and reading progress by 800ms with eager flush on reader close, unmount, and background sync.
+- Progress scrubber updates visual progress while dragging and triggers reader navigation only upon release (`pointerup`/`touchend`).
+- Simplified progress reset to always perform a confirmed reset locally and on the server, removing the device-only option.
+- Improved Folio server URL validation with schema verification against `/api/version` and safe protocol handling.
+
+### Fixed
+- Prevented infinite sync loops for local-only books by introducing `local_only` sync status and filtering unmapped books from pending sync queues.
+- Resolved race conditions between progress pull and background sync when opening a book, deferring progress updates until navigation settles.
+- Prevented reading session loss on reader exit by ensuring session persistence completes before triggering sync and unmounting.
+- Fixed annotation editing and deletion by preserving IDs/metadata, cleaning up duplicate entries matching CFI or ID, and preventing duplicate bookmarks/annotations.
+- Synchronized remote deletions for bookmarks and annotations, pruning local synced records and updating active reader overlays.
+- Prevented terminal window popup/flash on Windows when opening external URLs and folders by prioritizing native shell execution with `CREATE_NO_WINDOW`.
+- Prevented scrubber jumps and programmatic sync navigations from artificially inflating reading tracker page counts.
+- Cached missing cover status (`no_cover`) to avoid repeated extraction attempts, and added SQLite fallback to resolve book file paths.
+- Cleaned up blob object URLs on reader unmount and cancellation in FoliateReader.
+
+### Security
+- Sanitized footnote HTML content in FootnoteModal using DOMPurify to prevent XSS vulnerabilities.
+
 ## [0.5.0] - 2026-09-01
 
 ### Added
