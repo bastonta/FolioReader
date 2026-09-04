@@ -36,6 +36,7 @@ import {
   saveDbBookMapping,
   fetchServerBookStatistics,
   deleteBookStatistics,
+  checkDownloadedServerBooks,
 } from "../../services/readerDb";
 import {
   saveRecentBook,
@@ -363,32 +364,59 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
       setItems(res.items || []);
       setTotalItems(res.total || 0);
 
-      // Check which books are already downloaded locally
+      // Check which books are already downloaded locally using SQLite mappings and disk check
       if (settings.downloadPath && res.items) {
         const bookItems = res.items.filter((i) => i.type === "book");
-        const newPaths: Record<string, string> = {};
-        const newStates: Record<
-          string,
-          "downloading" | "downloaded" | "error"
-        > = {};
-        for (const book of bookItems) {
-          const seriesPath =
-            currentSeriesPath.map((s) => s.name).join("/") || undefined;
-          const fileName = `${book.name}.epub`;
-          const existingPath = await fileManager.checkBookDownloaded({
-            baseDir: settings.downloadPath,
-            fileName,
-            seriesName:
-              settings.createSeriesFolder !== false ? seriesPath : undefined,
-          });
-          if (existingPath) {
-            newPaths[book.id] = existingPath;
-            newStates[book.id] = "downloaded";
+        if (bookItems.length > 0) {
+          const newPaths: Record<string, string> = {};
+          const newStates: Record<
+            string,
+            "downloading" | "downloaded" | "error"
+          > = {};
+
+          // 1. Fast batch check in SQLite book_mappings with disk file verification
+          const downloadedMap = await checkDownloadedServerBooks(
+            bookItems.map((b) => b.id)
+          );
+
+          for (const [serverId, filePath] of Object.entries(downloadedMap)) {
+            newPaths[serverId] = filePath;
+            newStates[serverId] = "downloaded";
           }
-        }
-        if (Object.keys(newPaths).length > 0) {
-          setDownloadedPaths((prev) => ({ ...prev, ...newPaths }));
-          setDownloadStates((prev) => ({ ...prev, ...newStates }));
+
+          // 2. Fallback check for any books not yet found in SQLite mappings (e.g. legacy downloads)
+          const unmappedBooks = bookItems.filter((b) => !newPaths[b.id]);
+          if (unmappedBooks.length > 0) {
+            await Promise.all(
+              unmappedBooks.map(async (book) => {
+                const seriesPath =
+                  currentSeriesPath.map((s) => s.name).join("/") || undefined;
+                const fileName = `${book.name}.epub`;
+                const existingPath = await fileManager.checkBookDownloaded({
+                  baseDir: settings.downloadPath!,
+                  fileName,
+                  seriesName:
+                    settings.createSeriesFolder !== false ? seriesPath : undefined,
+                });
+                if (existingPath) {
+                  newPaths[book.id] = existingPath;
+                  newStates[book.id] = "downloaded";
+                  const localId = fileManager.getLocalBookId(
+                    existingPath,
+                    settings.downloadPath!
+                  );
+                  saveDbBookMapping(localId, book.id, existingPath).catch(
+                    console.warn
+                  );
+                }
+              })
+            );
+          }
+
+          if (Object.keys(newPaths).length > 0) {
+            setDownloadedPaths((prev) => ({ ...prev, ...newPaths }));
+            setDownloadStates((prev) => ({ ...prev, ...newStates }));
+          }
         }
       }
     } catch (err: any) {

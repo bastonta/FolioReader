@@ -439,6 +439,8 @@ export const en = {
   "auth.serverUrlRequired": "Server URL is required",
   "auth.serverConnectFailed":
     "Failed to connect to server. Please check the URL.",
+  "auth.invalidFolioServer":
+    "The specified address is not a valid Folio server.",
   "auth.serverUrlLabel": "Server URL",
   "auth.connecting": "Connecting...",
   "auth.connect": "Connect",

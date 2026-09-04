@@ -11,6 +11,16 @@ interface LoginPageProps {
   onToggleTheme?: () => void;
 }
 
+function formatServerHost(urlStr: string): string {
+  if (!urlStr) return '';
+  try {
+    const formatted = urlStr.includes('://') ? urlStr : `https://${urlStr}`;
+    return new URL(formatted).host || urlStr;
+  } catch {
+    return urlStr;
+  }
+}
+
 export const LoginPage: React.FC<LoginPageProps> = ({ theme, onToggleTheme }) => {
   const { t } = useTranslation();
   const [email, setEmail] = useState('');
@@ -109,7 +119,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ theme, onToggleTheme }) =>
             title={t('auth.changeServer')}
           >
             <Server size={14} />
-            <span>{new URL(serverUrl).host}</span>
+            <span>{formatServerHost(serverUrl)}</span>
           </div>
         )}
 

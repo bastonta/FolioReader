@@ -98,6 +98,20 @@ export async function getDbServerBookId(bookId: string): Promise<string | null> 
   }
 }
 
+export async function checkDownloadedServerBooks(
+  serverBookIds: string[]
+): Promise<Record<string, string>> {
+  if (!isTauri() || !serverBookIds.length) return {};
+  try {
+    return await invoke<Record<string, string>>('db_check_downloaded_books', {
+      serverBookIds,
+    });
+  } catch (err) {
+    console.warn('Failed to check downloaded server books:', err);
+    return {};
+  }
+}
+
 // ================= PROGRESS =================
 
 export async function loadDbLastLocation(

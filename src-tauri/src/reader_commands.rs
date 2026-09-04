@@ -29,6 +29,16 @@ pub async fn db_get_server_book_id(
 }
 
 #[tauri::command]
+pub async fn db_check_downloaded_books(
+    server_book_ids: Vec<String>,
+    db: State<'_, DbPool>,
+) -> Result<std::collections::HashMap<String, String>, String> {
+    db::check_downloaded_books(&db, &server_book_ids)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn db_save_progress(
     book_id: String,
     location: String,
@@ -202,30 +212,51 @@ pub async fn sync_all_pending(
         auth.client().clone()
     };
 
-    // Find all book_ids that have pending progress, bookmarks, or annotations
+    // Find all book_ids that have pending progress, bookmarks, or annotations,
+    // excluding purely local unmapped books to prevent infinite sync loops.
     let pending_progress_books = sqlx::query_scalar::<_, String>(
-        "SELECT book_id FROM book_progress WHERE sync_status = 'pending'",
+        "SELECT bp.book_id FROM book_progress bp
+         WHERE bp.sync_status = 'pending'
+         AND (
+             bp.book_id GLOB '[0-9a-fA-F]*-[0-9a-fA-F]*-[0-9a-fA-F]*-[0-9a-fA-F]*-[0-9a-fA-F]*'
+             OR EXISTS (SELECT 1 FROM book_mappings bm WHERE (bm.local_id = bp.book_id OR bm.file_path = bp.book_id) AND bm.server_book_id != '')
+         )",
     )
     .fetch_all(&*db)
     .await
     .unwrap_or_default();
 
     let pending_bookmark_books = sqlx::query_scalar::<_, String>(
-        "SELECT DISTINCT book_id FROM bookmarks WHERE sync_status LIKE 'pending%'",
+        "SELECT DISTINCT b.book_id FROM bookmarks b
+         WHERE b.sync_status LIKE 'pending%'
+         AND (
+             b.book_id GLOB '[0-9a-fA-F]*-[0-9a-fA-F]*-[0-9a-fA-F]*-[0-9a-fA-F]*-[0-9a-fA-F]*'
+             OR EXISTS (SELECT 1 FROM book_mappings bm WHERE (bm.local_id = b.book_id OR bm.file_path = b.book_id) AND bm.server_book_id != '')
+         )",
     )
     .fetch_all(&*db)
     .await
     .unwrap_or_default();
 
     let pending_annotation_books = sqlx::query_scalar::<_, String>(
-        "SELECT DISTINCT book_id FROM annotations WHERE sync_status LIKE 'pending%'",
+        "SELECT DISTINCT a.book_id FROM annotations a
+         WHERE a.sync_status LIKE 'pending%'
+         AND (
+             a.book_id GLOB '[0-9a-fA-F]*-[0-9a-fA-F]*-[0-9a-fA-F]*-[0-9a-fA-F]*-[0-9a-fA-F]*'
+             OR EXISTS (SELECT 1 FROM book_mappings bm WHERE (bm.local_id = a.book_id OR bm.file_path = a.book_id) AND bm.server_book_id != '')
+         )",
     )
     .fetch_all(&*db)
     .await
     .unwrap_or_default();
 
     let pending_session_books = sqlx::query_scalar::<_, String>(
-        "SELECT DISTINCT book_id FROM reading_sessions WHERE sync_status = 'pending'",
+        "SELECT DISTINCT s.book_id FROM reading_sessions s
+         WHERE s.sync_status = 'pending'
+         AND (
+             s.book_id GLOB '[0-9a-fA-F]*-[0-9a-fA-F]*-[0-9a-fA-F]*-[0-9a-fA-F]*-[0-9a-fA-F]*'
+             OR EXISTS (SELECT 1 FROM book_mappings bm WHERE (bm.local_id = s.book_id OR bm.file_path = s.book_id) AND bm.server_book_id != '')
+         )",
     )
     .fetch_all(&*db)
     .await

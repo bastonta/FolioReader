@@ -956,9 +956,15 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   // Initialize and load book
   useEffect(() => {
     let isCancelled = false;
+    let objectUrlToRevoke: string | null = null;
 
     async function initBook() {
       if (!viewerContainerRef.current) return;
+
+      if (objectUrlToRevoke) {
+        URL.revokeObjectURL(objectUrlToRevoke);
+        objectUrlToRevoke = null;
+      }
 
       // Clean up previous view
       if (viewRef.current) {
@@ -1516,9 +1522,18 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           coverBlob = await Promise.resolve(book.getCover?.());
           if (coverBlob) {
             coverUrl = URL.createObjectURL(coverBlob);
+            objectUrlToRevoke = coverUrl;
           }
         } catch (e) {
           console.warn('Cover extraction failed:', e);
+        }
+
+        if (isCancelled) {
+          if (objectUrlToRevoke) {
+            URL.revokeObjectURL(objectUrlToRevoke);
+            objectUrlToRevoke = null;
+          }
+          return;
         }
 
         // Persist extracted metadata & cover thumbnail to recent books and local cache
@@ -1675,6 +1690,10 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
 
     return () => {
       isCancelled = true;
+      if (objectUrlToRevoke) {
+        URL.revokeObjectURL(objectUrlToRevoke);
+        objectUrlToRevoke = null;
+      }
       paginatorRef.current?.destroy();
       paginatorRef.current = null;
       if (viewRef.current) {

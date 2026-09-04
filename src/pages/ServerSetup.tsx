@@ -46,13 +46,22 @@ export const ServerSetup: React.FC<ServerSetupProps> = ({ theme, onToggleTheme }
         finalUrl = finalUrl.slice(0, -1);
       }
 
-      // Simple test request to validate the server URL
-      const response = await fetch(`${finalUrl}/api/identity`, {
+      // Test request to validate the Folio server URL
+      const response = await fetch(`${finalUrl}/api/version`, {
         method: "GET",
       });
 
-      if (!response.ok && response.status !== 401 && response.status !== 404) {
-        throw new Error(`Server responded with status: ${response.status}`);
+      if (!response.ok) {
+        throw new Error(
+          response.status === 404
+            ? t('auth.invalidFolioServer')
+            : `Server responded with status: ${response.status}`
+        );
+      }
+
+      const data = await response.json().catch(() => null);
+      if (!data || typeof data !== "object" || typeof (data as any).version !== "string") {
+        throw new Error(t('auth.invalidFolioServer'));
       }
 
       setServerUrl(finalUrl);

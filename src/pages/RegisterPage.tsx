@@ -10,6 +10,16 @@ interface RegisterPageProps {
   onToggleTheme?: () => void;
 }
 
+function formatServerHost(urlStr: string): string {
+  if (!urlStr) return '';
+  try {
+    const formatted = urlStr.includes('://') ? urlStr : `https://${urlStr}`;
+    return new URL(formatted).host || urlStr;
+  } catch {
+    return urlStr;
+  }
+}
+
 export const RegisterPage: React.FC<RegisterPageProps> = ({ theme, onToggleTheme }) => {
   const { t } = useTranslation();
   const [name, setName] = useState('');
@@ -75,7 +85,7 @@ export const RegisterPage: React.FC<RegisterPageProps> = ({ theme, onToggleTheme
             title={t('auth.changeServer')}
           >
             <Server size={14} />
-            <span>{new URL(serverUrl).host}</span>
+            <span>{formatServerHost(serverUrl)}</span>
           </div>
         )}
 

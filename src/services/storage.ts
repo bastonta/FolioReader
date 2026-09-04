@@ -629,6 +629,7 @@ export interface LocalBookCacheItem {
   author: string;
   coverUrl?: string;
   extracted?: boolean;
+  noCover?: boolean;
 }
 
 export interface DbLocalBookMetaRow {
@@ -654,7 +655,10 @@ export async function loadLocalBooksCacheAsync(): Promise<Record<string, LocalBo
     for (const r of rows) {
       let coverUrl: string | undefined;
       let diskPath = r.coverPath;
-      if (!diskPath) {
+      const hasNoCoverMarker = diskPath === 'no_cover';
+      if (hasNoCoverMarker) {
+        diskPath = undefined;
+      } else if (!diskPath) {
         diskPath = (await fileManager.getBookCoverPath(r.bookId)) || undefined;
       }
       if (diskPath) {
@@ -666,6 +670,7 @@ export async function loadLocalBooksCacheAsync(): Promise<Record<string, LocalBo
         author: r.author,
         coverUrl,
         extracted: r.extracted,
+        noCover: hasNoCoverMarker || (!diskPath && r.extracted),
       };
     }
     cachedLocalMeta = result;
@@ -691,12 +696,13 @@ export function saveLocalBookCache(
         updated.coverUrl = convertFileSrc(diskCoverPath);
         cachedLocalMeta[bookId] = updated;
       }
+      const coverPathToSave = diskCoverPath || (updated.noCover ? 'no_cover' : null);
       invoke('db_save_local_book_meta', {
         bookId,
         filePath: filePath || '',
         title: updated.title,
         author: updated.author,
-        coverPath: diskCoverPath || null,
+        coverPath: coverPathToSave,
         extracted: updated.extracted ?? true,
       }).catch((err) => {
         console.error('Failed to save local book metadata to SQLite:', err);

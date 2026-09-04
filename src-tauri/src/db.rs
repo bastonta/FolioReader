@@ -283,6 +283,41 @@ pub async fn save_book_mapping(
     .execute(pool)
     .await?;
 
+    if !server_book_id.is_empty() {
+        // Promote any records previously marked 'local_only' back to 'pending' so they will sync to server
+        let _ = sqlx::query(
+            "UPDATE book_progress SET sync_status = 'pending' WHERE (book_id = ? OR book_id = ?) AND sync_status = 'local_only'",
+        )
+        .bind(local_id)
+        .bind(server_book_id)
+        .execute(pool)
+        .await;
+
+        let _ = sqlx::query(
+            "UPDATE bookmarks SET sync_status = 'pending_create' WHERE (book_id = ? OR book_id = ?) AND sync_status = 'local_only'",
+        )
+        .bind(local_id)
+        .bind(server_book_id)
+        .execute(pool)
+        .await;
+
+        let _ = sqlx::query(
+            "UPDATE annotations SET sync_status = 'pending_create' WHERE (book_id = ? OR book_id = ?) AND sync_status = 'local_only'",
+        )
+        .bind(local_id)
+        .bind(server_book_id)
+        .execute(pool)
+        .await;
+
+        let _ = sqlx::query(
+            "UPDATE reading_sessions SET sync_status = 'pending' WHERE (book_id = ? OR book_id = ?) AND sync_status = 'local_only'",
+        )
+        .bind(local_id)
+        .bind(server_book_id)
+        .execute(pool)
+        .await;
+    }
+
     Ok(())
 }
 
@@ -331,7 +366,72 @@ pub async fn get_file_path_for_book(
     .fetch_optional(pool)
     .await?;
 
-    Ok(row.flatten())
+    if let Some(Some(fp)) = row
+        && !fp.is_empty()
+    {
+        return Ok(Some(fp));
+    }
+
+    let meta_fp = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT file_path FROM local_books_metadata WHERE book_id = ? LIMIT 1",
+    )
+    .bind(book_id)
+    .fetch_optional(pool)
+    .await?;
+
+    if let Some(Some(fp)) = meta_fp
+        && !fp.is_empty()
+    {
+        return Ok(Some(fp));
+    }
+
+    let recent_fp = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT file_path FROM recent_books WHERE id = ? LIMIT 1",
+    )
+    .bind(book_id)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(recent_fp.flatten())
+}
+
+#[derive(sqlx::FromRow)]
+struct DownloadedMappingRow {
+    server_book_id: String,
+    file_path: String,
+}
+
+pub async fn check_downloaded_books(
+    pool: &DbPool,
+    server_book_ids: &[String],
+) -> Result<std::collections::HashMap<String, String>, sqlx::Error> {
+    let mut result = std::collections::HashMap::new();
+    if server_book_ids.is_empty() {
+        return Ok(result);
+    }
+
+    for chunk in server_book_ids.chunks(100) {
+        let mut builder: sqlx::QueryBuilder<sqlx::Sqlite> = sqlx::QueryBuilder::new(
+            "SELECT server_book_id, file_path FROM book_mappings WHERE file_path IS NOT NULL AND file_path != '' AND server_book_id IN (",
+        );
+        let mut separated = builder.separated(", ");
+        for id in chunk {
+            separated.push_bind(id);
+        }
+        separated.push_unseparated(")");
+
+        let rows = builder
+            .build_query_as::<DownloadedMappingRow>()
+            .fetch_all(pool)
+            .await?;
+        for row in rows {
+            if std::path::Path::new(&row.file_path).is_file() {
+                result.insert(row.server_book_id, row.file_path);
+            }
+        }
+    }
+
+    Ok(result)
 }
 
 // ================= PROGRESS REPO =================
@@ -371,7 +471,37 @@ pub async fn save_progress(
     mark_pending: bool,
 ) -> Result<DbBookProgress, sqlx::Error> {
     let now = Utc::now().to_rfc3339();
-    let sync_status = if mark_pending { "pending" } else { "synced" };
+    let sync_status = if mark_pending {
+        let is_mapped = uuid::Uuid::parse_str(book_id).is_ok()
+            || sqlx::query_scalar::<_, i32>(
+                "SELECT COUNT(1) FROM book_mappings WHERE (local_id = ? OR file_path = ?) AND server_book_id != ''",
+            )
+            .bind(book_id)
+            .bind(book_id)
+            .fetch_one(pool)
+            .await
+            .unwrap_or(0) > 0;
+
+        if !is_mapped {
+            let existing_status = sqlx::query_scalar::<_, String>(
+                "SELECT sync_status FROM book_progress WHERE book_id = ? LIMIT 1",
+            )
+            .bind(book_id)
+            .fetch_optional(pool)
+            .await
+            .unwrap_or(None);
+
+            if existing_status.as_deref() == Some("local_only") {
+                "local_only"
+            } else {
+                "pending"
+            }
+        } else {
+            "pending"
+        }
+    } else {
+        "synced"
+    };
 
     sqlx::query(
         r#"
@@ -930,6 +1060,34 @@ pub async fn save_reading_session(
     let client_session_id = uuid::Uuid::now_v7().to_string();
     let now = Utc::now().to_rfc3339();
 
+    let is_mapped = uuid::Uuid::parse_str(book_id).is_ok()
+        || sqlx::query_scalar::<_, i32>(
+            "SELECT COUNT(1) FROM book_mappings WHERE (local_id = ? OR file_path = ?) AND server_book_id != ''",
+        )
+        .bind(book_id)
+        .bind(book_id)
+        .fetch_one(pool)
+        .await
+        .unwrap_or(0) > 0;
+
+    let sync_status = if !is_mapped {
+        let is_local_only = sqlx::query_scalar::<_, String>(
+            "SELECT sync_status FROM book_progress WHERE book_id = ? LIMIT 1",
+        )
+        .bind(book_id)
+        .fetch_optional(pool)
+        .await
+        .unwrap_or(None);
+
+        if is_local_only.as_deref() == Some("local_only") {
+            "local_only"
+        } else {
+            "pending"
+        }
+    } else {
+        "pending"
+    };
+
     let session = sqlx::query_as::<_, DbReadingSession>(
         r#"
         INSERT INTO reading_sessions (
@@ -938,7 +1096,7 @@ pub async fn save_reading_session(
             start_progress, end_progress, pages_read,
             sync_status, created_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING *
         "#,
     )
@@ -952,6 +1110,7 @@ pub async fn save_reading_session(
     .bind(start_progress)
     .bind(end_progress)
     .bind(pages_read)
+    .bind(sync_status)
     .bind(&now)
     .fetch_one(pool)
     .await?;
@@ -1450,8 +1609,14 @@ mod tests {
         .await
         .expect("update annotation");
 
-        let anns = get_annotations(&pool, book_id).await.expect("get annotations");
-        assert_eq!(anns.len(), 1, "There should be no duplicates when updating with same ID");
+        let anns = get_annotations(&pool, book_id)
+            .await
+            .expect("get annotations");
+        assert_eq!(
+            anns.len(),
+            1,
+            "There should be no duplicates when updating with same ID"
+        );
         assert_eq!(anns[0].id, "ann-1");
         assert_eq!(anns[0].color, "blue");
         assert_eq!(anns[0].note.as_deref(), Some("Updated note"));
@@ -1477,14 +1642,28 @@ mod tests {
         .await
         .expect("save ghost duplicate");
 
-        let anns_before_delete = get_annotations(&pool, book_id).await.expect("get annotations before delete");
-        assert_eq!(anns_before_delete.len(), 2, "Should have 2 records (simulated duplicate)");
+        let anns_before_delete = get_annotations(&pool, book_id)
+            .await
+            .expect("get annotations before delete");
+        assert_eq!(
+            anns_before_delete.len(),
+            2,
+            "Should have 2 records (simulated duplicate)"
+        );
 
         // 4. Delete by ID of one of the duplicates - should clean up all duplicates for that CFI in the book (Bug 3.2 fix)
-        delete_annotation(&pool, "ann-1").await.expect("delete annotation by id");
+        delete_annotation(&pool, "ann-1")
+            .await
+            .expect("delete annotation by id");
 
-        let anns_after_delete = get_annotations(&pool, book_id).await.expect("get annotations after delete");
-        assert_eq!(anns_after_delete.len(), 0, "All duplicates with same CFI should be deleted");
+        let anns_after_delete = get_annotations(&pool, book_id)
+            .await
+            .expect("get annotations after delete");
+        assert_eq!(
+            anns_after_delete.len(),
+            0,
+            "All duplicates with same CFI should be deleted"
+        );
 
         // 5. Test deletion of duplicates directly by CFI value
         let cfi2 = "epubcfi(/6/6!/4/2:0,/4/2:20)";
@@ -1528,11 +1707,89 @@ mod tests {
         .await
         .expect("save 3b");
 
-        let anns_cfi2_before = get_annotations(&pool, book_id).await.expect("get annotations");
+        let anns_cfi2_before = get_annotations(&pool, book_id)
+            .await
+            .expect("get annotations");
         assert_eq!(anns_cfi2_before.len(), 2);
 
-        delete_annotation(&pool, cfi2).await.expect("delete by cfi value");
-        let anns_cfi2_after = get_annotations(&pool, book_id).await.expect("get annotations");
-        assert_eq!(anns_cfi2_after.len(), 0, "All duplicates deleted when deleting by value");
+        delete_annotation(&pool, cfi2)
+            .await
+            .expect("delete by cfi value");
+        let anns_cfi2_after = get_annotations(&pool, book_id)
+            .await
+            .expect("get annotations");
+        assert_eq!(
+            anns_cfi2_after.len(),
+            0,
+            "All duplicates deleted when deleting by value"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_local_only_and_check_downloaded_books() {
+        let pool = init_db(Path::new(":memory:"))
+            .await
+            .expect("init memory db");
+        let local_id = "local-book-123";
+        let server_id = "550e8400-e29b-41d4-a716-446655440000";
+
+        // 1. Save progress initially as pending
+        let p1 = save_progress(&pool, local_id, "epubcfi(/6/2)", 10.0, false, true)
+            .await
+            .expect("save progress");
+        assert_eq!(p1.sync_status, "pending");
+
+        // 2. Mark as local_only (simulating sync_book failing to find server_id)
+        sqlx::query("UPDATE book_progress SET sync_status = 'local_only' WHERE book_id = ?")
+            .bind(local_id)
+            .execute(&pool)
+            .await
+            .expect("mark local_only");
+
+        // 3. Saving more progress should preserve local_only
+        let p2 = save_progress(&pool, local_id, "epubcfi(/6/4)", 20.0, false, true)
+            .await
+            .expect("save progress 2");
+        assert_eq!(p2.sync_status, "local_only");
+
+        // 4. When book is linked to server via save_book_mapping, local_only records are promoted to pending
+        save_book_mapping(&pool, local_id, server_id, None)
+            .await
+            .expect("save book mapping");
+
+        let p3 = get_progress(&pool, local_id)
+            .await
+            .expect("get progress")
+            .expect("must exist");
+        assert_eq!(p3.sync_status, "pending");
+
+        // 5. Test check_downloaded_books with non-existent and existing files
+        let empty_result = check_downloaded_books(&pool, &[server_id.to_string()])
+            .await
+            .expect("check downloaded");
+        assert!(empty_result.is_empty(), "No file path yet");
+
+        // Create a temporary dummy file to test file existence
+        let temp_dir = std::env::temp_dir();
+        let temp_file = temp_dir.join("folio_test_book.epub");
+        tokio::fs::write(&temp_file, b"test epub content")
+            .await
+            .expect("write temp epub");
+
+        let temp_path_str = temp_file.to_string_lossy().to_string();
+        save_book_mapping(&pool, local_id, server_id, Some(&temp_path_str))
+            .await
+            .expect("update mapping with file");
+
+        let found_result = check_downloaded_books(
+            &pool,
+            &[server_id.to_string(), "non-existent-id".to_string()],
+        )
+        .await
+        .expect("check downloaded with file");
+        assert_eq!(found_result.len(), 1);
+        assert_eq!(found_result.get(server_id).unwrap(), &temp_path_str);
+
+        let _ = tokio::fs::remove_file(temp_file).await;
     }
 }

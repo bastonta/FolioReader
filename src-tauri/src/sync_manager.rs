@@ -207,6 +207,35 @@ pub async fn sync_book(
     let server_id = match resolve_server_book_id(pool, client, base, &headers, book_id).await {
         Some(id) => id,
         None => {
+            // Mark pending records as 'local_only' to prevent infinite sync loop for books not on server
+            let _ = sqlx::query(
+                "UPDATE book_progress SET sync_status = 'local_only' WHERE book_id = ? AND sync_status = 'pending'",
+            )
+            .bind(book_id)
+            .execute(pool)
+            .await;
+
+            let _ = sqlx::query(
+                "UPDATE bookmarks SET sync_status = 'local_only' WHERE book_id = ? AND sync_status LIKE 'pending%'",
+            )
+            .bind(book_id)
+            .execute(pool)
+            .await;
+
+            let _ = sqlx::query(
+                "UPDATE annotations SET sync_status = 'local_only' WHERE book_id = ? AND sync_status LIKE 'pending%'",
+            )
+            .bind(book_id)
+            .execute(pool)
+            .await;
+
+            let _ = sqlx::query(
+                "UPDATE reading_sessions SET sync_status = 'local_only' WHERE book_id = ? AND sync_status = 'pending'",
+            )
+            .bind(book_id)
+            .execute(pool)
+            .await;
+
             return Ok(SyncResult {
                 success: false,
                 message: format!(
@@ -622,13 +651,14 @@ async fn sync_bookmarks(
 
         for bm in local_synced {
             if let Some(ref sid) = bm.server_id
-                && !remote_ids.contains(sid) {
-                    let _ = sqlx::query("DELETE FROM bookmarks WHERE id = ?")
-                        .bind(&bm.id)
-                        .execute(pool)
-                        .await;
-                    count += 1;
-                }
+                && !remote_ids.contains(sid)
+            {
+                let _ = sqlx::query("DELETE FROM bookmarks WHERE id = ?")
+                    .bind(&bm.id)
+                    .execute(pool)
+                    .await;
+                count += 1;
+            }
         }
     }
 
@@ -888,13 +918,14 @@ async fn sync_annotations(
 
         for ann in local_synced {
             if let Some(ref sid) = ann.server_id
-                && !remote_ids.contains(sid) {
-                    let _ = sqlx::query("DELETE FROM annotations WHERE id = ?")
-                        .bind(&ann.id)
-                        .execute(pool)
-                        .await;
-                    count += 1;
-                }
+                && !remote_ids.contains(sid)
+            {
+                let _ = sqlx::query("DELETE FROM annotations WHERE id = ?")
+                    .bind(&ann.id)
+                    .execute(pool)
+                    .await;
+                count += 1;
+            }
         }
     }
 

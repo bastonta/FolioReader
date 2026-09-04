@@ -447,6 +447,8 @@ export const ru: Partial<Record<TranslationKey, string>> = {
   "auth.serverUrlRequired": "Адрес сервера обязателен",
   "auth.serverConnectFailed":
     "Не удалось подключиться к серверу. Проверьте адрес.",
+  "auth.invalidFolioServer":
+    "Указанный адрес не является действительным сервером Folio.",
   "auth.serverUrlLabel": "Адрес сервера",
   "auth.connecting": "Подключение...",
   "auth.connect": "Подключиться",

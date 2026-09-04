@@ -16,6 +16,7 @@ export interface ExtractedMetaResult {
   author: string;
   coverUrl?: string;
   extracted: boolean;
+  noCover?: boolean;
 }
 
 /**
@@ -47,9 +48,9 @@ export async function extractBookCoverAndMeta(
     console.warn(`Failed to check disk cover for '${book.id}':`, err);
   }
 
-  // If cover exists on disk and we have valid metadata and force is false, return immediately
-  if (coverUrl && !forceRecreateCover && extracted && author !== 'Unknown Author') {
-    return { title, author, coverUrl, extracted: true };
+  // If cover exists on disk (or confirmed no cover) and we have valid metadata and force is false, return immediately
+  if ((coverUrl || cachedMeta?.noCover) && !forceRecreateCover && extracted) {
+    return { title, author, coverUrl, extracted: true, noCover: cachedMeta?.noCover };
   }
 
   // 2. Read book file bytes and extract metadata & cover from EPUB
@@ -138,6 +139,7 @@ export async function extractBookCoverAndMeta(
     author,
     coverUrl,
     extracted,
+    noCover: !coverUrl,
   };
 
   // 4. Persist to SQLite metadata and in-memory caches
@@ -176,7 +178,18 @@ export async function verifyAndRecreateMissingCovers(
       hasDiskCover = false;
     }
 
-    if (!hasDiskCover || !cached || !cached.extracted || !cached.coverUrl || cached.author === 'Unknown Author') {
+    // If this book was already extracted and confirmed to have no cover, skip re-extracting
+    if (cached?.extracted && cached?.noCover) {
+      continue;
+    }
+
+    // If disk cover exists and metadata is already extracted, skip re-extracting
+    if (hasDiskCover && cached?.extracted && cached.coverUrl) {
+      continue;
+    }
+
+    // Only queue if not yet extracted or if disk cover is missing and book isn't verified as noCover
+    if (!cached || !cached.extracted || (!hasDiskCover && !cached.noCover)) {
       queue.push(book);
     }
   }

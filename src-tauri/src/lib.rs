@@ -85,6 +85,7 @@ pub fn run() {
             fs_manager::open_external_path,
             reader_commands::db_save_book_mapping,
             reader_commands::db_get_server_book_id,
+            reader_commands::db_check_downloaded_books,
             reader_commands::db_save_progress,
             reader_commands::db_get_progress,
             reader_commands::db_delete_progress,
