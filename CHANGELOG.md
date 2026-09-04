@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-09-04
+
+### Added
+- Quick dismiss (close) button on continue reading cards in the Library view.
+- "Remove from Continue Reading" action in book context menu.
+- English and Russian localization strings for continue reading removal actions.
+
+### Changed
+- Automatically remove book from recent books and local SQLite database when resetting reading progress.
+- Preserved cached cover files on disk when removing books from the continue reading list.
+
 ## [0.6.0] - 2026-09-04
 
 ### Added
