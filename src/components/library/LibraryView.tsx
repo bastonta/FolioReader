@@ -95,11 +95,13 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     book: LocalBookFile | null;
     position: { x: number; y: number };
     isRead?: boolean;
+    isInRecent?: boolean;
   }>({
     isOpen: false,
     book: null,
     position: { x: 0, y: 0 },
     isRead: false,
+    isInRecent: false,
   });
 
   // Reset Progress confirmation modal state
@@ -323,16 +325,43 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
   ) => {
     e.preventDefault();
     e.stopPropagation();
+    const isInRecent = recentBooks.some(
+      (b) => b.id === book.id || (book.filePath && b.filePath === book.filePath)
+    );
     setMenuState({
       isOpen: true,
       book,
       position: { x: e.clientX, y: e.clientY },
       isRead,
+      isInRecent,
+    });
+  };
+
+  const handleOpenRecentBookMenu = (book: RecentBook, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const localBook: LocalBookFile = localBooks.find(
+      (b) => b.id === book.id || (book.filePath && b.filePath === book.filePath)
+    ) || {
+      id: book.id,
+      fileName: book.fileName || book.title,
+      filePath: book.filePath || '',
+      relativePath: book.fileName || book.title,
+      fileSize: book.fileSize || 0,
+    };
+    const dbLoc = dbProgressMap[book.id];
+    const isRead = dbLoc?.isRead ?? ((book.progressFraction || 0) >= 1.0);
+    setMenuState({
+      isOpen: true,
+      book: localBook,
+      position: { x: e.clientX, y: e.clientY },
+      isRead,
+      isInRecent: true,
     });
   };
 
   const handleCloseBookMenu = () => {
-    setMenuState((prev) => ({ ...prev, isOpen: false, book: null }));
+    setMenuState((prev) => ({ ...prev, isOpen: false, book: null, isInRecent: false }));
   };
 
   // Toggle Read / Unread status
@@ -473,15 +502,35 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     });
 
     setRecentBooks((prev) =>
-      prev.map((b) =>
-        b.id === book.id || (book.filePath && b.filePath === book.filePath)
-          ? { ...b, progressFraction: 0, lastLocation: undefined }
-          : b
+      prev.filter(
+        (b) => b.id !== book.id && (!book.filePath || b.filePath !== book.filePath)
       )
     );
 
-    // 2. Perform DB / Server reset
+    // 2. Perform DB / Server reset and remove from recent books
     await resetBookProgress(book.id, true);
+    if (book.filePath) {
+      await removeRecentBook(book.filePath, false);
+    }
+    refreshRecentProgress();
+  };
+
+  // Manually remove a book from the continue reading / recent books list
+  const handleRemoveFromRecent = async (book: RecentBook | LocalBookFile) => {
+    // 1. Optimistically remove from state
+    setRecentBooks((prev) =>
+      prev.filter(
+        (b) => b.id !== book.id && (!book.filePath || b.filePath !== book.filePath)
+      )
+    );
+
+    // 2. Remove from storage / SQLite without deleting cover
+    await removeRecentBook(book.id, false);
+    if (book.filePath) {
+      await removeRecentBook(book.filePath, false);
+    }
+
+    // 3. Refresh list from storage to backfill next available recent book if any
     refreshRecentProgress();
   };
 
@@ -498,9 +547,9 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     });
     if (confirmed) {
       await fileManager.deleteBookFile(book.filePath);
-      await removeRecentBook(book.id);
+      await removeRecentBook(book.id, true);
       if (book.filePath) {
-        await removeRecentBook(book.filePath);
+        await removeRecentBook(book.filePath, true);
       }
       setRecentBooks((prev) => prev.filter((b) => b.id !== book.id && (!book.filePath || b.filePath !== book.filePath)));
       await scanFolder();
@@ -539,9 +588,9 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     if (confirmed) {
       for (const book of booksInFolder) {
         await fileManager.deleteBookFile(book.filePath);
-        await removeRecentBook(book.id);
+        await removeRecentBook(book.id, true);
         if (book.filePath) {
-          await removeRecentBook(book.filePath);
+          await removeRecentBook(book.filePath, true);
         }
       }
       setRecentBooks((prev) =>
@@ -902,6 +951,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                     key={book.id}
                     className="continue-reading-card"
                     onClick={() => handleResumeBook(book)}
+                    onContextMenu={(e) => handleOpenRecentBookMenu(book, e)}
                     title={`${t('library.continueReading')} "${book.title}" (${pct}%)`}
                   >
                     <div className="continue-reading-cover-wrap" style={{ position: 'relative' }}>
@@ -960,6 +1010,20 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                         </button>
                       </div>
                     )}
+
+                    {/* Quick remove from continue reading button */}
+                    <button
+                      type="button"
+                      className="continue-reading-remove-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRemoveFromRecent(book);
+                      }}
+                      title={t('library.removeFromRecent')}
+                      aria-label={t('library.removeFromRecent')}
+                    >
+                      <X size={14} />
+                    </button>
                   </div>
                 );
               })}
@@ -1199,6 +1263,7 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           isOpen={menuState.isOpen}
           position={menuState.position}
           isRead={menuState.isRead}
+          isInRecent={menuState.isInRecent}
           onClose={handleCloseBookMenu}
           onOpenBookInfo={() => {
             if (menuState.book) {
@@ -1208,6 +1273,11 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
           onMarkAsRead={() => {
             if (menuState.book) {
               handleToggleReadStatus(menuState.book, menuState.isRead || false);
+            }
+          }}
+          onRemoveFromRecent={() => {
+            if (menuState.book) {
+              handleRemoveFromRecent(menuState.book);
             }
           }}
           onOpenResetModal={() => {

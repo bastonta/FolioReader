@@ -1,15 +1,17 @@
 import React, { useEffect, useRef, useLayoutEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CheckCircle2, Circle, Info, RotateCcw, Trash2 } from 'lucide-react';
+import { BookX, CheckCircle2, Circle, Info, RotateCcw, Trash2 } from 'lucide-react';
 import { useTranslation } from '../../i18n';
 
 export interface BookContextMenuProps {
   isOpen: boolean;
   position: { x: number; y: number };
   isRead?: boolean;
+  isInRecent?: boolean;
   onClose: () => void;
   onOpenBookInfo?: () => void;
   onMarkAsRead: () => void;
+  onRemoveFromRecent?: () => void;
   onOpenResetModal: () => void;
   onDeleteBook: () => void;
 }
@@ -18,9 +20,11 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
   isOpen,
   position,
   isRead = false,
+  isInRecent = false,
   onClose,
   onOpenBookInfo,
   onMarkAsRead,
+  onRemoveFromRecent,
   onOpenResetModal,
   onDeleteBook,
 }) => {
@@ -141,7 +145,22 @@ export const BookContextMenu: React.FC<BookContextMenuProps> = ({
         )}
       </button>
 
-      {/* 2. Reset state */}
+      {/* 2. Remove from Continue Reading (if in recent) */}
+      {isInRecent && onRemoveFromRecent && (
+        <button
+          type="button"
+          className="book-context-menu-item"
+          onClick={() => {
+            onClose();
+            onRemoveFromRecent();
+          }}
+        >
+          <BookX size={16} className="context-menu-icon" />
+          <span>{t('contextMenu.removeFromRecent')}</span>
+        </button>
+      )}
+
+      {/* 3. Reset state */}
       <button
         type="button"
         className="book-context-menu-item"

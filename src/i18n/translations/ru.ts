@@ -140,6 +140,7 @@ export const ru: Partial<Record<TranslationKey, string>> = {
   "library.continueReading": "Продолжить чтение",
   "library.continueReadingTag": "ПРОДОЛЖИТЬ ЧТЕНИЕ",
   "library.continueReadingCount": "{count} книг(и)",
+  "library.removeFromRecent": "Удалить из «Продолжить чтение»",
   "library.catalog": "Каталог",
   "library.refreshSync": "Обновить список книг и синхронизировать",
   "library.settings": "Настройки папок и темы",
@@ -210,12 +211,13 @@ export const ru: Partial<Record<TranslationKey, string>> = {
   "contextMenu.bookInfo": "Информация и статистика",
   "contextMenu.markAsRead": "Отметить как прочитанную",
   "contextMenu.markAsUnread": "Отметить как непрочитанную",
+  "contextMenu.removeFromRecent": "Удалить из «Продолжить чтение»",
   "contextMenu.resetProgress": "Сбросить прогресс чтения...",
   "contextMenu.deleteFromDevice": "Удалить с устройства",
   "resetModal.title": "Сброс прогресса книги",
   "resetModal.currentProgress": "Текущий прогресс: {percent}%",
   "resetModal.description":
-    "Вы уверены, что хотите сбросить прогресс чтения этой книги? Позиция и прогресс будут сброшены на этом устройстве и на сервере Folio.",
+    "Вы уверены, что хотите сбросить прогресс чтения этой книги? Позиция и прогресс будут сброшены на этом устройстве и на сервере Folio, а книга будет удалена из списка «Продолжить чтение».",
   "resetModal.confirmButton": "Сбросить прогресс",
   "resetModal.offlineHint":
     "Устройство офлайн. Сброс на сервере выполнится при появлении связи.",

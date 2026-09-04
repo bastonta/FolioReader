@@ -3,7 +3,7 @@ import { Annotation, Bookmark, getAnnotationColorKey, BookReadingStats, ReadingS
 import { getServerUrl, getAccessToken } from '../api/tokenManager';
 import { apiGet, apiPut, apiDelete } from '../api/client';
 import { statisticsApi } from '../api/statisticsApi';
-import { resetRecentBookProgress, saveLastLocation } from './storage';
+import { removeRecentBook, saveLastLocation } from './storage';
 import { parseCfiRange, toCfiRange } from '../utils/cfi';
 
 export interface SyncResult {
@@ -193,8 +193,8 @@ export async function resetBookProgress(bookId: string, resetOnServer: boolean =
   // 2. Delete from SQLite
   await deleteDbProgress(bookId);
 
-  // 3. Reset in localStorage recent books
-  resetRecentBookProgress(bookId);
+  // 3. Remove from recent books (both memory and SQLite)
+  await removeRecentBook(bookId, false);
 }
 
 /**

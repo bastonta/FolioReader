@@ -573,7 +573,7 @@ export function updateRecentBookMetadata(
   }
 }
 
-export async function removeRecentBook(id: string): Promise<void> {
+export async function removeRecentBook(id: string, deleteCover: boolean = false): Promise<void> {
   const timer = saveRecentBookDebounceTimers.get(id);
   if (timer) {
     clearTimeout(timer);
@@ -581,12 +581,33 @@ export async function removeRecentBook(id: string): Promise<void> {
   }
   pendingRecentBooks.delete(id);
 
-  cachedRecentBooks = cachedRecentBooks.filter((b) => b.id !== id && b.filePath !== id);
+  const matched = cachedRecentBooks.find((b) => b.id === id || b.filePath === id);
+  if (matched?.id && matched.id !== id) {
+    const t2 = saveRecentBookDebounceTimers.get(matched.id);
+    if (t2) {
+      clearTimeout(t2);
+      saveRecentBookDebounceTimers.delete(matched.id);
+    }
+    pendingRecentBooks.delete(matched.id);
+  }
+
+  cachedRecentBooks = cachedRecentBooks.filter((b) => b.id !== id && b.filePath !== id && (!matched || b.id !== matched.id));
 
   if (isTauri()) {
     try {
       await invoke('db_remove_recent_book', { id });
-      await deleteBookCover(id);
+      if (matched?.filePath && matched.filePath !== id) {
+        await invoke('db_remove_recent_book', { id: matched.filePath });
+      }
+      if (matched?.id && matched.id !== id) {
+        await invoke('db_remove_recent_book', { id: matched.id });
+      }
+      if (deleteCover) {
+        await deleteBookCover(id);
+        if (matched?.id && matched.id !== id) {
+          await deleteBookCover(matched.id);
+        }
+      }
     } catch (err) {
       console.error('Failed to remove recent book from SQLite:', err);
     }
@@ -614,12 +635,9 @@ export function saveLastLocation(bookId: string, cfi: string, fraction: number):
 }
 
 export function resetRecentBookProgress(bookId: string): void {
-  const target = cachedRecentBooks.find((b) => b.id === bookId || (b.filePath && b.filePath === bookId));
-  if (target) {
-    target.lastLocation = undefined;
-    target.progressFraction = 0;
-    saveRecentBook(target);
-  }
+  removeRecentBook(bookId, false).catch((err) => {
+    console.warn(`Failed to remove recent book during progress reset for ${bookId}:`, err);
+  });
 }
 
 // ─── Local Books Metadata Cache (SQLite) ───────────────────────────────────

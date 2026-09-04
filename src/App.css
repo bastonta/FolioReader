@@ -2490,6 +2490,7 @@ foliate-view::part(foot) {
   box-shadow: var(--shadow-sm);
   transition: all 0.2s ease;
   min-width: 0;
+  position: relative;
 }
 
 .continue-reading-card:hover {
@@ -2559,6 +2560,7 @@ foliate-view::part(foot) {
   text-overflow: ellipsis;
   white-space: nowrap;
   margin-bottom: 2px;
+  padding-right: 20px;
 }
 
 .continue-reading-author {
@@ -2601,6 +2603,10 @@ foliate-view::part(foot) {
   flex-shrink: 0;
 }
 
+.continue-reading-cards-wrap.count-1 .continue-reading-action {
+  margin-right: 24px;
+}
+
 .continue-reading-btn {
   display: inline-flex;
   align-items: center;
@@ -2619,6 +2625,38 @@ foliate-view::part(foot) {
 .continue-reading-btn:hover {
   background-color: var(--accent-color);
   color: #ffffff;
+}
+
+.continue-reading-remove-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-full);
+  background-color: var(--bg-tertiary);
+  color: var(--text-muted);
+  opacity: 0;
+  z-index: 5;
+  transition: opacity 0.15s ease, background-color 0.15s ease, color 0.15s ease, transform 0.15s ease, border-color 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border: 1px solid var(--border-subtle);
+  padding: 0;
+}
+
+.continue-reading-card:hover .continue-reading-remove-btn,
+.continue-reading-remove-btn:focus-visible {
+  opacity: 1;
+}
+
+.continue-reading-remove-btn:hover {
+  background-color: var(--danger-color);
+  border-color: var(--danger-color);
+  color: #ffffff;
+  transform: scale(1.08);
 }
 
 /* ==========================================================================
@@ -3841,6 +3879,14 @@ foliate-view::part(foot) {
 
   .continue-reading-action {
     display: none;
+  }
+
+  .continue-reading-remove-btn {
+    opacity: 0.85;
+    top: 6px;
+    right: 6px;
+    width: 24px;
+    height: 24px;
   }
 
   .book-info-layout {

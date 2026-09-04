@@ -135,6 +135,7 @@ export const en = {
   "library.continueReading": "Continue Reading",
   "library.continueReadingTag": "CONTINUE READING",
   "library.continueReadingCount": "{count} books",
+  "library.removeFromRecent": "Remove from Continue Reading",
   "library.catalog": "Catalog",
   "library.refreshSync": "Refresh books list & sync",
   "library.settings": "Folder & Theme Settings",
@@ -205,12 +206,13 @@ export const en = {
   "contextMenu.bookInfo": "Info & Statistics",
   "contextMenu.markAsRead": "Mark as read",
   "contextMenu.markAsUnread": "Mark as unread",
+  "contextMenu.removeFromRecent": "Remove from Continue Reading",
   "contextMenu.resetProgress": "Reset reading progress...",
   "contextMenu.deleteFromDevice": "Delete from device",
   "resetModal.title": "Reset Book Progress",
   "resetModal.currentProgress": "Current progress: {percent}%",
   "resetModal.description":
-    "Are you sure you want to reset reading progress for this book? Reading position and progress will be reset both on this device and on the Folio server.",
+    "Are you sure you want to reset reading progress for this book? Reading position and progress will be reset both on this device and on the Folio server, and the book will be removed from continue reading.",
   "resetModal.confirmButton": "Reset Progress",
   "resetModal.offlineHint":
     "Device is offline. Server reset will take effect once connection is restored.",
