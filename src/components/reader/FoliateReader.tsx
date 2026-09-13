@@ -21,6 +21,7 @@ import { FootnoteModal } from './FootnoteModal';
 import { AnnotationPopover, SelectionInfo } from './AnnotationPopover';
 import { SettingsPopover } from './SettingsPopover';
 import { BookInfoModal } from './BookInfoModal';
+import { ImageViewerModal, ImageViewerData, ViewerImageItem } from './ImageViewerModal';
 import { setStatusBarVisible, setStatusBarTheme, setDisableSystemActionMode, dismissOriginalContextMenu, isMobileDevice, setVolumeKeyNavigation, setKeepScreenOn } from '../../services/systemUi';
 import { openExternalUrl } from '../../services/appOpener';
 import { useBackHandler } from '../../services/backHandler';
@@ -191,7 +192,12 @@ const getReaderCSS = (settings: ReaderSettings, customFontsCss: string = '') => 
     *, *::before, *::after {
       -webkit-tap-highlight-color: transparent !important;
     }
-    img, a {
+    img, svg image, image {
+      cursor: zoom-in;
+      -webkit-user-drag: none;
+      user-drag: none;
+    }
+    a {
       -webkit-user-drag: none;
       user-drag: none;
     }
@@ -369,6 +375,11 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   }, []);
 
   const [footnote, setFootnote] = useState<FootnoteData | null>(null);
+  const [activeImage, setActiveImage] = useState<ImageViewerData | null>(null);
+  const activeImageRef = useRef<ImageViewerData | null>(null);
+  useEffect(() => {
+    activeImageRef.current = activeImage;
+  }, [activeImage]);
   const [selection, setSelection] = useState<SelectionInfo | null>(null);
   const selectionRef = useRef<SelectionInfo | null>(null);
   selectionRef.current = selection;
@@ -450,6 +461,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   }, []);
 
   // Back button handling within the reader (highest to lowest priority)
+  useBackHandler(() => { setActiveImage(null); return true; }, Boolean(activeImage), 130);
   useBackHandler(() => { setFootnote(null); return true; }, Boolean(footnote), 120);
   useBackHandler(() => { setIsBookInfoOpen(false); return true; }, isBookInfoOpen, 110);
   useBackHandler(() => { setSelection(null); return true; }, Boolean(selection), 100);
@@ -1062,6 +1074,119 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         let pointerStartY = 0;
         let pointerMoved = false;
 
+        const extractAndOpenImage = (targetImg: Element, _isExplicitDoubleClick: boolean = false): boolean => {
+          let src = '';
+          let alt = '';
+          let caption = '';
+          let naturalW = 0;
+          let naturalH = 0;
+
+          if (targetImg.tagName.toLowerCase() === 'img') {
+            const htmlImg = targetImg as HTMLImageElement;
+            src = htmlImg.currentSrc || htmlImg.src || htmlImg.getAttribute('src') || '';
+            alt = htmlImg.getAttribute('alt') || htmlImg.getAttribute('title') || '';
+            caption = htmlImg.closest('figure')?.querySelector('figcaption')?.textContent?.trim() || alt || '';
+            naturalW = htmlImg.naturalWidth || 0;
+            naturalH = htmlImg.naturalHeight || 0;
+          } else if (targetImg.tagName.toLowerCase() === 'image') {
+            src = targetImg.getAttribute('href') || targetImg.getAttributeNS('http://www.w3.org/1999/xlink', 'href') || targetImg.getAttribute('xlink:href') || '';
+            alt = targetImg.getAttribute('alt') || targetImg.getAttribute('title') || '';
+            caption = targetImg.closest('figure')?.querySelector('figcaption')?.textContent?.trim() || alt || '';
+          } else if (targetImg.tagName.toLowerCase() === 'svg') {
+            const imageSub = targetImg.querySelector('image');
+            if (imageSub) {
+              src = imageSub.getAttribute('href') || imageSub.getAttributeNS('http://www.w3.org/1999/xlink', 'href') || imageSub.getAttribute('xlink:href') || '';
+              alt = imageSub.getAttribute('alt') || imageSub.getAttribute('title') || '';
+              caption = targetImg.closest('figure')?.querySelector('figcaption')?.textContent?.trim() || alt || '';
+            } else {
+              try {
+                const serialized = new XMLSerializer().serializeToString(targetImg);
+                src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(serialized);
+              } catch (err) {
+                console.warn('Failed to serialize SVG:', err);
+              }
+            }
+          }
+
+          if (!src) return false;
+
+          // Collect all images in current section doc
+          const allImgNodes = Array.from(doc.querySelectorAll('img, svg image, svg')) as Element[];
+          const collected: ViewerImageItem[] = [];
+          let currentFoundIdx = 0;
+
+          for (const el of allImgNodes) {
+            let itemSrc = '';
+            let itemAlt = '';
+            let itemCap = '';
+            let itemW = 0;
+            let itemH = 0;
+
+            if (el.tagName.toLowerCase() === 'img') {
+              const hi = el as HTMLImageElement;
+              itemSrc = hi.currentSrc || hi.src || hi.getAttribute('src') || '';
+              itemW = hi.naturalWidth || 0;
+              itemH = hi.naturalHeight || 0;
+              const r = hi.getBoundingClientRect();
+              if ((itemW > 0 && itemW <= 32 && itemH > 0 && itemH <= 32) || (r.width > 0 && r.width <= 24 && r.height > 0 && r.height <= 24)) {
+                continue;
+              }
+              itemAlt = hi.getAttribute('alt') || hi.getAttribute('title') || '';
+              itemCap = hi.closest('figure')?.querySelector('figcaption')?.textContent?.trim() || itemAlt || '';
+            } else if (el.tagName.toLowerCase() === 'image') {
+              itemSrc = el.getAttribute('href') || el.getAttributeNS('http://www.w3.org/1999/xlink', 'href') || el.getAttribute('xlink:href') || '';
+              if (!itemSrc) continue;
+              itemAlt = el.getAttribute('alt') || el.getAttribute('title') || '';
+              itemCap = el.closest('figure')?.querySelector('figcaption')?.textContent?.trim() || itemAlt || '';
+            } else if (el.tagName.toLowerCase() === 'svg') {
+              if (el.querySelector('image')) continue;
+              const r = el.getBoundingClientRect();
+              if (r.width <= 32 && r.height <= 32) continue;
+              try {
+                itemSrc = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(el));
+              } catch {
+                continue;
+              }
+            }
+
+            if (itemSrc) {
+              if (el === targetImg || (el.tagName.toLowerCase() === 'img' && itemSrc === src)) {
+                currentFoundIdx = collected.length;
+              }
+              collected.push({
+                src: itemSrc,
+                alt: itemAlt,
+                caption: itemCap,
+                naturalWidth: itemW,
+                naturalHeight: itemH,
+              });
+            }
+          }
+
+          setActiveImage({
+            src,
+            alt,
+            caption,
+            naturalWidth: naturalW,
+            naturalHeight: naturalH,
+            allImages: collected.length > 0 ? collected : undefined,
+            currentIndex: currentFoundIdx,
+          });
+          return true;
+        };
+
+        // Double click inside iframe to quickly open/zoom image
+        doc.addEventListener('dblclick', (ev: MouseEvent) => {
+          const targetEl = ev.target as Element | null;
+          const imgEl = (targetEl?.closest('img, image') ||
+            (targetEl?.tagName?.toLowerCase() === 'svg' ? targetEl : targetEl?.closest('svg')?.querySelector('image') || null)) as Element | null;
+          if (imgEl) {
+            ev.preventDefault();
+            ev.stopPropagation();
+            extractAndOpenImage(imgEl, true);
+          }
+        });
+
         // Pointerdown / mousedown on free space inside doc dismisses popover & selection
         doc.addEventListener('pointerdown', (ev: PointerEvent) => {
           resetScreenTimeoutRef.current();
@@ -1136,6 +1261,10 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
             view.goRight();
             if (showControlsRef.current) scheduleAutoHideRef.current();
           } else if (ev.key === 'Escape') {
+            if (activeImageRef.current) {
+              setActiveImage(null);
+              return;
+            }
             if (selectionRef.current) {
               setSelection(null);
               clearAllSelections();
@@ -1352,8 +1481,12 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
             return;
           }
 
+          const targetEl = ev.target as Element | null;
+          const imgEl = (targetEl?.closest('img, image') ||
+            (targetEl?.tagName?.toLowerCase() === 'svg' ? targetEl : targetEl?.closest('svg')?.querySelector('image') || null)) as Element | null;
+
           // 3. Footnote / endnote / external link click
-          const a = (ev.target as Element)?.closest('a[href]');
+          const a = targetEl?.closest('a[href]');
           if (a) {
             const href = a.getAttribute('href') || '';
             if (href && (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('mailto:'))) {
@@ -1371,8 +1504,51 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
               } else {
                 view.goTo(href);
               }
+              return;
             }
-            return;
+            if (!imgEl) {
+              return;
+            }
+          }
+
+          // 3.5 Image viewer click
+          if (imgEl) {
+            const isPrePaginated = view.book?.rendition?.layout === 'pre-paginated';
+            const method = settingsRef.current.pageTurnMethod || 'both';
+            const allowTapTurn = isMobile && (method === 'tap' || method === 'both');
+
+            if (isPrePaginated && allowTapTurn && !showControlsRef.current) {
+              const viewerRect = viewerContainerRef.current?.getBoundingClientRect() || {
+                left: 0,
+                top: 0,
+                width: window.innerWidth,
+                height: window.innerHeight,
+              };
+              const iframe = (doc.defaultView?.frameElement as HTMLElement) || null;
+              const frameRect = iframe ? iframe.getBoundingClientRect() : { left: 0, top: 0 };
+              const tapScreenX = frameRect.left + ev.clientX - viewerRect.left;
+              const screenWidth = viewerRect.width || window.innerWidth;
+              const xRatio = tapScreenX / screenWidth;
+
+              if (xRatio <= 0.30 || xRatio >= 0.70) {
+                // Let edge taps turn pages on comic books
+              } else {
+                ev.preventDefault();
+                ev.stopPropagation();
+                if (extractAndOpenImage(imgEl)) return;
+              }
+            } else {
+              const rect = imgEl.getBoundingClientRect();
+              const nw = (imgEl as HTMLImageElement).naturalWidth || 0;
+              const nh = (imgEl as HTMLImageElement).naturalHeight || 0;
+              const isTiny = (nw > 0 && nw <= 32 && nh > 0 && nh <= 32) || (rect.width > 0 && rect.width <= 24 && rect.height > 0 && rect.height <= 24);
+
+              if (!isTiny) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                if (extractAndOpenImage(imgEl)) return;
+              }
+            }
           }
 
           // 4. If an annotation was clicked (overlayer hit test), view.js emits show-annotation
@@ -1739,6 +1915,10 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         viewRef.current?.goRight();
         if (showControls) scheduleAutoHide();
       } else if (e.key === 'Escape') {
+        if (activeImage) {
+          setActiveImage(null);
+          return;
+        }
         if (selection) {
           setSelection(null);
           clearAllSelections();
@@ -1778,7 +1958,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
 
     window.addEventListener('keydown', handleGlobalKeyDown);
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [selection, isSettingsOpen, isBookInfoOpen, footnote, settings, onUpdateSettings, showControls, scheduleAutoHide, cancelAutoHide, clearAllSelections, isMobile]);
+  }, [activeImage, selection, isSettingsOpen, isBookInfoOpen, footnote, settings, onUpdateSettings, showControls, scheduleAutoHide, cancelAutoHide, clearAllSelections, isMobile]);
 
   // TOC Navigation
   const handleSelectTOC = (href: string) => {
@@ -2098,6 +2278,15 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         onSave={handleSaveAnnotation}
         onDelete={handleDeleteAnnotation}
       />
+
+      {/* Image Viewer Modal */}
+      {activeImage && (
+        <ImageViewerModal
+          imageData={activeImage}
+          bookTitle={metadata?.title}
+          onClose={() => setActiveImage(null)}
+        />
+      )}
 
       {/* Footnote / Endnote Modal */}
       <FootnoteModal
