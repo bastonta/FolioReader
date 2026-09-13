@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-09-13
+
+### Added
+- Image viewer modal (`ImageViewerModal`) supporting pan, zoom (0.3x–10x), 90° rotation, clipboard copy, and direct image download.
+- Multi-image chapter navigation within reader with previous/next image controls and index indicators.
+- Contrast mode toggles (white background, dark overlay, invert colors) to preserve visibility of dark illustrations and transparent PNGs on dark reader themes.
+- Touch gesture controls for mobile and touchscreens: pinch-to-zoom, pan drag, double-tap to reset/zoom, and tap gesture disambiguation.
+- Auto-hide viewer controls with inactivity timer (3.5s) and tap/hover reveal for an unobtrusive full-screen viewing experience.
+- Image click and double-click triggers in `FoliateReader` with browser history and hardware back button navigation support.
+- Localization strings for image viewer in English and Russian.
+
 ## [0.6.1] - 2026-09-04
 
 ### Added
