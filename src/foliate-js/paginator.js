@@ -176,21 +176,23 @@ const setSelectionTo = (target, collapse) => {
 }
 
 const getDirection = doc => {
+    if (!doc?.body || !doc.defaultView) return { vertical: false, rtl: false }
     const { defaultView } = doc
     const { writingMode, direction } = defaultView.getComputedStyle(doc.body)
     const vertical = writingMode === 'vertical-rl'
         || writingMode === 'vertical-lr'
     const rtl = doc.body.dir === 'rtl'
         || direction === 'rtl'
-        || doc.documentElement.dir === 'rtl'
+        || doc.documentElement?.dir === 'rtl'
     return { vertical, rtl }
 }
 
 const getBackground = doc => {
+    if (!doc?.body || !doc.defaultView) return 'transparent'
     const bodyStyle = doc.defaultView.getComputedStyle(doc.body)
     return bodyStyle.backgroundColor === 'rgba(0, 0, 0, 0)'
         && bodyStyle.backgroundImage === 'none'
-        ? doc.defaultView.getComputedStyle(doc.documentElement).background
+        ? (doc.documentElement ? doc.defaultView.getComputedStyle(doc.documentElement).background : 'transparent')
         : bodyStyle.background
 }
 
@@ -283,7 +285,7 @@ class View {
         })
     }
     render(layout) {
-        if (!layout) return
+        if (!layout || !this.document) return
         this.#column = layout.flow !== 'scrolled'
         this.#layout = layout
         if (this.#column) this.columnize(layout)
@@ -292,6 +294,7 @@ class View {
     scrolled({ gap, columnWidth }) {
         const vertical = this.#vertical
         const doc = this.document
+        if (!doc?.documentElement || !doc.body) return
         setStylesImportant(doc.documentElement, {
             'box-sizing': 'border-box',
             'padding': vertical ? `${gap}px 0` : `0 ${gap}px`,
@@ -311,6 +314,7 @@ class View {
         this.#size = vertical ? height : width
 
         const doc = this.document
+        if (!doc?.documentElement || !doc.body) return
         setStylesImportant(doc.documentElement, {
             'box-sizing': 'border-box',
             'column-width': `${Math.trunc(columnWidth)}px`,
@@ -342,6 +346,7 @@ class View {
         const { width, height, margin } = this.#layout
         const vertical = this.#vertical
         const doc = this.document
+        if (!doc?.body || !doc.defaultView) return
         for (const el of doc.body.querySelectorAll('img, svg, video')) {
             // preserve max size if they are already set
             const { maxHeight, maxWidth } = doc.defaultView.getComputedStyle(el)
@@ -360,7 +365,9 @@ class View {
         }
     }
     expand() {
-        const { documentElement } = this.document
+        const doc = this.document
+        if (!doc?.documentElement) return
+        const { documentElement } = doc
         if (this.#column) {
             const side = this.#vertical ? 'height' : 'width'
             const otherSide = this.#vertical ? 'width' : 'height'
@@ -419,7 +426,7 @@ class View {
         return this.#overlayer
     }
     destroy() {
-        if (this.document) this.#observer.unobserve(this.document.body)
+        this.#observer?.disconnect()
     }
 }
 
@@ -432,7 +439,9 @@ export class Paginator extends HTMLElement {
     ]
     touchSwipeEnabled = true
     #root = this.attachShadow({ mode: 'closed' })
-    #observer = new ResizeObserver(() => this.render())
+    #observer = new ResizeObserver(() => {
+        if (this.isConnected) this.render()
+    })
     #top
     #background
     #container
@@ -630,6 +639,9 @@ export class Paginator extends HTMLElement {
         }
         this.#mediaQuery.addEventListener('change', this.#mediaQueryListener)
     }
+    disconnectedCallback() {
+        this.#observer?.disconnect()
+    }
     attributeChangedCallback(name, _, value) {
         switch (name) {
             case 'flow':
@@ -760,7 +772,7 @@ export class Paginator extends HTMLElement {
         return { height, width, margin, gap, columnWidth }
     }
     render() {
-        if (!this.#view) return
+        if (!this.isConnected || !this.#view || !this.#view.document) return
         this.#view.render(this.#beforeRender({
             vertical: this.#vertical,
             rtl: this.#rtl,
@@ -1158,17 +1170,20 @@ export class Paginator extends HTMLElement {
         } else $style.textContent = styles
 
         // NOTE: needs `requestAnimationFrame` in Chromium
-        requestAnimationFrame(() =>
-            this.#background.style.background = getBackground(this.#view.document))
+        requestAnimationFrame(() => {
+            if (this.#view?.document && this.#background) {
+                this.#background.style.background = getBackground(this.#view.document)
+            }
+        })
 
         // needed because the resize observer doesn't work in Firefox
-        this.#view?.document?.fonts?.ready?.then(() => this.#view.expand())
+        this.#view?.document?.fonts?.ready?.then(() => this.#view?.expand?.())
     }
     focusView() {
-        this.#view.document.defaultView.focus()
+        this.#view?.document?.defaultView?.focus?.()
     }
     destroy() {
-        this.#observer?.unobserve?.(this)
+        this.#observer?.disconnect()
         this.#view?.destroy?.()
         this.#view = null
         this.sections?.[this.#index]?.unload?.()

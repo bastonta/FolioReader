@@ -449,22 +449,15 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
 
   const settingsBtnRef = useRef<HTMLButtonElement>(null);
 
-  // Close reader safely awaiting session flush and final sync
-  const handleClose = useCallback(async () => {
+  // Close reader immediately for responsive UI, flushing session and background sync asynchronously
+  const handleClose = useCallback(() => {
     if (isClosingRef.current) return;
     isClosingRef.current = true;
     flushPendingLocationSave();
-    try {
-      await flushSession();
-    } catch (e) {
-      console.warn('Failed to flush reading session on close:', e);
-    }
-    try {
-      await syncBookData(bookId);
-    } catch (e) {
-      console.warn('Failed to sync book data on close:', e);
-    }
     onBackToLibrary();
+    flushSession()
+      .then(() => syncBookData(bookId))
+      .catch((e) => console.warn('Failed to flush or sync book data on close:', e));
   }, [flushPendingLocationSave, flushSession, bookId, onBackToLibrary]);
 
   // Subscribe to custom fonts updates
@@ -2013,9 +2006,11 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
       if (viewRef.current) {
         try {
           viewRef.current.close?.();
+          viewRef.current.remove?.();
         } catch (e) {
           console.warn('Error closing foliate view:', e);
         }
+        viewRef.current = null;
       }
       if (!isClosingRef.current) {
         // Fallback for unmounts not triggered via handleClose: flush then sync sequentially
