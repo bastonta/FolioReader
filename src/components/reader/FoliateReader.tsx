@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import DOMPurify from 'dompurify';
 import '../../foliate-js/view.js';
 import { Overlayer } from '../../foliate-js/overlayer.js';
@@ -18,6 +18,7 @@ import { Sidebar } from './Sidebar';
 import { HeaderBar } from './HeaderBar';
 import { ProgressScrubber } from './ProgressScrubber';
 import { FootnoteModal } from './FootnoteModal';
+import { QuickReturnChip } from './QuickReturnChip';
 import { AnnotationPopover, SelectionInfo } from './AnnotationPopover';
 import { SettingsPopover } from './SettingsPopover';
 import { BookInfoModal } from './BookInfoModal';
@@ -348,6 +349,19 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   const [chapterTitle, setChapterTitle] = useState<string>('');
   const [locationLabel, setLocationLabel] = useState<string>('');
   const [pageInfo, setPageInfo] = useState<DevicePageInfo | null>(null);
+  const pageInfoRef = useRef<DevicePageInfo | null>(null);
+  pageInfoRef.current = pageInfo;
+
+  const [canGoBack, setCanGoBack] = useState<boolean>(false);
+  const [canGoForward, setCanGoForward] = useState<boolean>(false);
+  const [quickReturn, setQuickReturn] = useState<{
+    visible: boolean;
+    direction: 'back' | 'forward';
+    label: string;
+  } | null>(null);
+  const quickReturnRef = useRef(quickReturn);
+  quickReturnRef.current = quickReturn;
+
   const [progressFraction, setProgressFraction] = useState<number>(0);
   const [sectionFractions, setSectionFractions] = useState<number[]>([]);
   const [currentCFI, setCurrentCFI] = useState<string>('');
@@ -460,6 +474,106 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
     return () => unsubscribe();
   }, []);
 
+  const triggerJump = useCallback(
+    async (navigateAction?: () => Promise<void> | void) => {
+      const fromPage = pageInfoRef.current?.bookPage;
+      const fromLabel = fromPage
+        ? t('reader.returnToPage', { page: fromPage })
+        : t('reader.returnBack');
+      if (navigateAction) {
+        await navigateAction();
+      }
+      setQuickReturn({
+        visible: true,
+        direction: 'back',
+        label: fromLabel,
+      });
+    },
+    [t]
+  );
+  const triggerJumpRef = useRef(triggerJump);
+  triggerJumpRef.current = triggerJump;
+
+  const handleHistoryBack = useCallback(() => {
+    if (!viewRef.current?.history?.canGoBack) return;
+    const fromPage = pageInfoRef.current?.bookPage;
+    const fromLabel = fromPage
+      ? t('reader.forwardToPage', { page: fromPage })
+      : t('reader.forwardToNext');
+    viewRef.current.history.back();
+    setQuickReturn({
+      visible: true,
+      direction: 'forward',
+      label: fromLabel,
+    });
+  }, [t]);
+
+  const handleHistoryForward = useCallback(() => {
+    if (!viewRef.current?.history?.canGoForward) return;
+    const fromPage = pageInfoRef.current?.bookPage;
+    const fromLabel = fromPage
+      ? t('reader.returnToPage', { page: fromPage })
+      : t('reader.returnBack');
+    viewRef.current.history.forward();
+    setQuickReturn({
+      visible: true,
+      direction: 'back',
+      label: fromLabel,
+    });
+  }, [t]);
+
+  const flatTOC = useMemo(() => {
+    const flatten = (items: TOCItem[]): TOCItem[] => {
+      const out: TOCItem[] = [];
+      for (const it of items) {
+        if (it.href) out.push(it);
+        if (it.subitems?.length) out.push(...flatten(it.subitems));
+      }
+      return out;
+    };
+    return flatten(toc);
+  }, [toc]);
+
+  const currentChapterIdx = useMemo(() => {
+    if (!flatTOC.length || !currentHref) return -1;
+    const exact = flatTOC.findIndex((it: TOCItem) => it.href === currentHref);
+    if (exact !== -1) return exact;
+    return flatTOC.findIndex((it: TOCItem) => {
+      const cleanTOC = it.href.split('#')[0];
+      const cleanCurr = currentHref.split('#')[0];
+      return cleanTOC === cleanCurr;
+    });
+  }, [flatTOC, currentHref]);
+
+  const currentSectionIdx = pageInfo?.sectionIndex ?? 0;
+  const totalSections = sectionFractions.length || viewRef.current?.book?.sections?.length || 0;
+
+  const hasPrevChapter = flatTOC.length > 0
+    ? currentChapterIdx > 0
+    : currentSectionIdx > 0;
+
+  const hasNextChapter = flatTOC.length > 0
+    ? currentChapterIdx !== -1 && currentChapterIdx < flatTOC.length - 1
+    : currentSectionIdx < totalSections - 1;
+
+  const handlePrevChapter = useCallback(() => {
+    if (flatTOC.length > 0 && currentChapterIdx > 0) {
+      const prev = flatTOC[currentChapterIdx - 1];
+      triggerJump(() => viewRef.current?.goTo(prev.href));
+    } else if (currentSectionIdx > 0) {
+      triggerJump(() => viewRef.current?.goTo(currentSectionIdx - 1));
+    }
+  }, [flatTOC, currentChapterIdx, currentSectionIdx, triggerJump]);
+
+  const handleNextChapter = useCallback(() => {
+    if (flatTOC.length > 0 && currentChapterIdx !== -1 && currentChapterIdx < flatTOC.length - 1) {
+      const next = flatTOC[currentChapterIdx + 1];
+      triggerJump(() => viewRef.current?.goTo(next.href));
+    } else if (currentSectionIdx < totalSections - 1) {
+      triggerJump(() => viewRef.current?.goTo(currentSectionIdx + 1));
+    }
+  }, [flatTOC, currentChapterIdx, currentSectionIdx, totalSections, triggerJump]);
+
   // Back button handling within the reader (highest to lowest priority)
   useBackHandler(() => { setActiveImage(null); return true; }, Boolean(activeImage), 130);
   useBackHandler(() => { setFootnote(null); return true; }, Boolean(footnote), 120);
@@ -467,6 +581,17 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   useBackHandler(() => { setSelection(null); return true; }, Boolean(selection), 100);
   useBackHandler(() => { setIsSettingsOpen(false); return true; }, isSettingsOpen, 90);
   useBackHandler(() => { onUpdateSettings({ sidebarOpen: false }); return true; }, Boolean(settings.sidebarOpen), 80);
+  useBackHandler(
+    () => {
+      if (quickReturnRef.current?.visible) {
+        setQuickReturn(null);
+      }
+      handleHistoryBack();
+      return true;
+    },
+    canGoBack,
+    40
+  );
   useBackHandler(() => { handleClose(); return true; }, true, 30);
 
   const showSyncToast = useCallback(
@@ -1006,6 +1131,9 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           if (!isInitialLoadRef.current && !isSyncNavigatingRef.current) {
             scheduleSaveDbProgress(detail.cfi, fraction);
             const reason = detail.reason;
+            if (reason === 'page' || reason === 'scroll') {
+              setQuickReturn(null);
+            }
             const isScrubberSeek = isScrubberSeekingRef.current;
             isScrubberSeekingRef.current = false;
             const isNavigation = reason === 'navigation' || reason === 'anchor' || isScrubberSeek;
@@ -1046,6 +1174,12 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         setLocationLabel(fullLocText);
       });
 
+      // Listen for history index changes
+      view.history?.addEventListener('index-change', () => {
+        setCanGoBack(Boolean(view.history?.canGoBack));
+        setCanGoForward(Boolean(view.history?.canGoForward));
+      });
+
       // Footnote / Endnote interception & external link handling on link events
       view.addEventListener('link', async (e: any) => {
         const { a, href } = e.detail || {};
@@ -1060,8 +1194,11 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           if (noteData) {
             setFootnote(noteData);
           } else {
-            view.goTo(href);
+            triggerJumpRef.current(() => view.goTo(href));
           }
+        } else {
+          // Internal document link: record jump position before foliate-js navigates
+          triggerJumpRef.current();
         }
       });
 
@@ -1502,11 +1639,12 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
               if (noteData) {
                 setFootnote(noteData);
               } else {
-                view.goTo(href);
+                triggerJumpRef.current(() => view.goTo(href));
               }
               return;
             }
             if (!imgEl) {
+              triggerJumpRef.current();
               return;
             }
           }
@@ -1908,6 +2046,27 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         return;
       }
 
+      if ((e.altKey && e.key === 'ArrowLeft') || e.key === 'BrowserBack') {
+        e.preventDefault();
+        handleHistoryBack();
+        return;
+      }
+      if ((e.altKey && e.key === 'ArrowRight') || e.key === 'BrowserForward') {
+        e.preventDefault();
+        handleHistoryForward();
+        return;
+      }
+      if ((e.ctrlKey && e.key === 'ArrowLeft') || e.key === '[') {
+        e.preventDefault();
+        handlePrevChapter();
+        return;
+      }
+      if ((e.ctrlKey && e.key === 'ArrowRight') || e.key === ']') {
+        e.preventDefault();
+        handleNextChapter();
+        return;
+      }
+
       if (e.key === 'ArrowLeft' || e.key === 'PageUp') {
         viewRef.current?.goLeft();
         if (showControls) scheduleAutoHide();
@@ -1956,9 +2115,23 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
       }
     };
 
+    const handleMouseUp = (e: MouseEvent) => {
+      if (e.button === 3) {
+        e.preventDefault();
+        handleHistoryBack();
+      } else if (e.button === 4) {
+        e.preventDefault();
+        handleHistoryForward();
+      }
+    };
+
     window.addEventListener('keydown', handleGlobalKeyDown);
-    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
-  }, [activeImage, selection, isSettingsOpen, isBookInfoOpen, footnote, settings, onUpdateSettings, showControls, scheduleAutoHide, cancelAutoHide, clearAllSelections, isMobile]);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('keydown', handleGlobalKeyDown);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [activeImage, selection, isSettingsOpen, isBookInfoOpen, footnote, settings, onUpdateSettings, showControls, scheduleAutoHide, cancelAutoHide, clearAllSelections, isMobile, handleHistoryBack, handleHistoryForward, handlePrevChapter, handleNextChapter]);
 
   // TOC Navigation
   const handleSelectTOC = (href: string) => {
@@ -1966,7 +2139,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
       setSelection(null);
       clearAllSelections();
     }
-    viewRef.current?.goTo(href);
+    triggerJump(() => viewRef.current?.goTo(href));
     if (isMobile || !settings.sidebarPinned) {
       onUpdateSettings({ sidebarOpen: false });
     }
@@ -2028,7 +2201,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   };
 
   const handleSelectAnnotation = (ann: Annotation) => {
-    viewRef.current?.showAnnotation(ann);
+    triggerJump(() => viewRef.current?.showAnnotation(ann));
     if (isMobile || !settings.sidebarPinned) {
       onUpdateSettings({ sidebarOpen: false });
     }
@@ -2064,7 +2237,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
       setSelection(null);
       clearAllSelections();
     }
-    viewRef.current?.goTo(bm.cfi);
+    triggerJump(() => viewRef.current?.goTo(bm.cfi));
     if (isMobile || !settings.sidebarPinned) {
       onUpdateSettings({ sidebarOpen: false });
     }
@@ -2085,6 +2258,10 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           })
         }
         isSidebarOpen={settings.sidebarOpen}
+        onHistoryBack={handleHistoryBack}
+        onHistoryForward={handleHistoryForward}
+        canGoBack={canGoBack}
+        canGoForward={canGoForward}
         onToggleSettings={() => {
           setIsSettingsOpen((prev) => !prev);
           if (showControls) cancelAutoHide();
@@ -2225,6 +2402,15 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           {/* Foliate-view container */}
           <div className="foliate-viewport-wrap" ref={viewerContainerRef} />
 
+          {/* Floating Quick Return Chip */}
+          <QuickReturnChip
+            visible={Boolean(quickReturn?.visible)}
+            direction={quickReturn?.direction || 'back'}
+            label={quickReturn?.label || ''}
+            onClick={quickReturn?.direction === 'forward' ? handleHistoryForward : handleHistoryBack}
+            onDismiss={() => setQuickReturn(null)}
+          />
+
           {/* Bottom Progress Scrubber */}
           <ProgressScrubber
             fraction={progressFraction}
@@ -2243,6 +2429,10 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
             }}
             onPrev={() => viewRef.current?.goLeft()}
             onNext={() => viewRef.current?.goRight()}
+            onPrevChapter={handlePrevChapter}
+            onNextChapter={handleNextChapter}
+            hasPrevChapter={hasPrevChapter}
+            hasNextChapter={hasNextChapter}
             sectionFractions={sectionFractions}
             onMouseEnter={() => {
               isHoveringControlsRef.current = true;
@@ -2292,7 +2482,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
       <FootnoteModal
         footnote={footnote}
         onClose={() => setFootnote(null)}
-        onNavigate={(href) => viewRef.current?.goTo(href)}
+        onNavigate={(href) => triggerJump(() => viewRef.current?.goTo(href))}
       />
 
       {/* Book Metadata Info Modal */}

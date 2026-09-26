@@ -3,6 +3,7 @@ import { X, ExternalLink } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { FootnoteData } from '../../types/reader';
 import { useTranslation } from '../../i18n';
+import { openExternalUrl } from '../../services/appOpener';
 
 interface FootnoteModalProps {
   footnote: FootnoteData | null;
@@ -63,6 +64,23 @@ export const FootnoteModal: React.FC<FootnoteModalProps> = ({
         <div
           className="footnote-modal-body"
           dangerouslySetInnerHTML={{ __html: sanitizedHtml }}
+          onClick={(e) => {
+            const target = e.target as HTMLElement | null;
+            const a = target?.closest('a[href]');
+            if (a) {
+              const href = a.getAttribute('href');
+              if (href) {
+                e.preventDefault();
+                e.stopPropagation();
+                if (href.startsWith('http://') || href.startsWith('https://') || href.startsWith('mailto:')) {
+                  openExternalUrl(href);
+                } else {
+                  onClose();
+                  onNavigate(href);
+                }
+              }
+            }
+          }}
         />
 
         <div className="footnote-modal-footer">

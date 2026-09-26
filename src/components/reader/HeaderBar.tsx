@@ -1,4 +1,4 @@
-import { Library, PanelLeft, Sliders } from "lucide-react";
+import { ArrowLeft, ArrowRight, Library, PanelLeft, Sliders } from "lucide-react";
 import React from "react";
 import { useTranslation } from "../../i18n";
 
@@ -6,6 +6,10 @@ interface HeaderBarProps {
   onBackToLibrary: () => void;
   onToggleSidebar: () => void;
   isSidebarOpen: boolean;
+  onHistoryBack?: () => void;
+  onHistoryForward?: () => void;
+  canGoBack?: boolean;
+  canGoForward?: boolean;
   onToggleSettings?: () => void;
   isSettingsOpen?: boolean;
   settingsBtnRef?: React.RefObject<HTMLButtonElement | null>;
@@ -18,6 +22,10 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   onBackToLibrary,
   onToggleSidebar,
   isSidebarOpen,
+  onHistoryBack,
+  onHistoryForward,
+  canGoBack = false,
+  canGoForward = false,
   onToggleSettings,
   isSettingsOpen = false,
   settingsBtnRef,
@@ -66,6 +74,33 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
         >
           <PanelLeft size={16} />
         </button>
+
+        {/* Navigation History Controls */}
+        {(onHistoryBack || onHistoryForward) && (
+          <>
+            <div className="header-separator" />
+            <button
+              type="button"
+              className="header-icon-btn header-history-btn"
+              onClick={onHistoryBack}
+              disabled={!canGoBack}
+              title={t('reader.historyBack')}
+              aria-label={t('reader.historyBack')}
+            >
+              <ArrowLeft size={16} />
+            </button>
+            <button
+              type="button"
+              className="header-icon-btn header-history-btn"
+              onClick={onHistoryForward}
+              disabled={!canGoForward}
+              title={t('reader.historyForward')}
+              aria-label={t('reader.historyForward')}
+            >
+              <ArrowRight size={16} />
+            </button>
+          </>
+        )}
       </div>
 
       {/* Center Running Head Title */}

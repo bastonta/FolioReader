@@ -314,6 +314,12 @@ button {
   color: var(--text-primary);
 }
 
+.header-icon-btn:disabled {
+  opacity: 0.32;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .header-center-title {
   flex: 1;
   text-align: center;
@@ -906,6 +912,16 @@ foliate-view::part(foot) {
 .footer-nav-btn:hover {
   background-color: var(--bg-tertiary);
   color: var(--text-primary);
+}
+
+.footer-nav-btn:disabled {
+  opacity: 0.28;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.footer-chapter-btn {
+  margin: 0 2px;
 }
 
 .footer-scrubber-center {
@@ -2437,6 +2453,93 @@ foliate-view::part(foot) {
 .reader-toast-notification.toast-error {
   background-color: #b91c1c;
   color: #ffffff;
+}
+
+/* Quick Return Chip */
+.quick-return-chip-container {
+  position: absolute;
+  bottom: calc(58px + var(--sab, 0px));
+  left: 50%;
+  transform: translateX(-50%) translateY(0);
+  z-index: 45;
+  display: flex;
+  align-items: center;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.22);
+  padding: 3px 6px 3px 12px;
+  gap: 6px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  animation: quick-return-pop 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  max-width: calc(100vw - 32px);
+  pointer-events: auto;
+}
+
+@keyframes quick-return-pop {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(12px) scale(0.94);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+}
+
+.quick-return-chip-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 4px 2px;
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.quick-return-chip-btn:hover {
+  color: var(--accent-primary, #3b82f6);
+}
+
+.quick-return-chip-btn .quick-return-icon {
+  flex-shrink: 0;
+  color: var(--accent-primary, #3b82f6);
+}
+
+.quick-return-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+}
+
+.quick-return-close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.quick-return-close-btn:hover {
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
 }
 
 /* Continue Reading Section (up to 3 books) */

@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from "lucide-react";
 import React from "react";
 import { useTranslation } from "../../i18n";
 
@@ -15,6 +15,10 @@ interface ProgressScrubberProps {
   onSeek: (fraction: number) => void;
   onPrev: () => void;
   onNext: () => void;
+  onPrevChapter?: () => void;
+  onNextChapter?: () => void;
+  hasPrevChapter?: boolean;
+  hasNextChapter?: boolean;
   sectionFractions: number[];
   averageSecondsPerPage?: number;
   displayMode?: FooterDisplayMode;
@@ -30,6 +34,10 @@ export const ProgressScrubber: React.FC<ProgressScrubberProps> = ({
   onSeek,
   onPrev,
   onNext,
+  onPrevChapter,
+  onNextChapter,
+  hasPrevChapter = true,
+  hasNextChapter = true,
   sectionFractions,
   averageSecondsPerPage,
   displayMode = "pages",
@@ -112,6 +120,19 @@ export const ProgressScrubber: React.FC<ProgressScrubberProps> = ({
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
+      {onPrevChapter && (
+        <button
+          type="button"
+          className="footer-nav-btn footer-chapter-btn footer-nav-prev-chapter"
+          onClick={onPrevChapter}
+          disabled={!hasPrevChapter}
+          title={t("reader.prevChapter")}
+          aria-label={t("reader.prevChapter")}
+        >
+          <ChevronsLeft size={18} />
+        </button>
+      )}
+
       <button
         type="button"
         className="footer-nav-btn footer-nav-prev"
@@ -243,6 +264,19 @@ export const ProgressScrubber: React.FC<ProgressScrubberProps> = ({
       >
         <ChevronRight size={18} />
       </button>
+
+      {onNextChapter && (
+        <button
+          type="button"
+          className="footer-nav-btn footer-chapter-btn footer-nav-next-chapter"
+          onClick={onNextChapter}
+          disabled={!hasNextChapter}
+          title={t("reader.nextChapter")}
+          aria-label={t("reader.nextChapter")}
+        >
+          <ChevronsRight size={18} />
+        </button>
+      )}
     </footer>
   );
 };

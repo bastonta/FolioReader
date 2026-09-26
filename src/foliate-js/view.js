@@ -166,6 +166,10 @@ class History extends EventTarget {
     }
     replaceState(x) {
         const index = this.#index
+        if (index < 0) {
+            this.pushState(x)
+            return
+        }
         this.#arr[index] = x
     }
     back() {
@@ -190,9 +194,25 @@ class History extends EventTarget {
     get canGoForward() {
         return this.#index < this.#arr.length - 1
     }
+    get current() {
+        return this.#arr[this.#index]
+    }
+    get previous() {
+        return this.#index > 0 ? this.#arr[this.#index - 1] : null
+    }
+    get next() {
+        return this.#index < this.#arr.length - 1 ? this.#arr[this.#index + 1] : null
+    }
+    get length() {
+        return this.#arr.length
+    }
+    get index() {
+        return this.#index
+    }
     clear() {
         this.#arr = []
         this.#index = -1
+        this.dispatchEvent(new Event('index-change'))
     }
 }
 
@@ -226,7 +246,9 @@ export class View extends HTMLElement {
     constructor() {
         super()
         this.history.addEventListener('popstate', ({ detail }) => {
-            const resolved = this.resolveNavigation(detail.state)
+            const state = detail?.state
+            const target = (typeof state === 'object' && state !== null) ? (state.target ?? state.cfi ?? state.href ?? state) : state
+            const resolved = this.resolveNavigation(target)
             this.renderer.goTo(resolved)
         })
     }
@@ -464,12 +486,15 @@ export class View extends HTMLElement {
     }
     resolveNavigation(target) {
         try {
+            if (typeof target === 'object' && target !== null && !('fraction' in target)) {
+                target = target.target ?? target.cfi ?? target.href ?? target
+            }
             if (typeof target === 'number') return { index: target }
-            if (typeof target.fraction === 'number') {
+            if (typeof target?.fraction === 'number') {
                 const [index, anchor] = this.#sectionProgress.getSection(target.fraction)
                 return { index, anchor }
             }
-            if (CFI.isCFI.test(target)) return this.resolveCFI(target)
+            if (typeof target === 'string' && CFI.isCFI.test(target)) return this.resolveCFI(target)
             return this.book.resolveHref(target)
         } catch (e) {
             console.error(e)
