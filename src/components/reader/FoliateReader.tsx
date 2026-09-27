@@ -408,6 +408,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   const isScrubberSeekingRef = useRef<boolean>(false);
   const saveProgressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingProgressRef = useRef<{ cfi: string; fraction: number } | null>(null);
+  const sectionAbortControllerRef = useRef<AbortController | null>(null);
 
   const flushPendingLocationSave = useCallback(() => {
     if (saveProgressTimerRef.current) {
@@ -1199,6 +1200,12 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
       view.addEventListener('load', (e: any) => {
         const { doc, index } = e.detail;
 
+        // Abort previous section listeners to prevent event listener leaks
+        sectionAbortControllerRef.current?.abort();
+        const sectionController = new AbortController();
+        sectionAbortControllerRef.current = sectionController;
+        const { signal } = sectionController;
+
         let selectionDismissedOnPointerDown = false;
         let pointerStartX = 0;
         let pointerStartY = 0;
@@ -1315,7 +1322,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
             ev.stopPropagation();
             extractAndOpenImage(imgEl, true);
           }
-        });
+        }, { signal });
 
         // Pointerdown / mousedown on free space inside doc dismisses popover & selection
         doc.addEventListener('pointerdown', (ev: PointerEvent) => {
@@ -1334,13 +1341,13 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
               doc.defaultView?.getSelection()?.removeAllRanges();
             }
           }
-        });
+        }, { signal });
 
         doc.addEventListener('pointermove', (ev: PointerEvent) => {
           if (Math.hypot(ev.clientX - pointerStartX, ev.clientY - pointerStartY) > 12) {
             pointerMoved = true;
           }
-        });
+        }, { signal });
 
         doc.addEventListener('pointerup', (ev: PointerEvent) => {
           if (pointerMoved) {
@@ -1363,7 +1370,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
               }
             }
           }
-        });
+        }, { signal });
 
         // Mouse move inside iframe for edge reveal & activity reset
         doc.addEventListener('mousemove', (ev: MouseEvent) => {
@@ -1379,7 +1386,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
               scheduleAutoHideRef.current();
             }
           }
-        });
+        }, { signal });
 
         // Keyboard navigation inside iframe
         doc.addEventListener('keydown', (ev: KeyboardEvent) => {
@@ -1422,7 +1429,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
               return next;
             });
           }
-        });
+        }, { signal });
 
         // Context menu replacement & integration (Desktop right-click / Touch long press)
         doc.addEventListener('contextmenu', (ev: MouseEvent) => {
@@ -1559,7 +1566,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           // 4. Right-click on empty space -> dismiss popover
           setSelection(null);
           clearAllSelections();
-        });
+        }, { signal });
 
         // Text selection for highlights & annotations (mouse drag / touch selection)
         doc.addEventListener('pointerup', () => {
@@ -1589,7 +1596,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
               }
             }
           }, 20);
-        });
+        }, { signal });
 
         // Click handler inside iframe: footnote opening, unpinned sidebar dismissal, controls toggle & mobile tap navigation
         doc.addEventListener('click', async (ev: MouseEvent) => {
@@ -1758,7 +1765,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
               });
             }
           }
-        });
+        }, { signal });
       });
 
       // Overlay & Annotation rendering
@@ -1997,6 +2004,8 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
 
     return () => {
       isCancelled = true;
+      sectionAbortControllerRef.current?.abort();
+      sectionAbortControllerRef.current = null;
       if (objectUrlToRevoke) {
         URL.revokeObjectURL(objectUrlToRevoke);
         objectUrlToRevoke = null;

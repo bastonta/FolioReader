@@ -382,6 +382,9 @@ export async function pullBookProgress(bookId: string): Promise<PullProgressResu
     if (res && res.location) {
       const percent = res.progressPercent || 0;
       await saveDbLastLocation(bookId, res.location, percent / 100, res.isRead || false);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('folio:sync-completed', { detail: { bookId } }));
+      }
       return {
         success: true,
         message: 'Progress successfully fetched from server',
@@ -412,11 +415,15 @@ export async function syncBookData(bookId: string): Promise<SyncResult | null> {
     if (!serverUrl) return null;
     const token = getAccessToken();
 
-    return await invoke<SyncResult>('sync_book_data', {
+    const result = await invoke<SyncResult>('sync_book_data', {
       bookId,
       serverUrl,
       token: token || null,
     });
+    if (result && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('folio:sync-completed', { detail: { bookId, result } }));
+    }
+    return result;
   } catch (err) {
     console.warn(`Sync failed for book ${bookId}:`, err);
     return null;
@@ -431,10 +438,14 @@ export async function syncAllPending(): Promise<SyncResult[]> {
     if (!serverUrl) return [];
     const token = getAccessToken();
 
-    return await invoke<SyncResult[]>('sync_all_pending', {
+    const results = await invoke<SyncResult[]>('sync_all_pending', {
       serverUrl,
       token: token || null,
     });
+    if (results && results.length > 0 && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('folio:sync-completed', { detail: { results } }));
+    }
+    return results;
   } catch (err) {
     console.warn('Sync all pending failed:', err);
     return [];

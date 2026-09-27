@@ -17,6 +17,8 @@
     "sqlx",
     "staticlib",
     "tauri",
-    "webpki"
+    "webpki",
+    "zeroize",
+    "Zeroizing"
   ]
 }

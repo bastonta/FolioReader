@@ -2602,6 +2602,11 @@ foliate-view::part(foot) {
   border-color: var(--accent-color);
 }
 
+.continue-reading-card:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}
+
 .continue-reading-cover-wrap {
   width: 48px;
   height: 68px;
@@ -3000,6 +3005,14 @@ foliate-view::part(foot) {
 
 .book-card:active {
   transform: translateY(-1px);
+}
+
+.book-card:focus-visible,
+.folder-grid-card:focus-visible,
+.book-list-item:focus-visible,
+.folder-list-item:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
 }
 
 .book-card-cover-wrap {

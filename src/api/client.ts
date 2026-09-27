@@ -111,11 +111,14 @@ export async function apiFetch<T = unknown>(
   }
 
   let res: Response;
+  const controller = !init.signal ? new AbortController() : null;
+  const timeoutId = controller ? setTimeout(() => controller.abort(), 10000) : null;
   try {
     res = await fetch(url, {
       ...init,
       headers,
       credentials: 'include',
+      signal: init.signal || controller?.signal,
     });
     notifyConnectionRestored();
   } catch (netErr: any) {
@@ -125,6 +128,8 @@ export async function apiFetch<T = unknown>(
       message: netErr?.message || 'Network error: server unreachable',
       data: netErr,
     } as ApiError;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
   }
 
   // ── Handle 401 with automatic token refresh ────────────────────────
@@ -134,11 +139,14 @@ export async function apiFetch<T = unknown>(
       // Retry with fresh token
       headers.set('Authorization', `Bearer ${newToken}`);
       let retryRes: Response;
+      const retryController = !init.signal ? new AbortController() : null;
+      const retryTimeoutId = retryController ? setTimeout(() => retryController.abort(), 10000) : null;
       try {
         retryRes = await fetch(url, {
           ...init,
           headers,
           credentials: 'include',
+          signal: init.signal || retryController?.signal,
         });
         notifyConnectionRestored();
       } catch (netErr: any) {
@@ -148,6 +156,8 @@ export async function apiFetch<T = unknown>(
           message: netErr?.message || 'Network error: server unreachable on retry',
           data: netErr,
         } as ApiError;
+      } finally {
+        if (retryTimeoutId) clearTimeout(retryTimeoutId);
       }
 
       if (!retryRes.ok) {

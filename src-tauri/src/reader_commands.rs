@@ -6,6 +6,29 @@ use crate::db::{
 use crate::sync_manager::{self, PullProgressResult, SyncResult};
 use tauri::State;
 
+fn validate_non_empty(val: &str, field_name: &str) -> Result<(), String> {
+    if val.trim().is_empty() {
+        return Err(format!("Field '{field_name}' must not be empty"));
+    }
+    if val.len() > 1024 * 1024 {
+        return Err(format!("Field '{field_name}' exceeds maximum allowed size"));
+    }
+    Ok(())
+}
+
+fn sanitize_progress_percent(val: f32) -> Result<f32, String> {
+    if val.is_nan() || val < 0.0 {
+        return Err("Invalid progress_percent: cannot be negative or NaN".to_string());
+    }
+    if val > 1.0 && val <= 100.0 {
+        Ok(val / 100.0)
+    } else if val > 100.0 {
+        Ok(1.0)
+    } else {
+        Ok(val.clamp(0.0, 1.0))
+    }
+}
+
 #[tauri::command]
 pub async fn db_save_book_mapping(
     local_id: String,
@@ -13,6 +36,7 @@ pub async fn db_save_book_mapping(
     file_path: Option<String>,
     db: State<'_, DbPool>,
 ) -> Result<(), String> {
+    validate_non_empty(&local_id, "local_id")?;
     db::save_book_mapping(&db, &local_id, &server_book_id, file_path.as_deref())
         .await
         .map_err(|e| e.to_string())
@@ -23,6 +47,7 @@ pub async fn db_get_server_book_id(
     book_id: String,
     db: State<'_, DbPool>,
 ) -> Result<Option<String>, String> {
+    validate_non_empty(&book_id, "book_id")?;
     db::get_server_book_id(&db, &book_id)
         .await
         .map_err(|e| e.to_string())
@@ -46,6 +71,10 @@ pub async fn db_save_progress(
     is_read: bool,
     db: State<'_, DbPool>,
 ) -> Result<DbBookProgress, String> {
+    validate_non_empty(&book_id, "book_id")?;
+    validate_non_empty(&location, "location")?;
+    let progress_percent = sanitize_progress_percent(progress_percent)?;
+
     db::save_progress(&db, &book_id, &location, progress_percent, is_read, true)
         .await
         .map_err(|e| e.to_string())
@@ -88,6 +117,15 @@ pub async fn db_save_bookmark(
     chapter_title: Option<String>,
     db: State<'_, DbPool>,
 ) -> Result<DbBookmark, String> {
+    validate_non_empty(&id, "id")?;
+    validate_non_empty(&book_id, "book_id")?;
+    validate_non_empty(&location, "location")?;
+    let fraction = if fraction.is_nan() {
+        0.0
+    } else {
+        fraction.clamp(0.0, 1.0)
+    };
+
     db::save_bookmark(
         &db,
         &id,
@@ -106,6 +144,7 @@ pub async fn db_save_bookmark(
 
 #[tauri::command]
 pub async fn db_delete_bookmark(id: String, db: State<'_, DbPool>) -> Result<(), String> {
+    validate_non_empty(&id, "id")?;
     db::delete_bookmark(&db, &id)
         .await
         .map_err(|e| e.to_string())
@@ -116,6 +155,7 @@ pub async fn db_get_annotations(
     book_id: String,
     db: State<'_, DbPool>,
 ) -> Result<Vec<DbAnnotation>, String> {
+    validate_non_empty(&book_id, "book_id")?;
     db::get_annotations(&db, &book_id)
         .await
         .map_err(|e| e.to_string())
@@ -137,6 +177,11 @@ pub async fn db_save_annotation(
     section_index: Option<i32>,
     db: State<'_, DbPool>,
 ) -> Result<DbAnnotation, String> {
+    validate_non_empty(&id, "id")?;
+    validate_non_empty(&book_id, "book_id")?;
+    validate_non_empty(&location_start, "location_start")?;
+    validate_non_empty(&value, "value")?;
+
     db::save_annotation(
         &db,
         &id,
@@ -163,6 +208,7 @@ pub async fn db_delete_annotation(
     id_or_value: String,
     db: State<'_, DbPool>,
 ) -> Result<(), String> {
+    validate_non_empty(&id_or_value, "id_or_value")?;
     db::delete_annotation(&db, &id_or_value)
         .await
         .map_err(|e| e.to_string())
@@ -305,6 +351,10 @@ pub async fn db_save_local_book_meta(
     extracted: Option<bool>,
     db: State<'_, DbPool>,
 ) -> Result<(), String> {
+    validate_non_empty(&book_id, "book_id")?;
+    validate_non_empty(&file_path, "file_path")?;
+    validate_non_empty(&title, "title")?;
+
     db::save_local_book_meta(
         &db,
         &book_id,
@@ -418,6 +468,13 @@ pub async fn db_save_reading_session(
     pages_read: Option<i32>,
     db: State<'_, DbPool>,
 ) -> Result<DbReadingSession, String> {
+    validate_non_empty(&book_id, "book_id")?;
+    validate_non_empty(&start_time, "start_time")?;
+    validate_non_empty(&end_time, "end_time")?;
+    if duration_seconds < 0 || duration_seconds > 86400 * 7 {
+        return Err("Field 'duration_seconds' must be between 0 and 604800".to_string());
+    }
+
     db::save_reading_session(
         &db,
         &book_id,

@@ -9,6 +9,7 @@ use std::sync::Arc;
 use tauri::{AppHandle, State};
 use tokio::fs;
 use tokio::sync::Mutex;
+use zeroize::Zeroizing;
 
 const SESSION_FILE_NAME: &str = "folio_auth_session.json";
 
@@ -20,7 +21,7 @@ pub struct AuthProxyResponse {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct StoredSession {
-    pub refresh_token: String,
+    pub refresh_token: Zeroizing<String>,
 }
 
 #[derive(Deserialize)]
@@ -33,7 +34,7 @@ struct TokenRefreshResponseBody {
 pub struct AuthHttpClient {
     client: Client,
     _cookie_jar: Arc<Jar>,
-    refresh_token: Option<String>,
+    refresh_token: Option<Zeroizing<String>>,
 }
 
 impl AuthHttpClient {
@@ -75,7 +76,7 @@ async fn save_persisted_refresh_token(app: &AppHandle, token: &str) {
             let _ = fs::create_dir_all(parent).await;
         }
         let session = StoredSession {
-            refresh_token: token.to_string(),
+            refresh_token: Zeroizing::new(token.to_string()),
         };
         if let Ok(json) = serde_json::to_string(&session) {
             let _ = fs::write(file_path, json).await;
@@ -83,7 +84,7 @@ async fn save_persisted_refresh_token(app: &AppHandle, token: &str) {
     }
 }
 
-async fn load_persisted_refresh_token(app: &AppHandle) -> Option<String> {
+async fn load_persisted_refresh_token(app: &AppHandle) -> Option<Zeroizing<String>> {
     let file_path = get_session_file_path(app).ok()?;
     let content = fs::read_to_string(file_path).await.ok()?;
     let session: StoredSession = serde_json::from_str(&content).ok()?;
@@ -100,7 +101,9 @@ async fn delete_persisted_refresh_token(app: &AppHandle) {
     }
 }
 
-fn extract_refresh_token(headers: &reqwest::header::HeaderMap) -> Option<Option<String>> {
+fn extract_refresh_token(
+    headers: &reqwest::header::HeaderMap,
+) -> Option<Option<Zeroizing<String>>> {
     for val in headers.get_all(SET_COOKIE) {
         if let Ok(val_str) = val.to_str()
             && let Some(pos) = val_str.find("refresh_token=")
@@ -114,7 +117,7 @@ fn extract_refresh_token(headers: &reqwest::header::HeaderMap) -> Option<Option<
             {
                 return Some(None);
             } else {
-                return Some(Some(token_val.to_string()));
+                return Some(Some(Zeroizing::new(token_val.to_string())));
             }
         }
     }
@@ -298,7 +301,7 @@ pub async fn refresh_access_token(
     let res = state
         .client
         .post(&url)
-        .header(COOKIE, format!("refresh_token={current_token}"))
+        .header(COOKIE, format!("refresh_token={}", current_token.as_str()))
         .send()
         .await
         .map_err(|e| format!("Network error: {e}"))?;
@@ -359,7 +362,7 @@ pub async fn auth_revoke_token(
         let _ = state
             .client
             .post(&url)
-            .header(COOKIE, format!("refresh_token={current_token}"))
+            .header(COOKIE, format!("refresh_token={}", current_token.as_str()))
             .send()
             .await;
     }

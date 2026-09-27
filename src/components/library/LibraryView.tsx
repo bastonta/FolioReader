@@ -207,6 +207,25 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     };
   }, [refreshRecentProgress]);
 
+  // Re-fetch progress & metadata when sync operations complete
+  useEffect(() => {
+    const handleSyncCompleted = () => {
+      refreshRecentProgress();
+      loadAllProgress(localBooks);
+      loadLocalBooksCacheAsync()
+        .then((cached) => {
+          if (cached && Object.keys(cached).length > 0) {
+            setMetaCache(cached);
+          }
+        })
+        .catch(console.warn);
+    };
+    window.addEventListener('folio:sync-completed', handleSyncCompleted);
+    return () => {
+      window.removeEventListener('folio:sync-completed', handleSyncCompleted);
+    };
+  }, [refreshRecentProgress, loadAllProgress, localBooks]);
+
   // View mode: 'grid' | 'list'
   const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => {
     return settings.libraryViewMode || 'grid';
@@ -950,7 +969,15 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                   <div
                     key={book.id}
                     className="continue-reading-card"
+                    tabIndex={0}
+                    role="button"
                     onClick={() => handleResumeBook(book)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        handleResumeBook(book);
+                      }
+                    }}
                     onContextMenu={(e) => handleOpenRecentBookMenu(book, e)}
                     title={`${t('library.continueReading')} "${book.title}" (${pct}%)`}
                   >
@@ -1137,7 +1164,15 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                     <div
                       key={`folder-${folderName}`}
                       className="folder-grid-card"
+                      tabIndex={0}
+                      role="button"
                       onClick={() => setCurrentFolderPath((prev) => [...prev, folderName])}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setCurrentFolderPath((prev) => [...prev, folderName]);
+                        }
+                      }}
                       title={t('library.openFolderTitle', { name: folderName })}
                     >
                       {/* Stacked covers */}
@@ -1204,7 +1239,15 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
                     <div
                       key={`folder-${folderName}`}
                       className="folder-list-item"
+                      tabIndex={0}
+                      role="button"
                       onClick={() => setCurrentFolderPath((prev) => [...prev, folderName])}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setCurrentFolderPath((prev) => [...prev, folderName]);
+                        }
+                      }}
                     >
                       {/* Mini stacked cover thumbnail */}
                       <div className="folder-list-thumbnail-wrap">
@@ -1345,7 +1388,15 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       <div
         key={book.id}
         className="book-card"
+        tabIndex={0}
+        role="button"
         onClick={() => onOpenLocalBook(book, meta)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onOpenLocalBook(book, meta);
+          }
+        }}
         onContextMenu={(e) => handleOpenBookMenu(book, e, isRead)}
       >
         <div className="book-card-cover-wrap">
@@ -1492,7 +1543,15 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       <div
         key={book.id}
         className="book-list-item"
+        tabIndex={0}
+        role="button"
         onClick={() => onOpenLocalBook(book, meta)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onOpenLocalBook(book, meta);
+          }
+        }}
         onContextMenu={(e) => handleOpenBookMenu(book, e, isRead)}
       >
         {/* Cover thumbnail on the left */}

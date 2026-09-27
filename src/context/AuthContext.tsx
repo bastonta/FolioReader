@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import type { User, LoginResponse, Login2faType } from '../types/auth';
 import { authApi } from '../api/authApi';
 import { profileApi } from '../api/profileApi';
@@ -57,16 +57,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     typeof navigator !== 'undefined' ? !navigator.onLine : false,
   );
 
+  const authOpIdRef = useRef<number>(0);
+
   // ── Fetch profile (validates token and caches user) ──────────────────
 
   const fetchProfile = useCallback(async () => {
+    const opId = ++authOpIdRef.current;
     try {
       const data = await profileApi.getProfile();
+      if (opId !== authOpIdRef.current) return null;
       setUser(data);
       setCachedUser(data);
       setIsOffline(false);
       return data;
     } catch (err: any) {
+      if (opId !== authOpIdRef.current) return null;
       if (isNetworkError(err) || err?.status === 0) {
         setIsOffline(true);
         // Do NOT clear tokens or kick user out when offline
@@ -109,8 +114,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       return false;
     }
 
+    const opId = ++authOpIdRef.current;
     try {
       const data = await profileApi.getProfile();
+      if (opId !== authOpIdRef.current) return false;
       if (data) {
         setUser(data);
         setCachedUser(data);
@@ -123,6 +130,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       }
       return false;
     } catch (err: any) {
+      if (opId !== authOpIdRef.current) return false;
       if (err?.status === 401) {
         setUser(null);
         clearAllUserData({ preserveServerUrl: true }).catch(console.error);
@@ -138,20 +146,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   // ── Bootstrap: check if we have a valid session ──────────────────────
 
   useEffect(() => {
-    const bootstrap = async () => {
-      const url = getServerUrl();
-      const token = getAccessToken();
-      const cached = getCachedUser();
+    let isCancelled = false;
 
-      if (url && token) {
-        if (cached) {
-          setUser(cached);
+    const bootstrap = async () => {
+      // Safety guard: ensure the splash screen never hangs for more than 3.5s
+      const splashTimeout = setTimeout(() => {
+        if (!isCancelled) {
+          setIsLoading(false);
         }
-        await fetchProfile();
+      }, 3500);
+
+      try {
+        const url = getServerUrl();
+        const token = getAccessToken();
+        const cached = getCachedUser();
+
+        if (url && (token || cached)) {
+          if (cached) {
+            setUser(cached);
+          }
+          await fetchProfile();
+        }
+      } catch (e) {
+        console.error('Auth bootstrap failed:', e);
+      } finally {
+        clearTimeout(splashTimeout);
+        if (!isCancelled) {
+          setIsLoading(false);
+        }
       }
-      setIsLoading(false);
     };
+
     bootstrap();
+
+    return () => {
+      isCancelled = true;
+    };
   }, [fetchProfile]);
 
   // ── Active background probe when offline ─────────────────────────────
@@ -165,24 +195,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       const url = getServerUrl();
       if (!url || !token) return;
 
-      try {
-        const data = await profileApi.getProfile();
-        if (data) {
-          setUser(data);
-          setCachedUser(data);
-          setIsOffline(false);
-          syncAllPending().catch(console.warn);
-        }
-      } catch (err: any) {
-        if (err?.status === 401) {
-          setUser(null);
-          clearAllUserData({ preserveServerUrl: true }).catch(console.error);
-        }
-      }
+      await checkOnlineStatus();
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [isOffline]);
+  }, [isOffline, checkOnlineStatus]);
 
   // ── Listen for network online/offline, window focus & custom events ──
 
@@ -239,6 +256,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
   useEffect(() => {
     const handleExpired = () => {
+      ++authOpIdRef.current;
       setUser(null);
       clearAllUserData({ preserveServerUrl: true }).catch(console.error);
     };
@@ -251,8 +269,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const login = useCallback(
     async (email: string, password: string): Promise<LoginResponse> => {
+      const opId = ++authOpIdRef.current;
       await clearAllUserData({ preserveServerUrl: true });
       const res = await authApi.login(email, password);
+      if (opId !== authOpIdRef.current) return res;
       if (!res.need2fa) {
         setAccessToken(res.token);
         await fetchProfile();
@@ -269,8 +289,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       code: string,
       type: Login2faType = 'code',
     ): Promise<void> => {
+      const opId = ++authOpIdRef.current;
       await clearAllUserData({ preserveServerUrl: true });
       const res = await authApi.login2fa(userId, token, code, type);
+      if (opId !== authOpIdRef.current) return;
       setAccessToken(res.token);
       await fetchProfile();
     },
@@ -286,8 +308,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const emailConfirm = useCallback(
     async (userId: string, code: string): Promise<void> => {
+      const opId = ++authOpIdRef.current;
       await clearAllUserData({ preserveServerUrl: true });
       const res = await authApi.emailConfirm(userId, code);
+      if (opId !== authOpIdRef.current) return;
       setAccessToken(res.token);
       await fetchProfile();
     },
@@ -295,6 +319,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 
   const logout = useCallback(async () => {
+    ++authOpIdRef.current;
     try {
       await authApi.logout();
     } catch {
@@ -316,6 +341,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   }, []);
 
   const clearServer = useCallback(() => {
+    ++authOpIdRef.current;
     persistServerUrl(null);
     clearAllUserData({ preserveServerUrl: false }).catch(console.error);
     setServerUrlState(null);

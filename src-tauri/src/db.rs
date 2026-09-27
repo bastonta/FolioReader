@@ -139,8 +139,11 @@ pub async fn init_db(db_path: &Path) -> Result<DbPool, sqlx::Error> {
     }
 
     let db_str = db_path.to_str().unwrap_or("folio_local.db");
-    let options =
-        SqliteConnectOptions::from_str(&format!("sqlite://{db_str}"))?.create_if_missing(true);
+    let options = SqliteConnectOptions::from_str(&format!("sqlite://{db_str}"))?
+        .create_if_missing(true)
+        .pragma("foreign_keys", "ON")
+        .pragma("journal_mode", "WAL")
+        .pragma("synchronous", "NORMAL");
 
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
