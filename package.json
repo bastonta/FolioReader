@@ -14,9 +14,9 @@
     "tauri:android:build:dev": "tauri android build --debug --apk -t aarch64"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.11.1",
-    "@tauri-apps/plugin-http": "^2.6.1",
-    "@tauri-apps/plugin-opener": "^2.5.5",
+    "@tauri-apps/api": "^2.12.0",
+    "@tauri-apps/plugin-http": "^2.7.0",
+    "@tauri-apps/plugin-opener": "^2.6.0",
     "dompurify": "^3.4.16",
     "lucide-react": "^1.48.0",
     "qrcode": "^1.5.4",
@@ -25,7 +25,7 @@
     "react-router-dom": "^7.18.4"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.11.5",
+    "@tauri-apps/cli": "^2.12.0",
     "@types/dompurify": "^3.2.0",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.3.0",
