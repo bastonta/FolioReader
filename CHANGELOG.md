@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-09-27
+
+### Fixed
+- Resolved Tauri build failure by pinning native `tauri-plugin-http` crate to `~2.7.0` to match installed `@tauri-apps/plugin-http` NPM package version.
+- Updated `uuid` crate dependency to `1.26.1`.
+
 ## [0.8.0] - 2026-09-27
 
 ### Added
