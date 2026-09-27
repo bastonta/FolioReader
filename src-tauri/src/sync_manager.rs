@@ -138,12 +138,36 @@ fn build_headers(token: Option<&str>) -> HeaderMap {
     headers
 }
 
+#[derive(Default)]
+pub struct SyncLock(pub tokio::sync::Mutex<()>);
+
+impl SyncLock {
+    pub fn new() -> Self {
+        Self(tokio::sync::Mutex::new(()))
+    }
+}
+
 async fn calculate_file_hash(file_path: &Path) -> Option<String> {
-    let bytes = tokio::fs::read(file_path).await.ok()?;
-    let mut hasher = Sha256::new();
-    hasher.update(&bytes);
-    let result = hasher.finalize();
-    Some(hex::encode(result))
+    let path = file_path.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        use std::fs::File;
+        use std::io::Read;
+        let mut file = File::open(&path).ok()?;
+        let mut hasher = Sha256::new();
+        let mut buffer = [0u8; 65536];
+        loop {
+            let n = file.read(&mut buffer).ok()?;
+            if n == 0 {
+                break;
+            }
+            hasher.update(&buffer[..n]);
+        }
+        let result = hasher.finalize();
+        Some(hex::encode(result))
+    })
+    .await
+    .ok()
+    .flatten()
 }
 
 pub async fn resolve_server_book_id(

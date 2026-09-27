@@ -191,7 +191,9 @@ pub async fn sync_book_data(
     token: Option<String>,
     db: State<'_, DbPool>,
     auth_state: State<'_, AuthHttpClientState>,
+    sync_lock: State<'_, sync_manager::SyncLock>,
 ) -> Result<SyncResult, String> {
+    let _lock_guard = sync_lock.0.lock().await;
     let client = {
         let auth = auth_state.lock().await;
         auth.client().clone()
@@ -206,7 +208,13 @@ pub async fn sync_all_pending(
     token: Option<String>,
     db: State<'_, DbPool>,
     auth_state: State<'_, AuthHttpClientState>,
+    sync_lock: State<'_, sync_manager::SyncLock>,
 ) -> Result<Vec<SyncResult>, String> {
+    let Ok(_lock_guard) = sync_lock.0.try_lock() else {
+        // Another sync is already in progress; skip this run to prevent race conditions
+        return Ok(Vec::new());
+    };
+
     let client = {
         let auth = auth_state.lock().await;
         auth.client().clone()

@@ -264,3 +264,4 @@ $RECYCLE.BIN/
 
 dist
 dist-ssr
+*.tsbuildinfo

@@ -3,6 +3,8 @@ import ReactDOM from "react-dom/client";
 import { HashRouter } from "react-router-dom";
 import App from "./App";
 
+import { ErrorBoundary } from "./components/common/ErrorBoundary";
+
 // Disable default browser context menu to ensure a native application experience
 document.addEventListener("contextmenu", (e) => {
   const target = e.target as HTMLElement | null;
@@ -22,9 +24,11 @@ if (import.meta.env.DEV) {
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <HashRouter>
-      <App />
-    </HashRouter>
+    <ErrorBoundary>
+      <HashRouter>
+        <App />
+      </HashRouter>
+    </ErrorBoundary>
   </React.StrictMode>,
 );
 

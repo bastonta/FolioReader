@@ -4,6 +4,7 @@ import { FoliateReader } from './components/reader/FoliateReader';
 import { LibraryView } from './components/library/LibraryView';
 import { BrowseView } from './components/library/BrowseView';
 import { SettingsModal } from './components/common/SettingsModal';
+import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { ReaderSettings } from './types/reader';
 import { LocalBookFile } from './types/browse';
 import {
@@ -410,13 +411,19 @@ function AppRoutes() {
           element={
             <RequireAuth theme={settings.theme}>
               {activeBook ? (
-                <FoliateReader
-                  bookId={activeBook.id}
-                  bookSource={activeBook.source}
-                  settings={settings}
-                  onUpdateSettings={handleUpdateSettings}
-                  onBackToLibrary={handleBackToLibrary}
-                />
+                <ErrorBoundary
+                  fallbackTitle="Failed to open book"
+                  fallbackMessage="An error occurred while loading this e-book. You can return to your library and try opening another book."
+                  onReset={handleBackToLibrary}
+                >
+                  <FoliateReader
+                    bookId={activeBook.id}
+                    bookSource={activeBook.source}
+                    settings={settings}
+                    onUpdateSettings={handleUpdateSettings}
+                    onBackToLibrary={handleBackToLibrary}
+                  />
+                </ErrorBoundary>
               ) : currentView === 'browse' ? (
                 <BrowseView
                   settings={settings}

@@ -52,7 +52,7 @@ fn sanitize_filename_part(name: &str) -> String {
         })
         .collect();
 
-    clean = clean.trim().to_string();
+    clean = clean.trim().trim_matches('.').to_string();
     if clean.is_empty() {
         "untitled".to_string()
     } else {
@@ -242,8 +242,9 @@ pub async fn download_book_file(
     db: tauri::State<'_, crate::db::DbPool>,
 ) -> Result<String, String> {
     let target_dir = if let Some(custom) = custom_target_dir {
-        if !custom.trim().is_empty() {
-            PathBuf::from(custom)
+        let trimmed = custom.trim();
+        if !trimmed.is_empty() && !trimmed.contains("..") {
+            PathBuf::from(trimmed)
         } else {
             PathBuf::from(&base_dir)
         }
@@ -317,23 +318,40 @@ pub async fn download_book_file(
         ));
     }
 
-    let mut file = tokio::fs::File::create(&final_path)
-        .await
-        .map_err(|e| format!("Failed to create file '{:?}': {e}", final_path))?;
+    let tmp_path = target_dir.join(format!(".{clean_name}.tmp_{}", uuid::Uuid::now_v7()));
 
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|e| format!("Failed to read chunk from server: {e}"))?
-    {
-        file.write_all(&chunk)
+    let write_res: Result<(), String> = async {
+        let mut file = tokio::fs::File::create(&tmp_path)
             .await
-            .map_err(|e| format!("Failed to write chunk to file: {e}"))?;
+            .map_err(|e| format!("Failed to create temporary download file '{:?}': {e}", tmp_path))?;
+
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|e| format!("Failed to read chunk from server: {e}"))?
+        {
+            file.write_all(&chunk)
+                .await
+                .map_err(|e| format!("Failed to write chunk to file: {e}"))?;
+        }
+
+        file.flush()
+            .await
+            .map_err(|e| format!("Failed to flush file '{:?}': {e}", tmp_path))?;
+
+        Ok(())
+    }
+    .await;
+
+    if let Err(e) = write_res {
+        let _ = fs::remove_file(&tmp_path).await;
+        return Err(e);
     }
 
-    file.flush()
-        .await
-        .map_err(|e| format!("Failed to flush file '{:?}': {e}", final_path))?;
+    if let Err(e) = fs::rename(&tmp_path, &final_path).await {
+        let _ = fs::remove_file(&tmp_path).await;
+        return Err(format!("Failed to finalize downloaded book file: {e}"));
+    }
 
     let final_path_str = final_path.to_string_lossy().to_string();
     let rel_path = final_path

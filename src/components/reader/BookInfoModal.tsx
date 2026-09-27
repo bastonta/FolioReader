@@ -14,6 +14,7 @@ import {
   Tag,
 } from "lucide-react";
 import React, { useEffect, useState } from "react";
+import DOMPurify from "dompurify";
 import { useTranslation } from "../../i18n";
 import { useDialog } from "../../context/DialogContext";
 import {
@@ -589,7 +590,7 @@ export const BookInfoModal: React.FC<BookInfoModalProps> = ({
           </div>
           <div
             className="book-info-desc-body"
-            dangerouslySetInnerHTML={{ __html: metadata.description }}
+            dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(metadata.description) }}
           />
         </div>
       )}

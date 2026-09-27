@@ -62,6 +62,7 @@ pub fn run() {
             Ok(())
         })
         .manage(Mutex::new(AuthHttpClient::new()) as AuthHttpClientState)
+        .manage(sync_manager::SyncLock::new())
         .invoke_handler(tauri::generate_handler![
             auth_proxy::auth_login_proxy,
             auth_proxy::auth_login_2fa_proxy,
