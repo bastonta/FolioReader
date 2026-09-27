@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-09-27
+
+### Added
+- Location history navigation in reader with Back and Forward buttons in `HeaderBar`.
+- Floating `QuickReturnChip` providing quick one-tap return after jumping across locations via footnotes, table of contents, or internal links.
+- Previous and Next Chapter step controls in reader `ProgressScrubber`.
+- Dedicated Android hardware back button handler (priority 40), desktop keyboard shortcuts (`Alt+Left`, `Alt+Right`, `Ctrl+[`), and mouse back/forward button support for location history.
+- Internal and external link navigation support within footnote modal descriptions.
+- Enhanced `foliate-js` History class with safe indexing, position getters, and object state resolution.
+- React `ErrorBoundary` wrapper in `main.tsx` and `App.tsx` for graceful failure recovery.
+- Keyboard navigation (Enter / Space) and accessible focus-visible styling for library book cards and folder items.
+- Event broadcasting (`folio:sync-completed`) to automatically refresh `LibraryView` state after background sync finishes.
+- Russian and English localization strings for history navigation, chapter stepping, and quick return actions.
+
+### Changed
+- Asynchronous reader closing flow: moved session flush and cloud sync to background operations for responsive UI dismiss.
+- SQLite connection settings: enabled Write-Ahead Logging (WAL) journal mode, foreign key constraints, and normal synchronous pragma.
+- Atomic book downloads: download books into temporary files with atomic rename and automatic cleanup upon failure.
+- Streamed file hash computation using `spawn_blocking` to avoid reading entire book files into memory.
+- Upgraded frontend and native dependencies: `@tauri-apps/*`, `reqwest`, `react 19`, `vite`, `lucide-react`, and related packages.
+
+### Fixed
+- Resolved startup splash screen hang and authentication race condition using a monotonic operation counter and safety timeout.
+- Prevented concurrent sync runs and race conditions in `sync_all_pending` using a `SyncLock` state guard.
+- Cleaned up reader iframe section event listeners using `AbortController` on section unmount and reload to eliminate memory leaks.
+- Added null safety guards and observer cleanup in `Paginator` to prevent runtime exceptions on unmounted elements.
+- Validated IPC command arguments and clamped progress percentages within `reader_commands`.
+
+### Security
+- Protected authentication refresh tokens in memory using `zeroize::Zeroizing`.
+- Configured strict Content Security Policy (CSP) and restricted asset protocol and HTTP capability scopes.
+- Sanitized HTML book descriptions using `DOMPurify` in `BookInfoModal` to prevent XSS vulnerabilities.
+- Validated custom download directories and file paths against directory traversal attacks.
+
 ## [0.7.0] - 2026-09-13
 
 ### Added
