@@ -477,6 +477,11 @@ export async function saveDbReadingSession(
   if (!isTauri()) return;
   if (durationSeconds < 10) return; // Ignore accidental opens under 10 seconds
 
+  const clampProgress = (val?: number | null): number | null => {
+    if (val === undefined || val === null || isNaN(val)) return null;
+    return Math.min(100.0, Math.max(0.0, val * 100.0));
+  };
+
   try {
     await invoke('db_save_reading_session', {
       bookId,
@@ -484,8 +489,8 @@ export async function saveDbReadingSession(
       startTime,
       endTime,
       durationSeconds: Math.floor(durationSeconds),
-      startProgress: startProgress !== undefined ? startProgress * 100 : null,
-      endProgress: endProgress !== undefined ? endProgress * 100 : null,
+      startProgress: clampProgress(startProgress),
+      endProgress: clampProgress(endProgress),
       pagesRead,
     });
   } catch (err) {

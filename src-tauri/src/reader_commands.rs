@@ -20,12 +20,18 @@ fn sanitize_progress_percent(val: f32) -> Result<f32, String> {
     if val.is_nan() || val < 0.0 {
         return Err("Invalid progress_percent: cannot be negative or NaN".to_string());
     }
-    if val > 1.0 && val <= 100.0 {
-        Ok(val / 100.0)
-    } else if val > 100.0 {
-        Ok(1.0)
-    } else {
-        Ok(val.clamp(0.0, 1.0))
+    Ok(val.clamp(0.0, 100.0))
+}
+
+fn sanitize_session_progress(val: Option<f32>) -> Result<Option<f32>, String> {
+    match val {
+        Some(v) => {
+            if v.is_nan() || v < 0.0 {
+                return Err("Invalid session progress: cannot be negative or NaN".to_string());
+            }
+            Ok(Some(v.clamp(0.0, 100.0)))
+        }
+        None => Ok(None),
     }
 }
 
@@ -488,6 +494,9 @@ pub async fn db_save_reading_session(
         return Err("Field 'duration_seconds' must be between 0 and 604800".to_string());
     }
 
+    let start_progress = sanitize_session_progress(start_progress)?;
+    let end_progress = sanitize_session_progress(end_progress)?;
+
     db::save_reading_session(
         &db,
         &book_id,
@@ -521,4 +530,34 @@ pub async fn db_delete_book_reading_stats(
     db::delete_book_reading_stats(&db, &book_id)
         .await
         .map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sanitize_progress_percent_range_0_to_100() {
+        assert_eq!(sanitize_progress_percent(0.0).unwrap(), 0.0);
+        assert_eq!(sanitize_progress_percent(0.5).unwrap(), 0.5);
+        assert_eq!(sanitize_progress_percent(35.4).unwrap(), 35.4);
+        assert_eq!(sanitize_progress_percent(100.0).unwrap(), 100.0);
+        assert_eq!(sanitize_progress_percent(105.0).unwrap(), 100.0);
+        assert!(sanitize_progress_percent(-0.1).is_err());
+        assert!(sanitize_progress_percent(f32::NAN).is_err());
+    }
+
+    #[test]
+    fn test_sanitize_session_progress_range_0_to_100() {
+        assert_eq!(sanitize_session_progress(None).unwrap(), None);
+        assert_eq!(sanitize_session_progress(Some(0.0)).unwrap(), Some(0.0));
+        assert_eq!(sanitize_session_progress(Some(42.5)).unwrap(), Some(42.5));
+        assert_eq!(sanitize_session_progress(Some(100.0)).unwrap(), Some(100.0));
+        assert_eq!(
+            sanitize_session_progress(Some(100.001)).unwrap(),
+            Some(100.0)
+        );
+        assert!(sanitize_session_progress(Some(-1.0)).is_err());
+        assert!(sanitize_session_progress(Some(f32::NAN)).is_err());
+    }
 }

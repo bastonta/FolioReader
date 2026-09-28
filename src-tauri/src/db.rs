@@ -258,6 +258,39 @@ pub async fn init_db(db_path: &Path) -> Result<DbPool, sqlx::Error> {
     .execute(&pool)
     .await?;
 
+    // Repair any progress_percent corrupted by previous bug where percent was erroneously divided by 100
+    let _ = sqlx::query(
+        "UPDATE book_progress SET progress_percent = 100.0 WHERE is_read = 1 AND progress_percent <= 1.0",
+    )
+    .execute(&pool)
+    .await;
+
+    let _ = sqlx::query(
+        r#"
+        UPDATE book_progress
+        SET progress_percent = (
+            SELECT rb.progress_fraction * 100.0
+            FROM recent_books rb
+            LEFT JOIN book_mappings bm ON bm.local_id = rb.id OR bm.server_book_id = rb.id
+            WHERE (rb.id = book_progress.book_id OR bm.local_id = book_progress.book_id OR bm.server_book_id = book_progress.book_id)
+              AND rb.progress_fraction > 0.01
+            LIMIT 1
+        )
+        WHERE is_read = 0
+          AND progress_percent > 0.0
+          AND progress_percent <= 1.0
+          AND EXISTS (
+            SELECT 1
+            FROM recent_books rb
+            LEFT JOIN book_mappings bm ON bm.local_id = rb.id OR bm.server_book_id = rb.id
+            WHERE (rb.id = book_progress.book_id OR bm.local_id = book_progress.book_id OR bm.server_book_id = book_progress.book_id)
+              AND rb.progress_fraction > 0.01
+          )
+        "#,
+    )
+    .execute(&pool)
+    .await;
+
     Ok(pool)
 }
 

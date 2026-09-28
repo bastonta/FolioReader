@@ -1022,8 +1022,14 @@ pub async fn sync_reading_sessions(
             start_time: s.start_time.clone(),
             end_time: s.end_time.clone(),
             duration_seconds: s.duration_seconds,
-            start_progress: s.start_progress,
-            end_progress: s.end_progress,
+            start_progress: s
+                .start_progress
+                .filter(|v| !v.is_nan())
+                .map(|v| v.clamp(0.0, 100.0)),
+            end_progress: s
+                .end_progress
+                .filter(|v| !v.is_nan())
+                .map(|v| v.clamp(0.0, 100.0)),
             pages_read: Some(s.pages_read),
         });
         session_ids.push(s.id.clone());
