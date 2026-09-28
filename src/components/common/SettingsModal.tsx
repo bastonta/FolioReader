@@ -32,7 +32,7 @@ import {
   CheckCircle2,
   AlertCircle,
 } from 'lucide-react';
-import { APP_VERSION, BUILD_TIME, formatBuildTime } from '../../constants/buildInfo';
+import { APP_VERSION, BUILD_TIME, formatBuildTime, IS_DEBUG } from '../../constants/buildInfo';
 import {
   checkForUpdates,
   getLastUpdateCheckTime,
@@ -1090,8 +1090,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ color: 'var(--text-muted)' }}>{t('settings.appVersion')}</span>
-                <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'monospace' }}>
+                <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'monospace', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                   v{APP_VERSION}
+                  {IS_DEBUG && (
+                    <span style={{ fontSize: 10.5, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: 'rgba(234, 179, 8, 0.15)', color: '#ca8a04', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      Debug
+                    </span>
+                  )}
                 </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -1140,7 +1145,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           }}
         >
           <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.3 }}>
-            <span>Folio v{APP_VERSION}</span>
+            <span>Folio v{APP_VERSION}{IS_DEBUG ? ' (Debug)' : ''}</span>
             <span style={{ margin: '0 5px' }}>•</span>
             <span>{formatBuildTime(BUILD_TIME)}</span>
           </div>

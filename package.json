@@ -1,7 +1,7 @@
 {
   "name": "folioreader",
   "private": true,
-  "version": "0.0.1-dev",
+  "version": "0.8.1",
   "license": "MIT",
   "type": "module",
   "scripts": {

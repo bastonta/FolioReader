@@ -1,6 +1,6 @@
 [package]
 name = "folioreader"
-version = "0.0.1-dev"
+version = "0.8.1"
 edition = "2024"
 license = "MIT"
 

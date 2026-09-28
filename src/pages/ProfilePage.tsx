@@ -20,7 +20,7 @@ import QRCode from 'qrcode';
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { profileApi } from '../api/profileApi';
-import { APP_VERSION, BUILD_TIME, formatBuildTime } from '../constants/buildInfo';
+import { APP_VERSION, BUILD_TIME, formatBuildTime, IS_DEBUG } from '../constants/buildInfo';
 import { useAuth } from '../context/AuthContext';
 import { useTranslation } from '../i18n';
 import {
@@ -444,8 +444,13 @@ export const ProfilePage: React.FC = () => {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--border-subtle)' }}>
               <span style={{ fontSize: 13.5, color: 'var(--text-secondary)' }}>{t('profile.version')}</span>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontSize: 13.5, fontWeight: 600, fontFamily: 'monospace', color: 'var(--text-primary)' }}>
+                <span style={{ fontSize: 13.5, fontWeight: 600, fontFamily: 'monospace', color: 'var(--text-primary)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                   v{APP_VERSION}
+                  {IS_DEBUG && (
+                    <span style={{ fontSize: 10.5, fontWeight: 700, padding: '1px 6px', borderRadius: 4, background: 'rgba(234, 179, 8, 0.15)', color: '#ca8a04', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      Debug
+                    </span>
+                  )}
                 </span>
                 <button
                   type="button"

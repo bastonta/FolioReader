@@ -90,7 +90,10 @@ export interface CheckOptions {
  */
 export function isDevVersion(versionString: string = APP_VERSION): boolean {
   if (typeof versionString !== 'string') return false;
-  return /dev/i.test(versionString);
+  if (versionString === APP_VERSION && Boolean(import.meta.env.DEV)) {
+    return true;
+  }
+  return /dev|debug/i.test(versionString);
 }
 
 /**

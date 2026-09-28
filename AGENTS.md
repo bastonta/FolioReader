@@ -158,4 +158,6 @@ When modifying code in this repository:
 3. **Preserve Documentation Integrity**: Do not remove existing code comments, docstrings, or test cases unless directly replaced by updated architectural patterns.
 4. **Git Commit Style**: Use Conventional Commits with appropriate scopes:
    - `feat(reader): ...`, `fix(sync): ...`, `feat(library): ...`, `fix(auth): ...`, `chore(release): ...`.
-5. **Releases & Versioning**: Follow Keep a Changelog in `CHANGELOG.md` and use the `.agents/skills/changelog-release-tag` skill when bumping versions and cutting tags (`vX.Y.Z`).
+5. **Releases & Versioning**: Follow Keep a Changelog in `CHANGELOG.md` and use the `.agents/skills/release` skill when preparing releases and cutting tags (`vX.Y.Z`).
+   - Follow **Variant 1 (Clean Release without `-dev` in Git)**: commit exact clean versions in `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json`, tag the release commit, and do not make subsequent commits adding `-dev`.
+   - Differentiate debug/development builds dynamically at runtime via `import.meta.env.DEV` (`IS_DEBUG`) and `cfg!(debug_assertions)` rather than dirtying tracked version strings.
