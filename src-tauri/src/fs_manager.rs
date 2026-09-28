@@ -321,9 +321,12 @@ pub async fn download_book_file(
     let tmp_path = target_dir.join(format!(".{clean_name}.tmp_{}", uuid::Uuid::now_v7()));
 
     let write_res: Result<(), String> = async {
-        let mut file = tokio::fs::File::create(&tmp_path)
-            .await
-            .map_err(|e| format!("Failed to create temporary download file '{:?}': {e}", tmp_path))?;
+        let mut file = tokio::fs::File::create(&tmp_path).await.map_err(|e| {
+            format!(
+                "Failed to create temporary download file '{:?}': {e}",
+                tmp_path
+            )
+        })?;
 
         while let Some(chunk) = response
             .chunk()

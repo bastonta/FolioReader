@@ -363,6 +363,26 @@ function AppRoutes() {
     return <SplashScreen theme={settings.theme} />;
   }
 
+  if (activeBook) {
+    return (
+      <div className={`app-container theme-${settings.theme}`}>
+        <ErrorBoundary
+          fallbackTitle="Failed to open book"
+          fallbackMessage="An error occurred while loading this e-book. You can return to your library and try opening another book."
+          onReset={handleBackToLibrary}
+        >
+          <FoliateReader
+            bookId={activeBook.id}
+            bookSource={activeBook.source}
+            settings={settings}
+            onUpdateSettings={handleUpdateSettings}
+            onBackToLibrary={handleBackToLibrary}
+          />
+        </ErrorBoundary>
+      </div>
+    );
+  }
+
   return (
     <div className={`app-container theme-${settings.theme}`}>
       <Routes>
@@ -410,21 +430,7 @@ function AppRoutes() {
           path="/"
           element={
             <RequireAuth theme={settings.theme}>
-              {activeBook ? (
-                <ErrorBoundary
-                  fallbackTitle="Failed to open book"
-                  fallbackMessage="An error occurred while loading this e-book. You can return to your library and try opening another book."
-                  onReset={handleBackToLibrary}
-                >
-                  <FoliateReader
-                    bookId={activeBook.id}
-                    bookSource={activeBook.source}
-                    settings={settings}
-                    onUpdateSettings={handleUpdateSettings}
-                    onBackToLibrary={handleBackToLibrary}
-                  />
-                </ErrorBoundary>
-              ) : currentView === 'browse' ? (
+              {currentView === 'browse' ? (
                 <BrowseView
                   settings={settings}
                   onBackToLocalLibrary={() => setCurrentView('library')}

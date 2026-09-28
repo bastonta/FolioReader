@@ -254,32 +254,49 @@ class View {
     }
     async load(src, afterLoad, beforeRender) {
         if (typeof src !== 'string') throw new Error(`${src} is not string`)
-        return new Promise(resolve => {
+        return new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                console.error('iframe load timed out for:', src)
+                reject(new Error(`iframe load timed out for: ${src}`))
+            }, 10000)
             this.#iframe.addEventListener('load', () => {
-                const doc = this.document
-                afterLoad?.(doc)
+                clearTimeout(timeout)
+                try {
+                    const doc = this.document
+                    if (!doc) throw new Error('iframe.contentDocument is null (cross-origin or sandbox block)!')
+                    if (!doc.body) throw new Error('iframe.contentDocument.body is null!')
+                    afterLoad?.(doc)
 
-                // it needs to be visible for Firefox to get computed style
-                this.#iframe.style.display = 'block'
-                const { vertical, rtl } = getDirection(doc)
-                const background = getBackground(doc)
-                this.#iframe.style.display = 'none'
+                    // it needs to be visible for Firefox to get computed style
+                    this.#iframe.style.display = 'block'
+                    const { vertical, rtl } = getDirection(doc)
+                    const background = getBackground(doc)
+                    this.#iframe.style.display = 'none'
 
-                this.#vertical = vertical
-                this.#rtl = rtl
+                    this.#vertical = vertical
+                    this.#rtl = rtl
 
-                this.#contentRange.selectNodeContents(doc.body)
-                const layout = beforeRender?.({ vertical, rtl, background })
-                this.#iframe.style.display = 'block'
-                this.render(layout)
-                this.#observer.observe(doc.body)
+                    this.#contentRange.selectNodeContents(doc.body)
+                    const layout = beforeRender?.({ vertical, rtl, background })
+                    this.#iframe.style.display = 'block'
+                    this.render(layout)
+                    this.#observer.observe(doc.body)
 
-                // the resize observer above doesn't work in Firefox
-                // (see https://bugzilla.mozilla.org/show_bug.cgi?id=1832939)
-                // until the bug is fixed we can at least account for font load
-                doc.fonts.ready.then(() => this.expand())
+                    // the resize observer above doesn't work in Firefox
+                    // (see https://bugzilla.mozilla.org/show_bug.cgi?id=1832939)
+                    // until the bug is fixed we can at least account for font load
+                    doc.fonts.ready.then(() => this.expand())
 
-                resolve()
+                    resolve()
+                } catch (err) {
+                    console.error('Exception inside iframe load handler:', err)
+                    reject(err)
+                }
+            }, { once: true })
+            this.#iframe.addEventListener('error', (err) => {
+                clearTimeout(timeout)
+                console.error('iframe error event:', err)
+                reject(new Error(`iframe error event for src: ${src}`))
             }, { once: true })
             this.#iframe.src = src
         })

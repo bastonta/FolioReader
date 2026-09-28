@@ -400,6 +400,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
 
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
   const [isBookInfoOpen, setIsBookInfoOpen] = useState<boolean>(false);
+  const [bookOpenError, setBookOpenError] = useState<string | null>(null);
   const [customFonts, setCustomFonts] = useState<LoadedCustomFont[]>(() => fontManager.getCachedFonts());
   const isInitialLoadRef = useRef<boolean>(true);
   const isSyncNavigatingRef = useRef<boolean>(false);
@@ -1995,8 +1996,9 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
 
           setSectionFractions(view.getSectionFractions() || []);
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error('Failed to open book with foliate-js:', err);
+        setBookOpenError(String(err?.stack || err?.message || err));
       }
     }
 
@@ -2253,6 +2255,17 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         showControls ? 'controls-visible' : 'controls-hidden'
       }`}
     >
+      {bookOpenError && (
+        <div style={{ position: 'fixed', inset: 0, backgroundColor: '#ffffff', color: '#b91c1c', zIndex: 999999, padding: '32px', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 'bold' }}>Error Opening Book</h2>
+          <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontFamily: 'monospace', fontSize: '13px', backgroundColor: '#fef2f2', padding: '16px', borderRadius: '8px', border: '1px solid #fecaca' }}>
+            {bookOpenError}
+          </pre>
+          <button onClick={handleClose} style={{ alignSelf: 'flex-start', padding: '8px 16px', borderRadius: '6px', backgroundColor: '#3584e4', color: '#fff', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
+            Back to Library
+          </button>
+        </div>
+      )}
       {/* Top Header Bar matching Screenshots 1 & 3 */}
       <HeaderBar
         onBackToLibrary={handleClose}

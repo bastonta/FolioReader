@@ -352,13 +352,26 @@ pub async fn db_save_local_book_meta(
     db: State<'_, DbPool>,
 ) -> Result<(), String> {
     validate_non_empty(&book_id, "book_id")?;
-    validate_non_empty(&file_path, "file_path")?;
     validate_non_empty(&title, "title")?;
+
+    let resolved_file_path = if file_path.trim().is_empty() {
+        db::get_file_path_for_book(&db, &book_id)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+    } else {
+        file_path
+    };
+
+    if resolved_file_path.trim().is_empty() {
+        return Ok(());
+    }
 
     db::save_local_book_meta(
         &db,
         &book_id,
-        &file_path,
+        &resolved_file_path,
         &title,
         &author,
         cover_path.as_deref(),
@@ -471,7 +484,7 @@ pub async fn db_save_reading_session(
     validate_non_empty(&book_id, "book_id")?;
     validate_non_empty(&start_time, "start_time")?;
     validate_non_empty(&end_time, "end_time")?;
-    if duration_seconds < 0 || duration_seconds > 86400 * 7 {
+    if !(0..=86400 * 7).contains(&duration_seconds) {
         return Err("Field 'duration_seconds' must be between 0 and 604800".to_string());
     }
 
