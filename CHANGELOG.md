@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-09-29
+
+### Added
+- Dynamic `(Debug)` runtime build indicators in Settings and Profile modals for development environments.
+- Loading timeout and fallback recovery mechanisms in Foliate reader and paginator for unresponsive iframes.
+- Database migration repairing legacy corrupted reading progress percentages using recent book fractions.
+- Unit tests covering reading progress sanitization and session bounds clamping.
+
+### Changed
+- Suppressed automatic update checker prompts when running in development mode.
+- Refactored command status checks and simplified book path existence resolution.
+- Standardized release and versioning workflow across projects without `-dev` suffixes.
+
+### Fixed
+- Fixed reading progress percentage sanitization to preserve the [0.0, 100.0] range instead of erroneously dividing values by 100.
+- Clamped session start/end progress bounds and filtered NaN values before synchronizing reading sessions with the Folio server.
+- Relaxed Content Security Policy (CSP) asset rules (`style-src`) to avoid stylesheet loading and asset modification issues.
+
 ## [0.8.1] - 2026-09-27
 
 ### Fixed
