@@ -731,17 +731,14 @@ fn configure_linux_command(cmd: &mut std::process::Command) {
 
     if let Ok(orig_xdg) =
         std::env::var("XDG_DATA_DIRS_ORIG").or_else(|_| std::env::var("ORIG_XDG_DATA_DIRS"))
-    {
-        if !orig_xdg.trim().is_empty() {
+        && !orig_xdg.trim().is_empty() {
             cmd.env("XDG_DATA_DIRS", orig_xdg);
         }
-    }
 
-    if let Ok(home) = std::env::var("HOME") {
-        if !home.trim().is_empty() {
+    if let Ok(home) = std::env::var("HOME")
+        && !home.trim().is_empty() {
             cmd.current_dir(home);
         }
-    }
 }
 
 #[tauri::command]
@@ -769,11 +766,10 @@ pub async fn open_external_url(app: tauri::AppHandle, url: String) -> Result<(),
             "{}",
         ]);
         configure_linux_command(&mut portal_gdbus);
-        if let Ok(status) = portal_gdbus.status() {
-            if status.success() {
+        if let Ok(status) = portal_gdbus.status()
+            && status.success() {
                 return Ok(());
             }
-        }
 
         let mut portal_busctl = std::process::Command::new("busctl");
         portal_busctl.args([
@@ -789,11 +785,10 @@ pub async fn open_external_url(app: tauri::AppHandle, url: String) -> Result<(),
             "0",
         ]);
         configure_linux_command(&mut portal_busctl);
-        if let Ok(status) = portal_busctl.status() {
-            if status.success() {
+        if let Ok(status) = portal_busctl.status()
+            && status.success() {
                 return Ok(());
             }
-        }
 
         // 2. Try xdg-open with sanitized environment
         let mut xdg_cmd = std::process::Command::new("xdg-open");
@@ -930,11 +925,10 @@ pub async fn open_external_path(app: tauri::AppHandle, path: String) -> Result<(
             "",
         ]);
         configure_linux_command(&mut fm_gdbus);
-        if let Ok(status) = fm_gdbus.status() {
-            if status.success() {
+        if let Ok(status) = fm_gdbus.status()
+            && status.success() {
                 return Ok(());
             }
-        }
 
         let mut fm_busctl = std::process::Command::new("busctl");
         fm_busctl.args([
@@ -950,11 +944,10 @@ pub async fn open_external_path(app: tauri::AppHandle, path: String) -> Result<(
             "",
         ]);
         configure_linux_command(&mut fm_busctl);
-        if let Ok(status) = fm_busctl.status() {
-            if status.success() {
+        if let Ok(status) = fm_busctl.status()
+            && status.success() {
                 return Ok(());
             }
-        }
 
         // 2. Try xdg-open with sanitized environment
         let mut xdg_cmd = std::process::Command::new("xdg-open");

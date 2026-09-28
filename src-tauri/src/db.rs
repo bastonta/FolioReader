@@ -258,13 +258,6 @@ pub async fn init_db(db_path: &Path) -> Result<DbPool, sqlx::Error> {
     .execute(&pool)
     .await?;
 
-    // Repair any progress_percent corrupted by previous bug where percent was erroneously divided by 100
-    let _ = sqlx::query(
-        "UPDATE book_progress SET progress_percent = 100.0 WHERE is_read = 1 AND progress_percent <= 1.0",
-    )
-    .execute(&pool)
-    .await;
-
     let _ = sqlx::query(
         r#"
         UPDATE book_progress
