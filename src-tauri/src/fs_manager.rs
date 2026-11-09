@@ -225,6 +225,10 @@ pub struct DownloadProgressInput {
     pub updated_at: Option<String>,
 }
 
+/// Error returned by `download_book_file` when the server has no file for the book
+/// (`Chapters` kind, HTTP 409). The frontend matches on this exact string.
+pub const BOOK_HAS_NO_FILE_ERROR: &str = "BOOK_HAS_NO_FILE";
+
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn download_book_file(
@@ -310,6 +314,11 @@ pub async fn download_book_file(
         .send()
         .await
         .map_err(|e| format!("Download request failed: {e}"))?;
+
+    if response.status() == reqwest::StatusCode::CONFLICT {
+        // Folio answers 409 for books assembled from chapters: they have no EPUB file.
+        return Err(BOOK_HAS_NO_FILE_ERROR.to_string());
+    }
 
     if !response.status().is_success() {
         return Err(format!(

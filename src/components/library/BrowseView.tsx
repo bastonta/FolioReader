@@ -20,7 +20,7 @@ import {
   X,
 } from "lucide-react";
 import React, { useCallback, useEffect, useState } from "react";
-import { BrowseParams, libraryApi } from "../../api/libraryApi";
+import { BookHasNoFileError, BrowseParams, libraryApi } from "../../api/libraryApi";
 import { Select } from "../common/Select";
 import {
   getAccessToken,
@@ -491,6 +491,17 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
 
   // Download book handler
   const handleDownloadBook = async (book: BrowseItem) => {
+    // Books assembled from chapters live only on the server (no EPUB file,
+    // `/download` answers 409). The catalog is requested with `kind=File`, but
+    // guard anyway in case the server returned such an item.
+    if (book.kind === "Chapters") {
+      await alert({
+        title: t("common.warning"),
+        message: t("browse.chaptersBookNotDownloadable"),
+        type: "warning",
+      });
+      return;
+    }
     if (!settings.downloadPath) {
       await alert({
         title: t("common.warning"),
@@ -596,9 +607,13 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
     } catch (err: any) {
       console.error("Download error:", err);
       setDownloadStates((prev) => ({ ...prev, [book.id]: "error" }));
+      const message =
+        err instanceof BookHasNoFileError
+          ? t("browse.downloadNoFileError")
+          : err?.message || err;
       await alert({
         title: t("common.error"),
-        message: t("browse.downloadFailedAlert", { error: err?.message || err }),
+        message: t("browse.downloadFailedAlert", { error: message }),
         type: "error",
       });
     }

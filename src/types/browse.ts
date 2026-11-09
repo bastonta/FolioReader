@@ -1,3 +1,11 @@
+/**
+ * Book representation on the Folio server.
+ * - `File` — a complete EPUB file stored in the library (downloadable, readable here).
+ * - `Chapters` — a book assembled from chapters on the server; it has no file
+ *   (`/download` answers 409) and can only be read in the Folio web client.
+ */
+export type BookKind = 'File' | 'Chapters';
+
 export interface BrowseProgressInfo {
   location: string;
   progressPercent: number;
@@ -22,6 +30,7 @@ export interface BookSeriesItemResponse {
 
 export interface BookResponseItem {
   id: string;
+  kind: BookKind;
   title: string;
   author: string;
   coverUrl: string;
@@ -51,6 +60,8 @@ export interface BrowseItem {
   id: string;
   name: string;
   type: 'book' | 'series' | string;
+  /** Book kind; absent for series items */
+  kind?: BookKind | null;
   author?: string | null;
   coverUrl?: string | null;
   sortOrder?: number | null;
@@ -107,11 +118,16 @@ export interface RemoveBookFromSeriesResponse {
 
 export interface BookDetail {
   id: string;
+  kind: BookKind;
   title: string;
   author: string;
   coverUrl: string;
   description?: string | null;
   language?: string | null;
+  /** Book this one was derived from (translation or compiled copy) */
+  originBookId?: string | null;
+  /** Number of stored chapters (only for `Chapters` kind) */
+  chaptersCount?: number | null;
   seriesOrder?: number | null;
   progress?: BrowseProgressInfo | null;
   series: BookSeriesItemResponse[];

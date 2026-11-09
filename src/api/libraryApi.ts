@@ -1,6 +1,7 @@
 import { apiDelete, apiGet, apiPost, apiPut } from './client';
 import { getAccessToken, getServerUrl } from './tokenManager';
 import type {
+  BookKind,
   BrowseListResponse,
   BookDetail,
   BooksListResponse,
@@ -23,6 +24,8 @@ export interface BrowseParams {
   offset?: number;
   limit?: number;
   format?: string;
+  /** Filter books by kind (series are always included). Defaults to `File`. */
+  kind?: BookKind | null;
 }
 
 export interface GetBooksParams {
@@ -32,6 +35,26 @@ export interface GetBooksParams {
   query?: string;
   seriesId?: string;
   format?: string;
+  /** Filter books by kind. Defaults to `File`. */
+  kind?: BookKind | null;
+}
+
+/**
+ * Folio Reader only handles complete EPUB files, so catalog requests ask the
+ * server for `File` books unless the caller explicitly passes `kind: null`.
+ */
+const DEFAULT_BOOK_KIND: BookKind = 'File';
+
+function resolveKind(kind: BookKind | null | undefined): BookKind | null {
+  return kind === undefined ? DEFAULT_BOOK_KIND : kind;
+}
+
+/** Error thrown when the server refuses to serve a book file (HTTP 409, `Chapters` kind). */
+export class BookHasNoFileError extends Error {
+  constructor(bookId: string) {
+    super(`Book ${bookId} is assembled from chapters and has no downloadable file`);
+    this.name = 'BookHasNoFileError';
+  }
 }
 
 export interface BookmarkResponse {
@@ -92,6 +115,8 @@ export const libraryApi = {
     if (params?.sortBy) query.set('sortBy', params.sortBy);
     if (params?.offset !== undefined) query.set('offset', String(params.offset));
     if (params?.limit !== undefined) query.set('limit', String(params.limit));
+    const browseKind = resolveKind(params?.kind);
+    if (browseKind) query.set('kind', browseKind);
     query.set('format', params?.format || 'cfi');
 
     const qs = query.toString();
@@ -109,6 +134,8 @@ export const libraryApi = {
     const term = params?.search || params?.query;
     if (term && term.trim()) query.set('search', term.trim());
     if (params?.seriesId) query.set('seriesId', params.seriesId);
+    const booksKind = resolveKind(params?.kind);
+    if (booksKind) query.set('kind', booksKind);
     query.set('format', params?.format || 'cfi');
 
     const qs = query.toString();
@@ -117,16 +144,26 @@ export const libraryApi = {
   },
 
   /**
-   * Get recently read books with active progress
+   * Get recently read books with active progress.
+   * The endpoint has no `kind` filter, so `Chapters` books are dropped client-side
+   * unless `kind: null` is passed.
    */
-  getRecentBooks: async (params?: { limit?: number; format?: string }): Promise<BooksListResponse> => {
+  getRecentBooks: async (params?: {
+    limit?: number;
+    format?: string;
+    kind?: BookKind | null;
+  }): Promise<BooksListResponse> => {
     const query = new URLSearchParams();
     if (params?.limit !== undefined) query.set('limit', String(params.limit));
     query.set('format', params?.format || 'cfi');
 
     const qs = query.toString();
     const path = qs ? `/books/recent?${qs}` : '/books/recent';
-    return apiGet<BooksListResponse>(path);
+    const res = await apiGet<BooksListResponse>(path);
+    const kind = resolveKind(params?.kind);
+    if (!kind) return res;
+    const items = res.items.filter((b) => (b.kind ?? 'File') === kind);
+    return { ...res, items, total: items.length };
   },
 
   /**
@@ -187,6 +224,9 @@ export const libraryApi = {
       method: 'GET',
       headers,
     });
+    if (res.status === 409) {
+      throw new BookHasNoFileError(id);
+    }
     if (!res.ok) {
       throw new Error(`Failed to download book: ${res.statusText}`);
     }

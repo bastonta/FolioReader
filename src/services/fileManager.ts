@@ -1,5 +1,9 @@
 import { invoke } from '@tauri-apps/api/core';
+import { BookHasNoFileError } from '../api/libraryApi';
 import { LocalBookFile } from '../types/browse';
+
+/** Error string returned by the `download_book_file` command for `Chapters` books (HTTP 409). */
+const BOOK_HAS_NO_FILE_ERROR = 'BOOK_HAS_NO_FILE';
 
 export const fileManager = {
   /**
@@ -150,6 +154,9 @@ export const fileManager = {
         progress: options.progress || null,
       });
     } catch (err) {
+      if (typeof err === 'string' && err === BOOK_HAS_NO_FILE_ERROR) {
+        throw new BookHasNoFileError(options.bookId);
+      }
       console.error(`Failed to download book '${options.fileName}':`, err);
       throw err;
     }

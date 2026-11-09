@@ -201,6 +201,9 @@ export const en = {
   "browse.serverNotConfiguredAlert": "Server URL is not configured",
   "browse.bookDetails": "Book Details",
   "browse.downloadFailedAlert": "Failed to download book: {error}",
+  "browse.chaptersBookNotDownloadable":
+    "This book is assembled from chapters on the server and has no EPUB file. It can be read in the Folio web client; compile it to EPUB there to download it.",
+  "browse.downloadNoFileError": "This book is assembled from chapters and has no EPUB file to download",
 
   // Book Context Menu & Reset Modal
   "contextMenu.bookInfo": "Info & Statistics",

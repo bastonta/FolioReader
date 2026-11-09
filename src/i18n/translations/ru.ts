@@ -206,6 +206,9 @@ export const ru: Partial<Record<TranslationKey, string>> = {
   "browse.serverNotConfiguredAlert": "Адрес сервера не настроен",
   "browse.bookDetails": "Информация о книге",
   "browse.downloadFailedAlert": "Не удалось скачать книгу: {error}",
+  "browse.chaptersBookNotDownloadable":
+    "Эта книга собрана из глав на сервере и не имеет EPUB-файла. Её можно читать в веб-клиенте Folio; чтобы скачать, соберите её там в EPUB.",
+  "browse.downloadNoFileError": "Эта книга собрана из глав, у неё нет EPUB-файла для скачивания",
 
   // Book Context Menu & Reset Modal
   "contextMenu.bookInfo": "Информация и статистика",
