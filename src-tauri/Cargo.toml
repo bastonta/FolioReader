@@ -42,6 +42,8 @@ hex = "0.4"
 base64 = "0.23.1"
 webpki-root-certs = "1.0"
 zeroize = { version = "1.9", features = ["zeroize_derive", "serde"] }
+# Pure-Rust deflate only: EPUBs for `Chapters` books are assembled on device (Android included).
+zip = { version = "9.4.1", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 rfd = "0.17.2"

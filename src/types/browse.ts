@@ -1,10 +1,40 @@
 /**
  * Book representation on the Folio server.
- * - `File` — a complete EPUB file stored in the library (downloadable, readable here).
+ * - `File` — a complete EPUB file stored in the library (downloaded as is).
  * - `Chapters` — a book assembled from chapters on the server; it has no file
- *   (`/download` answers 409) and can only be read in the Folio web client.
+ *   (`/download` answers 409), so the reader downloads its chapters and builds
+ *   a local EPUB copy that can be updated when new chapters appear.
  */
 export type BookKind = 'File' | 'Chapters';
+
+/** Stage of building a local copy of a `Chapters` book. */
+export type ChaptersDownloadPhase = 'chapters' | 'images' | 'building';
+
+/** Progress event emitted by the `download_chapters_book` command. */
+export interface ChaptersDownloadProgress {
+  phase: ChaptersDownloadPhase;
+  done: number;
+  total: number;
+}
+
+/** Result of the `download_chapters_book` command. */
+export interface ChaptersBookDownloadResult {
+  /** Absolute path of the EPUB built from the chapters */
+  filePath: string;
+  /** Local library id of that file */
+  localId: string;
+  /** Chapters in the book after this run */
+  chaptersTotal: number;
+  /** Chapters downloaded in this run (new or changed since the previous build) */
+  chaptersFetched: number;
+  imagesFetched: number;
+  /** Illustrations the server could not provide */
+  imagesMissing: number;
+  /** Reading position (EPUB CFI) restored from the server progress on a first download */
+  location?: string | null;
+  /** `true` when an existing local copy was updated rather than created */
+  updated: boolean;
+}
 
 export interface BrowseProgressInfo {
   location: string;

@@ -1,9 +1,34 @@
-import { invoke } from '@tauri-apps/api/core';
-import { BookHasNoFileError } from '../api/libraryApi';
-import { LocalBookFile } from '../types/browse';
+import { Channel, invoke } from '@tauri-apps/api/core';
+import { BookHasNoChaptersError, BookHasNoFileError } from '../api/libraryApi';
+import {
+  ChaptersBookDownloadResult,
+  ChaptersDownloadProgress,
+  LocalBookFile,
+} from '../types/browse';
 
 /** Error string returned by the `download_book_file` command for `Chapters` books (HTTP 409). */
 const BOOK_HAS_NO_FILE_ERROR = 'BOOK_HAS_NO_FILE';
+
+/** Error string returned by the `download_chapters_book` command for a book without chapters. */
+const BOOK_HAS_NO_CHAPTERS_ERROR = 'BOOK_HAS_NO_CHAPTERS';
+
+export interface DownloadBookOptions {
+  serverUrl: string;
+  token?: string;
+  bookId: string;
+  fileName: string;
+  title?: string;
+  author?: string;
+  seriesName?: string;
+  baseDir: string;
+  customTargetDir?: string;
+  progress?: {
+    location?: string;
+    progressPercent?: number;
+    isRead?: boolean;
+    updatedAt?: string;
+  };
+}
 
 export const fileManager = {
   /**
@@ -123,23 +148,7 @@ export const fileManager = {
   /**
    * Downloads a book from the Folio server into the download folder / series subfolders (supports nested paths, e.g. "Мир Элдерлингов/Сага о Видящих").
    */
-  downloadBookFile: async (options: {
-    serverUrl: string;
-    token?: string;
-    bookId: string;
-    fileName: string;
-    title?: string;
-    author?: string;
-    seriesName?: string;
-    baseDir: string;
-    customTargetDir?: string;
-    progress?: {
-      location?: string;
-      progressPercent?: number;
-      isRead?: boolean;
-      updatedAt?: string;
-    };
-  }): Promise<string> => {
+  downloadBookFile: async (options: DownloadBookOptions): Promise<string> => {
     try {
       return await invoke<string>('download_book_file', {
         serverUrl: options.serverUrl,
@@ -158,6 +167,40 @@ export const fileManager = {
         throw new BookHasNoFileError(options.bookId);
       }
       console.error(`Failed to download book '${options.fileName}':`, err);
+      throw err;
+    }
+  },
+
+  /**
+   * Builds (or updates) a local EPUB copy of a book the server stores as separate chapters
+   * (`Chapters` kind, no file to download). Running it again for a downloaded book fetches
+   * only new and changed chapters. `onProgress` reports chapters / illustrations as they arrive.
+   */
+  downloadChaptersBook: async (
+    options: DownloadBookOptions,
+    onProgress?: (progress: ChaptersDownloadProgress) => void,
+  ): Promise<ChaptersBookDownloadResult> => {
+    const channel = new Channel<ChaptersDownloadProgress>();
+    channel.onmessage = (progress) => onProgress?.(progress);
+    try {
+      return await invoke<ChaptersBookDownloadResult>('download_chapters_book', {
+        serverUrl: options.serverUrl,
+        token: options.token || null,
+        bookId: options.bookId,
+        fileName: options.fileName,
+        title: options.title || null,
+        author: options.author || null,
+        seriesName: options.seriesName || null,
+        baseDir: options.baseDir,
+        customTargetDir: options.customTargetDir || null,
+        progress: options.progress || null,
+        onProgress: channel,
+      });
+    } catch (err) {
+      if (typeof err === 'string' && err === BOOK_HAS_NO_CHAPTERS_ERROR) {
+        throw new BookHasNoChaptersError(options.bookId);
+      }
+      console.error(`Failed to download chapters of '${options.fileName}':`, err);
       throw err;
     }
   },

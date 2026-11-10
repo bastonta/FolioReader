@@ -24,7 +24,7 @@ export interface BrowseParams {
   offset?: number;
   limit?: number;
   format?: string;
-  /** Filter books by kind (series are always included). Defaults to `File`. */
+  /** Filter books by kind (series are always included). All kinds when omitted. */
   kind?: BookKind | null;
 }
 
@@ -35,18 +35,8 @@ export interface GetBooksParams {
   query?: string;
   seriesId?: string;
   format?: string;
-  /** Filter books by kind. Defaults to `File`. */
+  /** Filter books by kind. All kinds when omitted. */
   kind?: BookKind | null;
-}
-
-/**
- * Folio Reader only handles complete EPUB files, so catalog requests ask the
- * server for `File` books unless the caller explicitly passes `kind: null`.
- */
-const DEFAULT_BOOK_KIND: BookKind = 'File';
-
-function resolveKind(kind: BookKind | null | undefined): BookKind | null {
-  return kind === undefined ? DEFAULT_BOOK_KIND : kind;
 }
 
 /** Error thrown when the server refuses to serve a book file (HTTP 409, `Chapters` kind). */
@@ -54,6 +44,14 @@ export class BookHasNoFileError extends Error {
   constructor(bookId: string) {
     super(`Book ${bookId} is assembled from chapters and has no downloadable file`);
     this.name = 'BookHasNoFileError';
+  }
+}
+
+/** Error thrown when a `Chapters` book has no chapters to build a local copy from yet. */
+export class BookHasNoChaptersError extends Error {
+  constructor(bookId: string) {
+    super(`Book ${bookId} has no chapters yet`);
+    this.name = 'BookHasNoChaptersError';
   }
 }
 
@@ -115,8 +113,7 @@ export const libraryApi = {
     if (params?.sortBy) query.set('sortBy', params.sortBy);
     if (params?.offset !== undefined) query.set('offset', String(params.offset));
     if (params?.limit !== undefined) query.set('limit', String(params.limit));
-    const browseKind = resolveKind(params?.kind);
-    if (browseKind) query.set('kind', browseKind);
+    if (params?.kind) query.set('kind', params.kind);
     query.set('format', params?.format || 'cfi');
 
     const qs = query.toString();
@@ -134,8 +131,7 @@ export const libraryApi = {
     const term = params?.search || params?.query;
     if (term && term.trim()) query.set('search', term.trim());
     if (params?.seriesId) query.set('seriesId', params.seriesId);
-    const booksKind = resolveKind(params?.kind);
-    if (booksKind) query.set('kind', booksKind);
+    if (params?.kind) query.set('kind', params.kind);
     query.set('format', params?.format || 'cfi');
 
     const qs = query.toString();
@@ -145,8 +141,8 @@ export const libraryApi = {
 
   /**
    * Get recently read books with active progress.
-   * The endpoint has no `kind` filter, so `Chapters` books are dropped client-side
-   * unless `kind: null` is passed.
+   * The endpoint has no `kind` filter, so when `kind` is passed the items are
+   * filtered client-side.
    */
   getRecentBooks: async (params?: {
     limit?: number;
@@ -160,7 +156,7 @@ export const libraryApi = {
     const qs = query.toString();
     const path = qs ? `/books/recent?${qs}` : '/books/recent';
     const res = await apiGet<BooksListResponse>(path);
-    const kind = resolveKind(params?.kind);
+    const kind = params?.kind;
     if (!kind) return res;
     const items = res.items.filter((b) => (b.kind ?? 'File') === kind);
     return { ...res, items, total: items.length };

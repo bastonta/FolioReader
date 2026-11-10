@@ -253,6 +253,16 @@ pub async fn init_db(db_path: &Path) -> Result<DbPool, sqlx::Error> {
         );
         CREATE INDEX IF NOT EXISTS idx_reading_sessions_book_id ON reading_sessions(book_id);
         CREATE INDEX IF NOT EXISTS idx_reading_sessions_sync_status ON reading_sessions(sync_status);
+
+        -- Reading order of books assembled on device from server chapters (`Chapters` kind):
+        -- `position` is the spine index of the chapter in the locally built EPUB.
+        CREATE TABLE IF NOT EXISTS chapter_book_chapters (
+            server_book_id TEXT NOT NULL,
+            chapter_id TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            PRIMARY KEY (server_book_id, chapter_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_chapter_book_chapters_position ON chapter_book_chapters(server_book_id, position);
         "#,
     )
     .execute(&pool)
@@ -1323,6 +1333,233 @@ pub async fn delete_book_reading_stats(pool: &DbPool, book_id: &str) -> Result<(
     Ok(())
 }
 
+// ================= CHAPTERS BOOKS REPO =================
+//
+// `Chapters` books have no file on the server: the reader builds an EPUB from their
+// chapters, one spine item per chapter. The table below remembers which chapter sits at
+// which spine position, so progress can be exchanged with the server as `ch:<chapterId>`
+// and locally stored CFIs survive a rebuild that shifts chapters.
+
+/// All mappings of a server book (a book may have been downloaded to several places).
+pub async fn get_book_mappings_by_server_id(
+    pool: &DbPool,
+    server_book_id: &str,
+) -> Result<Vec<DbBookMapping>, sqlx::Error> {
+    sqlx::query_as::<_, DbBookMapping>(
+        "SELECT local_id, server_book_id, file_path, created_at FROM book_mappings WHERE server_book_id = ? ORDER BY created_at DESC",
+    )
+    .bind(server_book_id)
+    .fetch_all(pool)
+    .await
+}
+
+/// Stores the reading order of a locally built `Chapters` book. Returns the chapters whose
+/// spine position changed since the previous build as `old position -> new position`.
+pub async fn replace_chapter_positions(
+    pool: &DbPool,
+    server_book_id: &str,
+    chapter_ids: &[String],
+) -> Result<std::collections::HashMap<usize, usize>, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+
+    let old_rows: Vec<(String, i64)> = sqlx::query_as(
+        "SELECT chapter_id, position FROM chapter_book_chapters WHERE server_book_id = ?",
+    )
+    .bind(server_book_id)
+    .fetch_all(&mut *tx)
+    .await?;
+    let old: std::collections::HashMap<String, i64> = old_rows.into_iter().collect();
+
+    let mut moved = std::collections::HashMap::new();
+    for (new_position, chapter_id) in chapter_ids.iter().enumerate() {
+        if let Some(&old_position) = old.get(chapter_id)
+            && old_position >= 0
+            && old_position as usize != new_position
+        {
+            moved.insert(old_position as usize, new_position);
+        }
+    }
+
+    sqlx::query("DELETE FROM chapter_book_chapters WHERE server_book_id = ?")
+        .bind(server_book_id)
+        .execute(&mut *tx)
+        .await?;
+
+    const CHUNK: usize = 200;
+    for (chunk_index, chunk) in chapter_ids.chunks(CHUNK).enumerate() {
+        let mut builder: sqlx::QueryBuilder<sqlx::Sqlite> = sqlx::QueryBuilder::new(
+            "INSERT OR REPLACE INTO chapter_book_chapters (server_book_id, chapter_id, position) ",
+        );
+        builder.push_values(chunk.iter().enumerate(), |mut row, (i, chapter_id)| {
+            row.push_bind(server_book_id)
+                .push_bind(chapter_id)
+                .push_bind((chunk_index * CHUNK + i) as i64);
+        });
+        builder.build().execute(&mut *tx).await?;
+    }
+
+    tx.commit().await?;
+    Ok(moved)
+}
+
+/// Forgets the chapter layout of a book (it is no longer read from a locally built EPUB).
+pub async fn clear_chapter_positions(
+    pool: &DbPool,
+    server_book_id: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM chapter_book_chapters WHERE server_book_id = ?")
+        .bind(server_book_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// Whether the book is read from an EPUB built on device from server chapters.
+pub async fn is_chapters_book(pool: &DbPool, server_book_id: &str) -> Result<bool, sqlx::Error> {
+    let found = sqlx::query_scalar::<_, i64>(
+        "SELECT 1 FROM chapter_book_chapters WHERE server_book_id = ? LIMIT 1",
+    )
+    .bind(server_book_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(found.is_some())
+}
+
+/// Spine position of a chapter in the locally built EPUB.
+pub async fn get_chapter_position(
+    pool: &DbPool,
+    server_book_id: &str,
+    chapter_id: &str,
+) -> Result<Option<usize>, sqlx::Error> {
+    let position = sqlx::query_scalar::<_, i64>(
+        "SELECT position FROM chapter_book_chapters WHERE server_book_id = ? AND chapter_id = ? LIMIT 1",
+    )
+    .bind(server_book_id)
+    .bind(chapter_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(position.and_then(|p| usize::try_from(p).ok()))
+}
+
+/// Id of the chapter stored at a spine position of the locally built EPUB.
+pub async fn get_chapter_id_at(
+    pool: &DbPool,
+    server_book_id: &str,
+    position: usize,
+) -> Result<Option<String>, sqlx::Error> {
+    sqlx::query_scalar::<_, String>(
+        "SELECT chapter_id FROM chapter_book_chapters WHERE server_book_id = ? AND position = ? LIMIT 1",
+    )
+    .bind(server_book_id)
+    .bind(position as i64)
+    .fetch_optional(pool)
+    .await
+}
+
+/// Rewrites the spine step of every stored CFI of a book after its chapters moved
+/// (`moved`: old spine position -> new spine position). Covers reading progress, the
+/// recent books list, bookmarks and annotations stored under either id of the book.
+pub async fn remap_book_cfis(
+    pool: &DbPool,
+    local_id: &str,
+    server_book_id: &str,
+    moved: &std::collections::HashMap<usize, usize>,
+) -> Result<(), sqlx::Error> {
+    use crate::chapters_epub::remap_cfi_spine;
+
+    if moved.is_empty() {
+        return Ok(());
+    }
+
+    // Rows are rewritten one by one from values read up front: a set-based UPDATE per
+    // moved position would remap the same row twice when positions chain (1 -> 2, 2 -> 3).
+    let mut tx = pool.begin().await?;
+
+    let progress: Vec<(String, String)> = sqlx::query_as(
+        "SELECT book_id, location FROM book_progress WHERE book_id = ? OR book_id = ?",
+    )
+    .bind(local_id)
+    .bind(server_book_id)
+    .fetch_all(&mut *tx)
+    .await?;
+    for (book_id, location) in progress {
+        if let Some(remapped) = remap_cfi_spine(&location, moved) {
+            sqlx::query("UPDATE book_progress SET location = ? WHERE book_id = ?")
+                .bind(remapped)
+                .bind(book_id)
+                .execute(&mut *tx)
+                .await?;
+        }
+    }
+
+    let recents: Vec<(String, String)> = sqlx::query_as(
+        "SELECT id, last_location FROM recent_books WHERE (id = ? OR id = ?) AND last_location IS NOT NULL",
+    )
+    .bind(local_id)
+    .bind(server_book_id)
+    .fetch_all(&mut *tx)
+    .await?;
+    for (id, location) in recents {
+        if let Some(remapped) = remap_cfi_spine(&location, moved) {
+            sqlx::query("UPDATE recent_books SET last_location = ? WHERE id = ?")
+                .bind(remapped)
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
+        }
+    }
+
+    let bookmarks: Vec<(String, String)> =
+        sqlx::query_as("SELECT id, location FROM bookmarks WHERE book_id = ? OR book_id = ?")
+            .bind(local_id)
+            .bind(server_book_id)
+            .fetch_all(&mut *tx)
+            .await?;
+    for (id, location) in bookmarks {
+        if let Some(remapped) = remap_cfi_spine(&location, moved) {
+            sqlx::query("UPDATE bookmarks SET location = ? WHERE id = ?")
+                .bind(remapped)
+                .bind(id)
+                .execute(&mut *tx)
+                .await?;
+        }
+    }
+
+    let annotations: Vec<(String, String, String, String, Option<i64>)> = sqlx::query_as(
+        "SELECT id, location_start, location_end, value, section_index FROM annotations WHERE book_id = ? OR book_id = ?",
+    )
+    .bind(local_id)
+    .bind(server_book_id)
+    .fetch_all(&mut *tx)
+    .await?;
+    for (id, location_start, location_end, value, section_index) in annotations {
+        let new_start = remap_cfi_spine(&location_start, moved);
+        let new_end = remap_cfi_spine(&location_end, moved);
+        let new_value = remap_cfi_spine(&value, moved);
+        let new_section = section_index
+            .and_then(|s| usize::try_from(s).ok())
+            .and_then(|s| moved.get(&s).copied())
+            .map(|s| s as i64);
+        if new_start.is_none() && new_end.is_none() && new_value.is_none() && new_section.is_none()
+        {
+            continue;
+        }
+        sqlx::query(
+            "UPDATE annotations SET location_start = ?, location_end = ?, value = ?, section_index = ? WHERE id = ?",
+        )
+        .bind(new_start.unwrap_or(location_start))
+        .bind(new_end.unwrap_or(location_end))
+        .bind(new_value.unwrap_or(value))
+        .bind(new_section.or(section_index))
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await?;
+    Ok(())
+}
+
 pub async fn clear_all_data(pool: &DbPool) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
@@ -1330,6 +1567,7 @@ pub async fn clear_all_data(pool: &DbPool) -> Result<(), sqlx::Error> {
         DELETE FROM annotations;
         DELETE FROM book_progress;
         DELETE FROM book_mappings;
+        DELETE FROM chapter_book_chapters;
         DELETE FROM local_books_metadata;
         DELETE FROM recent_books;
         DELETE FROM reading_sessions;
@@ -1820,5 +2058,147 @@ mod tests {
         assert_eq!(found_result.get(server_id).unwrap(), &temp_path_str);
 
         let _ = tokio::fs::remove_file(temp_file).await;
+    }
+
+    #[tokio::test]
+    async fn test_chapter_positions_and_cfi_remap() {
+        let pool = init_db(Path::new(":memory:"))
+            .await
+            .expect("init memory db");
+
+        let server_id = "018f3a2b-7c4d-7e8f-9a0b-1c2d3e4f5a6c";
+        let local_id = "local-chapters_book_epub";
+        let ids = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<Vec<_>>();
+
+        assert!(!is_chapters_book(&pool, server_id).await.expect("kind"));
+
+        // First build: nothing to remap
+        let moved = replace_chapter_positions(&pool, server_id, &ids(&["a", "b", "c"]))
+            .await
+            .expect("store positions");
+        assert!(moved.is_empty());
+        assert!(is_chapters_book(&pool, server_id).await.expect("kind"));
+        assert_eq!(
+            get_chapter_position(&pool, server_id, "c")
+                .await
+                .expect("position"),
+            Some(2)
+        );
+        assert_eq!(
+            get_chapter_id_at(&pool, server_id, 1)
+                .await
+                .expect("id")
+                .as_deref(),
+            Some("b")
+        );
+        assert_eq!(
+            get_chapter_id_at(&pool, server_id, 7).await.expect("id"),
+            None
+        );
+
+        save_book_mapping(&pool, local_id, server_id, None)
+            .await
+            .expect("mapping");
+        // Reading chapter "b" (spine index 1), bookmark in "c", highlight in "a"
+        save_progress(
+            &pool,
+            local_id,
+            "epubcfi(/6/4!/4/2/1:10)",
+            50.0,
+            false,
+            false,
+        )
+        .await
+        .expect("progress");
+        save_bookmark(
+            &pool,
+            "bm-ch",
+            None,
+            local_id,
+            "epubcfi(/6/6!/4/2/1:3)",
+            0.8,
+            None,
+            None,
+            None,
+            true,
+        )
+        .await
+        .expect("bookmark");
+        save_annotation(
+            &pool,
+            "ann-ch",
+            None,
+            server_id,
+            "epubcfi(/6/2!/4/2/1:0)",
+            "epubcfi(/6/2!/4/2/1:5)",
+            "epubcfi(/6/2!/4/2,/1:0,/1:5)",
+            "text",
+            None,
+            "yellow",
+            Some("highlight"),
+            None,
+            Some(0),
+            None,
+            true,
+        )
+        .await
+        .expect("annotation");
+
+        // The server inserted chapter "x" before "b": "b" and "c" shift, "a" stays
+        let moved = replace_chapter_positions(&pool, server_id, &ids(&["a", "x", "b", "c"]))
+            .await
+            .expect("update positions");
+        assert_eq!(moved.len(), 2);
+        assert_eq!(moved.get(&1), Some(&2));
+        assert_eq!(moved.get(&2), Some(&3));
+        assert_eq!(
+            get_chapter_id_at(&pool, server_id, 1)
+                .await
+                .expect("id")
+                .as_deref(),
+            Some("x")
+        );
+
+        remap_book_cfis(&pool, local_id, server_id, &moved)
+            .await
+            .expect("remap");
+
+        let progress = get_progress(&pool, local_id)
+            .await
+            .expect("get progress")
+            .expect("must exist");
+        // Chained moves (1 -> 2, 2 -> 3) must be applied exactly once
+        assert_eq!(progress.location, "epubcfi(/6/6!/4/2/1:10)");
+        assert_eq!(progress.sync_status, "synced");
+
+        let bookmarks = get_bookmarks(&pool, local_id).await.expect("bookmarks");
+        assert_eq!(bookmarks[0].location, "epubcfi(/6/8!/4/2/1:3)");
+
+        let annotations = get_annotations(&pool, local_id).await.expect("annotations");
+        assert_eq!(annotations.len(), 1);
+        assert_eq!(annotations[0].value, "epubcfi(/6/2!/4/2,/1:0,/1:5)");
+        assert_eq!(annotations[0].section_index, Some(0));
+
+        // A removed chapter disappears from the layout
+        replace_chapter_positions(&pool, server_id, &ids(&["a", "c"]))
+            .await
+            .expect("shrink");
+        assert_eq!(
+            get_chapter_position(&pool, server_id, "x")
+                .await
+                .expect("position"),
+            None
+        );
+        assert_eq!(
+            get_chapter_position(&pool, server_id, "c")
+                .await
+                .expect("position"),
+            Some(1)
+        );
+
+        clear_chapter_positions(&pool, server_id)
+            .await
+            .expect("clear");
+        assert!(!is_chapters_book(&pool, server_id).await.expect("kind"));
     }
 }

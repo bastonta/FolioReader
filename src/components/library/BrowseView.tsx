@@ -20,7 +20,12 @@ import {
   X,
 } from "lucide-react";
 import React, { useCallback, useEffect, useState } from "react";
-import { BookHasNoFileError, BrowseParams, libraryApi } from "../../api/libraryApi";
+import {
+  BookHasNoChaptersError,
+  BookHasNoFileError,
+  BrowseParams,
+  libraryApi,
+} from "../../api/libraryApi";
 import { Select } from "../common/Select";
 import {
   getAccessToken,
@@ -44,7 +49,12 @@ import {
   saveLocalBookCache,
 } from "../../services/storage";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { BrowseItem, BookDetail } from "../../types/browse";
+import {
+  BrowseItem,
+  BookDetail,
+  ChaptersBookDownloadResult,
+  ChaptersDownloadProgress,
+} from "../../types/browse";
 import { ReaderSettings, BookMetadata, BookReadingStats } from "../../types/reader";
 import { BookInfoModal } from "../reader/BookInfoModal";
 
@@ -141,6 +151,10 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
   >({});
   const [downloadedPaths, setDownloadedPaths] = useState<
     Record<string, string>
+  >({});
+  // Progress of building local copies of `Chapters` books: bookId -> last progress event
+  const [chaptersProgress, setChaptersProgress] = useState<
+    Record<string, ChaptersDownloadProgress>
   >({});
 
   // Book Info Modal state
@@ -385,7 +399,11 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
           }
 
           // 2. Fallback check for any books not yet found in SQLite mappings (e.g. legacy downloads)
-          const unmappedBooks = bookItems.filter((b) => !newPaths[b.id]);
+          // A local copy of a `Chapters` book is always recorded in book_mappings when it is
+          // built, and a file that merely has the same name belongs to another book.
+          const unmappedBooks = bookItems.filter(
+            (b) => !newPaths[b.id] && b.kind !== "Chapters",
+          );
           if (unmappedBooks.length > 0) {
             await Promise.all(
               unmappedBooks.map(async (book) => {
@@ -489,19 +507,24 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
     }
   };
 
-  // Download book handler
+  // Text of the action button while a book is being downloaded
+  const getDownloadingLabel = (bookId: string): string => {
+    const progress = chaptersProgress[bookId];
+    if (!progress) return t("browse.downloading");
+    if (progress.phase === "building") return t("browse.buildingBook");
+    return t(
+      progress.phase === "images"
+        ? "browse.imagesProgress"
+        : "browse.chaptersProgress",
+      { done: progress.done, total: progress.total },
+    );
+  };
+
+  // Download book handler.
+  // Books assembled from chapters live on the server without an EPUB file (`/download`
+  // answers 409): for them a local EPUB is built from the chapters. Calling the handler
+  // again for such a book that is already downloaded fetches new and changed chapters.
   const handleDownloadBook = async (book: BrowseItem) => {
-    // Books assembled from chapters live only on the server (no EPUB file,
-    // `/download` answers 409). The catalog is requested with `kind=File`, but
-    // guard anyway in case the server returned such an item.
-    if (book.kind === "Chapters") {
-      await alert({
-        title: t("common.warning"),
-        message: t("browse.chaptersBookNotDownloadable"),
-        type: "warning",
-      });
-      return;
-    }
     if (!settings.downloadPath) {
       await alert({
         title: t("common.warning"),
@@ -536,7 +559,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
       const progress = bookDetail?.progress ?? book.progress;
       const fileName = `${title}.epub`;
 
-      const savedPath = await fileManager.downloadBookFile({
+      const downloadOptions = {
         serverUrl,
         token,
         bookId: book.id,
@@ -553,9 +576,33 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
               updatedAt: progress.updatedAt,
             }
           : undefined,
-      });
+      };
 
-      const localId = fileManager.getLocalBookId(savedPath, settings.downloadPath);
+      let isChaptersBook = (bookDetail?.kind ?? book.kind) === "Chapters";
+      let savedPath = "";
+      if (!isChaptersBook) {
+        try {
+          savedPath = await fileManager.downloadBookFile(downloadOptions);
+        } catch (err) {
+          // The catalog item did not say so, but the server has no file for this book
+          if (!(err instanceof BookHasNoFileError)) throw err;
+          isChaptersBook = true;
+        }
+      }
+
+      let chaptersResult: ChaptersBookDownloadResult | null = null;
+      if (isChaptersBook) {
+        chaptersResult = await fileManager.downloadChaptersBook(
+          downloadOptions,
+          (event) =>
+            setChaptersProgress((prev) => ({ ...prev, [book.id]: event })),
+        );
+        savedPath = chaptersResult.filePath;
+      }
+
+      const localId =
+        chaptersResult?.localId ??
+        fileManager.getLocalBookId(savedPath, settings.downloadPath);
       await saveDbBookMapping(localId, book.id, savedPath);
 
       let coverUrl: string | undefined;
@@ -568,11 +615,16 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
         // ignore
       }
 
-      // Update in-memory caches if progress was present
-      if (progress) {
+      // Update in-memory caches if progress was present.
+      // Updating a copy built from chapters leaves the local reading progress as it is.
+      if (progress && !chaptersResult?.updated) {
         const pct = progress.progressPercent ?? 0;
         const isRead = progress.isRead ?? (pct >= 100);
-        const loc = progress.location || "";
+        // The server keeps the position in a `Chapters` book as a chapter reference;
+        // the core has already translated it into a position in the built EPUB.
+        const loc = chaptersResult
+          ? chaptersResult.location || ""
+          : progress.location || "";
         const lastOpenedAt =
           progress.updatedAt || new Date().toISOString();
         if (loc || pct > 0 || isRead) {
@@ -583,6 +635,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
             author,
             coverUrl,
             filePath: savedPath,
+            lastLocation: loc || undefined,
             progressFraction: pct / 100,
             lastOpenedAt,
             fileName,
@@ -604,17 +657,51 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
       setDownloadedPaths((prev) => ({ ...prev, [book.id]: savedPath }));
       setDownloadStates((prev) => ({ ...prev, [book.id]: "downloaded" }));
       onBookDownloaded?.();
+
+      if (chaptersResult) {
+        if (chaptersResult.imagesMissing > 0) {
+          console.warn(
+            `Book ${book.id}: ${chaptersResult.imagesMissing} illustration(s) are missing on the server`,
+          );
+        }
+        if (chaptersResult.updated) {
+          const isUpToDate =
+            chaptersResult.chaptersFetched === 0 &&
+            chaptersResult.imagesFetched === 0;
+          await alert({
+            title: title,
+            message: isUpToDate
+              ? t("browse.chaptersUpToDate", {
+                  total: chaptersResult.chaptersTotal,
+                })
+              : t("browse.chaptersUpdated", {
+                  count: chaptersResult.chaptersFetched,
+                  total: chaptersResult.chaptersTotal,
+                }),
+            type: isUpToDate ? "info" : "success",
+          });
+        }
+      }
     } catch (err: any) {
       console.error("Download error:", err);
       setDownloadStates((prev) => ({ ...prev, [book.id]: "error" }));
       const message =
         err instanceof BookHasNoFileError
           ? t("browse.downloadNoFileError")
-          : err?.message || err;
+          : err instanceof BookHasNoChaptersError
+            ? t("browse.downloadNoChaptersError")
+            : err?.message || err;
       await alert({
         title: t("common.error"),
         message: t("browse.downloadFailedAlert", { error: message }),
         type: "error",
+      });
+    } finally {
+      setChaptersProgress((prev) => {
+        if (!(book.id in prev)) return prev;
+        const next = { ...prev };
+        delete next[book.id];
+        return next;
       });
     }
   };
@@ -1190,6 +1277,30 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                       </span>
                     )}
 
+                    {item.kind === "Chapters" && (
+                      <span
+                        style={{
+                          position: "absolute",
+                          bottom: 10,
+                          left: 6,
+                          backgroundColor: "rgba(0, 0, 0, 0.75)",
+                          color: "#ffffff",
+                          fontSize: 10,
+                          fontWeight: 700,
+                          padding: "2px 6px",
+                          borderRadius: 6,
+                          zIndex: 5,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 3,
+                        }}
+                        title={t("browse.chaptersBadgeHint")}
+                      >
+                        <ListIcon size={11} />
+                        <span>{t("browse.chaptersBadge")}</span>
+                      </span>
+                    )}
+
                     {progressPct > 0 && (
                       <div
                         style={{
@@ -1225,30 +1336,61 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                       {isDownloaded &&
                       downloadedPaths[item.id] &&
                       onOpenBookFromPath ? (
-                        <button
-                          type="button"
-                          className="auth-btn-primary"
-                          style={{
-                            flex: 1,
-                            padding: "6px 10px",
-                            fontSize: 12,
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            gap: 4,
-                          }}
-                          onClick={() =>
-                            onOpenBookFromPath(
-                              downloadedPaths[item.id],
-                              item.name,
-                              item.author ?? undefined,
-                              item.id,
-                            )
-                          }
-                        >
-                          <BookOpen size={13} />
-                          <span>{t("browse.read")}</span>
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            className="auth-btn-primary"
+                            style={{
+                              flex: 1,
+                              padding: "6px 10px",
+                              fontSize: 12,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              gap: 4,
+                            }}
+                            onClick={() =>
+                              onOpenBookFromPath(
+                                downloadedPaths[item.id],
+                                item.name,
+                                item.author ?? undefined,
+                                item.id,
+                              )
+                            }
+                            disabled={isDownloading}
+                          >
+                            {isDownloading ? (
+                              <>
+                                <Loader2 size={13} className="animate-spin" />
+                                <span>{getDownloadingLabel(item.id)}</span>
+                              </>
+                            ) : (
+                              <>
+                                <BookOpen size={13} />
+                                <span>{t("browse.read")}</span>
+                              </>
+                            )}
+                          </button>
+                          {item.kind === "Chapters" && (
+                            <button
+                              type="button"
+                              className="auth-btn-secondary"
+                              style={{
+                                padding: "6px 8px",
+                                fontSize: 12,
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                              }}
+                              onClick={() => handleDownloadBook(item)}
+                              disabled={isDownloading}
+                              title={t("browse.updateChapters")}
+                              aria-label={t("browse.updateChapters")}
+                            >
+                              <RefreshCw size={13} />
+                            </button>
+                          )}
+                        </>
                       ) : (
                         <button
                           type="button"
@@ -1272,7 +1414,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                           {isDownloading ? (
                             <>
                               <Loader2 size={13} className="animate-spin" />
-                              <span>{t("browse.downloading")}</span>
+                              <span>{getDownloadingLabel(item.id)}</span>
                             </>
                           ) : isDownloaded ? (
                             <>
@@ -1388,6 +1530,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                   onClick={() => {
                     if (
                       isDownloaded &&
+                      !isDownloading &&
                       downloadedPaths[item.id] &&
                       onOpenBookFromPath
                     ) {
@@ -1449,6 +1592,25 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                             #{item.sortOrder}
                           </span>
                         )}
+                      {item.kind === "Chapters" && (
+                        <span
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 3,
+                            backgroundColor: "var(--bg-tertiary)",
+                            color: "var(--text-secondary)",
+                            fontSize: 10,
+                            fontWeight: 700,
+                            padding: "1px 5px",
+                            borderRadius: 4,
+                          }}
+                          title={t("browse.chaptersBadgeHint")}
+                        >
+                          <ListIcon size={10} />
+                          <span>{t("browse.chaptersBadge")}</span>
+                        </span>
+                      )}
                     </div>
 
                     <p className="book-list-author" title={item.author ?? undefined}>
@@ -1546,29 +1708,61 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                     {isDownloaded &&
                     downloadedPaths[item.id] &&
                     onOpenBookFromPath ? (
-                      <button
-                        type="button"
-                        className="auth-btn-primary"
-                        style={{
-                          padding: "6px 12px",
-                          fontSize: 12,
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 4,
-                          whiteSpace: "nowrap",
-                        }}
-                        onClick={() =>
-                          onOpenBookFromPath(
-                            downloadedPaths[item.id],
-                            item.name,
-                            item.author ?? undefined,
-                            item.id,
-                          )
-                        }
-                      >
-                        <BookOpen size={13} />
-                        <span>{t("browse.read")}</span>
-                      </button>
+                      <>
+                        {item.kind === "Chapters" && (
+                          <button
+                            type="button"
+                            className="auth-btn-secondary"
+                            style={{
+                              padding: "6px 8px",
+                              fontSize: 12,
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 4,
+                              whiteSpace: "nowrap",
+                            }}
+                            onClick={() => handleDownloadBook(item)}
+                            disabled={isDownloading}
+                            title={t("browse.updateChapters")}
+                            aria-label={t("browse.updateChapters")}
+                          >
+                            <RefreshCw size={13} />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="auth-btn-primary"
+                          style={{
+                            padding: "6px 12px",
+                            fontSize: 12,
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 4,
+                            whiteSpace: "nowrap",
+                          }}
+                          onClick={() =>
+                            onOpenBookFromPath(
+                              downloadedPaths[item.id],
+                              item.name,
+                              item.author ?? undefined,
+                              item.id,
+                            )
+                          }
+                          disabled={isDownloading}
+                        >
+                          {isDownloading ? (
+                            <>
+                              <Loader2 size={13} className="animate-spin" />
+                              <span>{getDownloadingLabel(item.id)}</span>
+                            </>
+                          ) : (
+                            <>
+                              <BookOpen size={13} />
+                              <span>{t("browse.read")}</span>
+                            </>
+                          )}
+                        </button>
+                      </>
                     ) : (
                       <button
                         type="button"
@@ -1591,7 +1785,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                         {isDownloading ? (
                           <>
                             <Loader2 size={13} className="animate-spin" />
-                            <span>{t("browse.downloading")}</span>
+                            <span>{getDownloadingLabel(item.id)}</span>
                           </>
                         ) : isDownloaded ? (
                           <>

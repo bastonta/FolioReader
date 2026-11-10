@@ -201,9 +201,17 @@ export const en = {
   "browse.serverNotConfiguredAlert": "Server URL is not configured",
   "browse.bookDetails": "Book Details",
   "browse.downloadFailedAlert": "Failed to download book: {error}",
-  "browse.chaptersBookNotDownloadable":
-    "This book is assembled from chapters on the server and has no EPUB file. It can be read in the Folio web client; compile it to EPUB there to download it.",
   "browse.downloadNoFileError": "This book is assembled from chapters and has no EPUB file to download",
+  "browse.downloadNoChaptersError": "This book has no chapters yet",
+  "browse.chaptersBadge": "Chapters",
+  "browse.chaptersBadgeHint":
+    "The server stores this book as separate chapters. It is downloaded chapter by chapter and can be updated when new ones appear.",
+  "browse.chaptersProgress": "Chapters {done}/{total}",
+  "browse.imagesProgress": "Images {done}/{total}",
+  "browse.buildingBook": "Building book...",
+  "browse.updateChapters": "Check for new chapters",
+  "browse.chaptersUpdated": "The book has been updated. Chapters downloaded: {count}. Chapters in the book: {total}.",
+  "browse.chaptersUpToDate": "No new chapters. Chapters in the book: {total}.",
 
   // Book Context Menu & Reset Modal
   "contextMenu.bookInfo": "Info & Statistics",

@@ -206,9 +206,17 @@ export const ru: Partial<Record<TranslationKey, string>> = {
   "browse.serverNotConfiguredAlert": "Адрес сервера не настроен",
   "browse.bookDetails": "Информация о книге",
   "browse.downloadFailedAlert": "Не удалось скачать книгу: {error}",
-  "browse.chaptersBookNotDownloadable":
-    "Эта книга собрана из глав на сервере и не имеет EPUB-файла. Её можно читать в веб-клиенте Folio; чтобы скачать, соберите её там в EPUB.",
   "browse.downloadNoFileError": "Эта книга собрана из глав, у неё нет EPUB-файла для скачивания",
+  "browse.downloadNoChaptersError": "В этой книге пока нет ни одной главы",
+  "browse.chaptersBadge": "Главы",
+  "browse.chaptersBadgeHint":
+    "Книга хранится на сервере в виде отдельных глав. Она скачивается по главам, и её можно обновлять, когда появляются новые.",
+  "browse.chaptersProgress": "Главы {done}/{total}",
+  "browse.imagesProgress": "Картинки {done}/{total}",
+  "browse.buildingBook": "Сборка книги...",
+  "browse.updateChapters": "Проверить новые главы",
+  "browse.chaptersUpdated": "Книга обновлена. Загружено глав: {count}. Всего глав в книге: {total}.",
+  "browse.chaptersUpToDate": "Новых глав нет. Всего глав в книге: {total}.",
 
   // Book Context Menu & Reset Modal
   "contextMenu.bookInfo": "Информация и статистика",

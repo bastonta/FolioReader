@@ -1,4 +1,6 @@
 mod auth_proxy;
+mod chapters_book;
+mod chapters_epub;
 mod db;
 mod fs_manager;
 mod reader_commands;
@@ -75,6 +77,7 @@ pub fn run() {
             fs_manager::scan_local_books,
             fs_manager::read_book_file,
             fs_manager::download_book_file,
+            chapters_book::download_chapters_book,
             fs_manager::delete_book_file,
             fs_manager::check_book_downloaded,
             fs_manager::save_custom_font,

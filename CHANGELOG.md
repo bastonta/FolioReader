@@ -9,11 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `BookKind` (`File` | `Chapters`) in library API types (`BookResponseItem`, `BrowseItem`, `BookDetail` with `originBookId` / `chaptersCount`) following the Folio server update that merges BookBot books assembled from chapters.
-- `kind` parameter for `browse` and `getBooks`; the catalog now requests `kind=File` by default so books assembled from chapters (which have no EPUB file) are not offered for download. `getRecentBooks` drops `Chapters` items client-side.
-- `BookHasNoFileError` and a dedicated `BOOK_HAS_NO_FILE` result from `download_book_file` when the server answers `409 Conflict` for a `Chapters` book, with localized alerts in the catalog.
+- Reading books that have no EPUB file on the server yet (`Chapters` kind): the new `download_chapters_book` command downloads the chapters, illustrations and cover and builds a local EPUB that opens, works offline and syncs like any other book. The catalog marks such books with a "Chapters" badge and shows chapter / illustration progress while they are downloaded.
+- "Check for new chapters" action for downloaded `Chapters` books: only new and changed chapters are fetched, and the reading position, bookmarks and annotations follow their chapters when the chapter order changes.
+- Reading progress of `Chapters` books is exchanged with the server as a chapter reference (`ch:<chapterId>`), the same form the Folio web client uses, so the position carries over between the two.
+- Optional `kind` filter for `browse`, `getBooks` and `getRecentBooks` (all kinds are returned when it is omitted).
+- `BookHasNoFileError` and a dedicated `BOOK_HAS_NO_FILE` result from `download_book_file` when the server answers `409 Conflict` for a `Chapters` book; the catalog then falls back to building the book from its chapters.
 
 ### Changed
-- Catalog download action refuses `Chapters` books with an explanatory message instead of failing with a raw HTTP status.
+- The catalog lists `Chapters` books alongside `File` books and downloads them chapter by chapter.
 
 ## [0.8.2] - 2026-09-29
 

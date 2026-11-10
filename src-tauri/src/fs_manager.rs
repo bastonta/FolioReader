@@ -39,7 +39,7 @@ pub struct LocalBookFile {
     pub modified_at: Option<String>,
 }
 
-fn sanitize_filename_part(name: &str) -> String {
+pub(crate) fn sanitize_filename_part(name: &str) -> String {
     let invalid_chars = ['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
     let mut clean: String = name
         .chars()
@@ -378,6 +378,9 @@ pub async fn download_book_file(
     let resolved_author = author.unwrap_or_else(|| "Unknown Author".to_string());
 
     let _ = crate::db::save_book_mapping(&db, &local_id, &book_id, Some(&final_path_str)).await;
+    // The book has a real file now: a copy assembled from chapters earlier (if any) is no
+    // longer what the reading position refers to.
+    let _ = crate::db::clear_chapter_positions(&db, &book_id).await;
 
     // Auto-fetch book cover from server and cache locally
     if let Ok(covers_dir) = get_covers_dir(&app) {

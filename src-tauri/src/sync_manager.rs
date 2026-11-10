@@ -1,3 +1,4 @@
+use crate::chapters_epub;
 use crate::db::{self, DbAnnotation, DbBookmark, DbPool, DbReadingSession};
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
@@ -303,6 +304,68 @@ pub async fn sync_book(
     })
 }
 
+// ---------------- CHAPTERS BOOKS ----------------
+// A book assembled on device from server chapters has no file on the server, so its
+// reading position is exchanged the way the web reader stores it: `ch:<chapterId>`.
+// Locally the position is a CFI of the EPUB built by `chapters_book`.
+
+/// Location to send to the server for a local reading position. `None` when it cannot be
+/// expressed for the server (then only the percentage is pushed).
+async fn outgoing_location(pool: &DbPool, server_book_id: &str, location: &str) -> Option<String> {
+    if !db::is_chapters_book(pool, server_book_id)
+        .await
+        .unwrap_or(false)
+    {
+        return Some(location.to_string());
+    }
+    let position = chapters_epub::cfi_spine_index(location)?;
+    let chapter_id = db::get_chapter_id_at(pool, server_book_id, position)
+        .await
+        .ok()
+        .flatten()?;
+    Some(format!("ch:{chapter_id}"))
+}
+
+/// Server reading position translated for the local copy of the book.
+#[derive(Debug, PartialEq)]
+enum RemoteLocation {
+    /// A position the local copy can open.
+    At(String),
+    /// The chapter the reader is already in: the local position is more precise and stays.
+    SameChapter,
+    /// A chapter the local copy does not have (yet), or a position of another edition.
+    Unknown,
+}
+
+async fn incoming_location(
+    pool: &DbPool,
+    server_book_id: &str,
+    remote: String,
+    local_location: Option<&str>,
+) -> RemoteLocation {
+    if !db::is_chapters_book(pool, server_book_id)
+        .await
+        .unwrap_or(false)
+    {
+        return RemoteLocation::At(remote);
+    }
+    let Some(chapter_id) = remote.strip_prefix("ch:") else {
+        return RemoteLocation::Unknown;
+    };
+    let Some(position) = db::get_chapter_position(pool, server_book_id, chapter_id)
+        .await
+        .ok()
+        .flatten()
+    else {
+        return RemoteLocation::Unknown;
+    };
+    if local_location.and_then(chapters_epub::cfi_spine_index) == Some(position) {
+        RemoteLocation::SameChapter
+    } else {
+        RemoteLocation::At(chapters_epub::chapter_start_cfi(position))
+    }
+}
+
 // ---------------- PROGRESS SYNC ----------------
 pub async fn pull_book_progress(
     pool: &DbPool,
@@ -357,6 +420,13 @@ pub async fn pull_book_progress(
                 .as_ref()
                 .map(|p| p.progress_percent)
                 .unwrap_or(0.0);
+            let incoming = incoming_location(
+                pool,
+                &server_id,
+                loc,
+                current_local.as_ref().map(|p| p.location.as_str()),
+            )
+            .await;
 
             // If local progress is pending or further ahead, preserve local and push it to the server
             if (local_is_pending || (local_percent > remote_percent && local_percent > 0.0))
@@ -365,7 +435,7 @@ pub async fn pull_book_progress(
                 // Push local to server
                 let put_url = format!("{base}/api/books/{server_id}/progress?format=cfi");
                 let payload = ServerProgressPayload {
-                    location: Some(local_p.location.clone()),
+                    location: outgoing_location(pool, &server_id, &local_p.location).await,
                     progress_percent: Some(local_p.progress_percent),
                     is_read: Some(local_p.is_read),
                 };
@@ -395,6 +465,30 @@ pub async fn pull_book_progress(
                     updated_at: Some(local_p.updated_at),
                 });
             }
+
+            let loc = match incoming {
+                RemoteLocation::At(loc) => loc,
+                RemoteLocation::SameChapter => {
+                    return Ok(PullProgressResult {
+                        success: true,
+                        message: "Reading position is up to date".to_string(),
+                        location: None,
+                        progress_percent: None,
+                        is_read: None,
+                        updated_at: None,
+                    });
+                }
+                RemoteLocation::Unknown => {
+                    return Ok(PullProgressResult {
+                        success: false,
+                        message: "Server progress is in a chapter this copy does not have yet. Update the book from the catalog.".to_string(),
+                        location: None,
+                        progress_percent: None,
+                        is_read: None,
+                        updated_at: None,
+                    });
+                }
+            };
 
             // Force save to local SQLite database with sync_status = 'synced'
             let _ = db::save_progress(pool, book_id, &loc, remote_percent, is_read, false).await;
@@ -452,7 +546,7 @@ async fn sync_progress(
     {
         let url = format!("{base_url}/api/books/{server_book_id}/progress?format=cfi");
         let payload = ServerProgressPayload {
-            location: Some(p.location.clone()),
+            location: outgoing_location(pool, server_book_id, &p.location).await,
             progress_percent: Some(p.progress_percent),
             is_read: Some(p.is_read),
         };
@@ -496,7 +590,17 @@ async fn sync_progress(
             .map(|p| p.progress_percent)
             .unwrap_or(0.0);
         let remote_percent = remote.progress_percent.unwrap_or(0.0);
-        if !is_pending || (local_percent <= 0.01 && remote_percent > 0.0) {
+        let incoming = incoming_location(
+            pool,
+            server_book_id,
+            loc,
+            current_local.as_ref().map(|p| p.location.as_str()),
+        )
+        .await;
+        // A position the local copy cannot open (or is already at) leaves local progress alone
+        if let RemoteLocation::At(loc) = incoming
+            && (!is_pending || (local_percent <= 0.01 && remote_percent > 0.0))
+        {
             let _ = db::save_progress(
                 pool,
                 local_book_id,
@@ -1057,5 +1161,67 @@ pub async fn sync_reading_sessions(
         Ok(session_ids.len())
     } else {
         Err(format!("Server returned HTTP {}", res.status()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_chapters_book_location_translation() {
+        let pool = db::init_db(Path::new(":memory:")).await.unwrap();
+        let book = "0198c0de-0000-7000-8000-000000000001";
+        let other = "0198c0de-0000-7000-8000-000000000002";
+        let chapters = vec!["ch-a".to_string(), "ch-b".to_string(), "ch-c".to_string()];
+        db::replace_chapter_positions(&pool, book, &chapters)
+            .await
+            .unwrap();
+
+        // A regular book: locations pass through untouched in both directions
+        let cfi = "epubcfi(/6/4!/4/2/1:10)";
+        assert_eq!(
+            outgoing_location(&pool, other, cfi).await.as_deref(),
+            Some(cfi)
+        );
+        assert_eq!(
+            incoming_location(&pool, other, cfi.to_string(), None).await,
+            RemoteLocation::At(cfi.to_string())
+        );
+
+        // A chapters book: the server gets the chapter the CFI is in
+        assert_eq!(
+            outgoing_location(&pool, book, cfi).await.as_deref(),
+            Some("ch:ch-b")
+        );
+        assert_eq!(outgoing_location(&pool, book, "").await, None);
+        assert_eq!(
+            outgoing_location(&pool, book, "epubcfi(/6/40!/4)").await,
+            None
+        );
+
+        // ...and a server chapter becomes the start of that chapter in the local EPUB
+        assert_eq!(
+            incoming_location(&pool, book, "ch:ch-c".to_string(), Some(cfi)).await,
+            RemoteLocation::At("epubcfi(/6/6!/4)".to_string())
+        );
+        assert_eq!(
+            incoming_location(&pool, book, "ch:ch-a".to_string(), None).await,
+            RemoteLocation::At("epubcfi(/6/2!/4)".to_string())
+        );
+        // The reader is already inside that chapter: keep the precise local position
+        assert_eq!(
+            incoming_location(&pool, book, "ch:ch-b".to_string(), Some(cfi)).await,
+            RemoteLocation::SameChapter
+        );
+        // Chapters this copy does not have, and positions of another edition
+        assert_eq!(
+            incoming_location(&pool, book, "ch:ch-new".to_string(), Some(cfi)).await,
+            RemoteLocation::Unknown
+        );
+        assert_eq!(
+            incoming_location(&pool, book, cfi.to_string(), Some(cfi)).await,
+            RemoteLocation::Unknown
+        );
     }
 }
