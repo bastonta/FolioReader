@@ -212,6 +212,18 @@ export const en = {
   "browse.updateChapters": "Check for new chapters",
   "browse.chaptersUpdated": "The book has been updated. Chapters downloaded: {count}. Chapters in the book: {total}.",
   "browse.chaptersUpToDate": "No new chapters. Chapters in the book: {total}.",
+  "browse.volumes": "Download by volume",
+  "browse.volumesIntro":
+    "Download the whole book as one file, or single volumes. Each volume is a separate file that is opened and updated on its own.",
+  "browse.volumesDownloaded": "Volumes: {count}",
+  "browse.wholeBook": "Whole book",
+  "browse.volumeName": "Volume {number}",
+  "browse.volumeChapters": "Chapters: {count}",
+  "browse.volumeChapterRange": "ch. {first}–{last}",
+  "browse.volumeChaptersUpdated":
+    "The volume has been updated. Chapters downloaded: {count}. Chapters in the volume: {total}.",
+  "browse.volumeChaptersUpToDate": "No new chapters. Chapters in the volume: {total}.",
+  "browse.downloadVolumesNotSupported": "This server cannot provide a book volume by volume",
 
   // Book Context Menu & Reset Modal
   "contextMenu.bookInfo": "Info & Statistics",

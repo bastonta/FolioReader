@@ -10,6 +10,7 @@ import {
   Folder,
   Home,
   Info,
+  Layers,
   LayoutGrid,
   List as ListIcon,
   Loader2,
@@ -24,6 +25,7 @@ import {
   BookHasNoChaptersError,
   BookHasNoFileError,
   BrowseParams,
+  VolumesNotSupportedError,
   libraryApi,
 } from "../../api/libraryApi";
 import { Select } from "../common/Select";
@@ -42,6 +44,7 @@ import {
   fetchServerBookStatistics,
   deleteBookStatistics,
   checkDownloadedServerBooks,
+  getChapterCopies,
 } from "../../services/readerDb";
 import {
   saveRecentBook,
@@ -52,11 +55,21 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import {
   BrowseItem,
   BookDetail,
+  BookVolume,
+  ChapterCopy,
   ChaptersBookDownloadResult,
   ChaptersDownloadProgress,
 } from "../../types/browse";
 import { ReaderSettings, BookMetadata, BookReadingStats } from "../../types/reader";
 import { BookInfoModal } from "../reader/BookInfoModal";
+import { ChapterVolumesModal } from "./ChapterVolumesModal";
+
+/**
+ * Key of a download: the book id for a whole book, `bookId#volume` for a single volume
+ * of a `Chapters` book (each volume is a file of its own).
+ */
+const downloadKey = (bookId: string, volume?: number | null): string =>
+  volume === undefined || volume === null ? bookId : `${bookId}#${volume}`;
 
 interface BrowseViewProps {
   settings: ReaderSettings;
@@ -152,10 +165,22 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
   const [downloadedPaths, setDownloadedPaths] = useState<
     Record<string, string>
   >({});
-  // Progress of building local copies of `Chapters` books: bookId -> last progress event
+  // Progress of building local copies of `Chapters` books: download key -> last progress event
   const [chaptersProgress, setChaptersProgress] = useState<
     Record<string, ChaptersDownloadProgress>
   >({});
+  // Volumes of the `Chapters` books on the page (only books the server lists volumes for)
+  const [bookVolumes, setBookVolumes] = useState<Record<string, BookVolume[]>>(
+    {},
+  );
+  // Local copies of `Chapters` books: the whole book and single volumes
+  const [chapterCopies, setChapterCopies] = useState<
+    Record<string, ChapterCopy[]>
+  >({});
+  // Book whose volumes are being chosen
+  const [volumesModalBook, setVolumesModalBook] = useState<BrowseItem | null>(
+    null,
+  );
 
   // Book Info Modal state
   const [selectedBookForInfo, setSelectedBookForInfo] = useState<{
@@ -179,6 +204,26 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
     selectedBookForInfo.isOpen,
     110
   );
+
+  useBackHandler(
+    () => {
+      setVolumesModalBook(null);
+      return true;
+    },
+    volumesModalBook !== null,
+    110
+  );
+
+  // Reloads which copies of the given `Chapters` books are on this device
+  const refreshChapterCopies = useCallback(async (bookIds: string[]) => {
+    if (bookIds.length === 0) return;
+    const copies = await getChapterCopies(bookIds);
+    setChapterCopies((prev) => {
+      const next = { ...prev };
+      for (const id of bookIds) next[id] = copies[id] ?? [];
+      return next;
+    });
+  }, []);
 
   const handleOpenBookInfo = async (book: BrowseItem, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -437,6 +482,32 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
           }
         }
       }
+
+      // Books stored as chapters can be downloaded one volume at a time: find out which
+      // of them have several volumes and which copies are already here. Neither request
+      // holds the catalog back; a server that cannot list volumes leaves the map empty.
+      const chapterBookIds = (res.items || [])
+        .filter((i) => i.type === "book" && i.kind === "Chapters")
+        .map((i) => i.id);
+      if (chapterBookIds.length > 0) {
+        refreshChapterCopies(chapterBookIds).catch(console.warn);
+        Promise.all(
+          chapterBookIds.map(
+            async (id) => [id, await libraryApi.getBookVolumes(id)] as const,
+          ),
+        )
+          .then((entries) => {
+            setBookVolumes((prev) => {
+              const next = { ...prev };
+              for (const [id, volumes] of entries) {
+                if (volumes) next[id] = volumes;
+                else delete next[id];
+              }
+              return next;
+            });
+          })
+          .catch(console.warn);
+      }
     } catch (err: any) {
       console.error("Failed to browse library:", err);
       setError(err?.message || "Failed to load catalog from server");
@@ -452,6 +523,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
     page,
     settings.downloadPath,
     settings.createSeriesFolder,
+    refreshChapterCopies,
   ]);
 
   useEffect(() => {
@@ -507,9 +579,30 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
     }
   };
 
+  // A `Chapters` book the server lists several volumes for: it can be downloaded whole
+  // or one volume at a time
+  const hasVolumeChoice = (book: BrowseItem): boolean =>
+    book.kind === "Chapters" && (bookVolumes[book.id]?.length ?? 0) > 1;
+
+  const getVolumeCopies = (bookId: string): ChapterCopy[] =>
+    (chapterCopies[bookId] ?? []).filter(
+      (c) => c.volume !== null && c.volume !== undefined,
+    );
+
+  // Key of the download of this book that is running now: the whole book or one of its volumes
+  const getActiveDownloadKey = (bookId: string): string | null => {
+    if (downloadStates[bookId] === "downloading") return bookId;
+    const prefix = `${bookId}#`;
+    return (
+      Object.keys(downloadStates).find(
+        (key) => key.startsWith(prefix) && downloadStates[key] === "downloading",
+      ) ?? null
+    );
+  };
+
   // Text of the action button while a book is being downloaded
-  const getDownloadingLabel = (bookId: string): string => {
-    const progress = chaptersProgress[bookId];
+  const getDownloadingLabel = (key: string): string => {
+    const progress = chaptersProgress[key];
     if (!progress) return t("browse.downloading");
     if (progress.phase === "building") return t("browse.buildingBook");
     return t(
@@ -524,7 +617,10 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
   // Books assembled from chapters live on the server without an EPUB file (`/download`
   // answers 409): for them a local EPUB is built from the chapters. Calling the handler
   // again for such a book that is already downloaded fetches new and changed chapters.
-  const handleDownloadBook = async (book: BrowseItem) => {
+  // With `volume` only that volume of such a book is downloaded (or updated), as a file
+  // of its own.
+  const handleDownloadBook = async (book: BrowseItem, volume?: number) => {
+    const key = downloadKey(book.id, volume);
     if (!settings.downloadPath) {
       await alert({
         title: t("common.warning"),
@@ -534,7 +630,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
       return;
     }
 
-    setDownloadStates((prev) => ({ ...prev, [book.id]: "downloading" }));
+    setDownloadStates((prev) => ({ ...prev, [key]: "downloading" }));
     try {
       const serverUrl = getServerUrl();
       if (!serverUrl) {
@@ -578,7 +674,9 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
           : undefined,
       };
 
-      let isChaptersBook = (bookDetail?.kind ?? book.kind) === "Chapters";
+      let isChaptersBook =
+        volume !== undefined ||
+        (bookDetail?.kind ?? book.kind) === "Chapters";
       let savedPath = "";
       if (!isChaptersBook) {
         try {
@@ -593,12 +691,17 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
       let chaptersResult: ChaptersBookDownloadResult | null = null;
       if (isChaptersBook) {
         chaptersResult = await fileManager.downloadChaptersBook(
-          downloadOptions,
+          { ...downloadOptions, volume },
           (event) =>
-            setChaptersProgress((prev) => ({ ...prev, [book.id]: event })),
+            setChaptersProgress((prev) => ({ ...prev, [key]: event })),
         );
         savedPath = chaptersResult.filePath;
       }
+      // A volume copy is titled and named after its volume
+      const fileTitle = chaptersResult?.title || title;
+      const savedFileName = chaptersResult
+        ? savedPath.split(/[\\/]/).pop() || fileName
+        : fileName;
 
       const localId =
         chaptersResult?.localId ??
@@ -617,11 +720,21 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
 
       // Update in-memory caches if progress was present.
       // Updating a copy built from chapters leaves the local reading progress as it is.
-      if (progress && !chaptersResult?.updated) {
-        const pct = progress.progressPercent ?? 0;
-        const isRead = progress.isRead ?? (pct >= 100);
-        // The server keeps the position in a `Chapters` book as a chapter reference;
-        // the core has already translated it into a position in the built EPUB.
+      // For a new one the core has already translated the server position (a chapter
+      // reference, a percentage of the whole book) into the built EPUB: a volume copy
+      // counts from its own first chapter and starts unread when the position is elsewhere.
+      const startsWithProgress = chaptersResult
+        ? !chaptersResult.updated &&
+          chaptersResult.progressPercent !== null &&
+          chaptersResult.progressPercent !== undefined
+        : Boolean(progress);
+      if (progress && startsWithProgress) {
+        const pct = chaptersResult
+          ? (chaptersResult.progressPercent ?? 0)
+          : (progress.progressPercent ?? 0);
+        const isRead = chaptersResult
+          ? Boolean(chaptersResult.isRead)
+          : (progress.isRead ?? (pct >= 100));
         const loc = chaptersResult
           ? chaptersResult.location || ""
           : progress.location || "";
@@ -631,14 +744,14 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
           saveLastLocation(localId, loc, pct / 100);
           saveRecentBook({
             id: localId,
-            title,
+            title: fileTitle,
             author,
             coverUrl,
             filePath: savedPath,
             lastLocation: loc || undefined,
             progressFraction: pct / 100,
             lastOpenedAt,
-            fileName,
+            fileName: savedFileName,
           });
         }
       }
@@ -646,7 +759,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
       saveLocalBookCache(
         localId,
         {
-          title,
+          title: fileTitle,
           author,
           coverUrl,
           extracted: true,
@@ -654,8 +767,14 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
         savedPath,
       );
 
-      setDownloadedPaths((prev) => ({ ...prev, [book.id]: savedPath }));
-      setDownloadStates((prev) => ({ ...prev, [book.id]: "downloaded" }));
+      // A single volume does not make the book itself "downloaded"
+      if (volume === undefined) {
+        setDownloadedPaths((prev) => ({ ...prev, [book.id]: savedPath }));
+      }
+      setDownloadStates((prev) => ({ ...prev, [key]: "downloaded" }));
+      if (chaptersResult) {
+        await refreshChapterCopies([book.id]);
+      }
       onBookDownloaded?.();
 
       if (chaptersResult) {
@@ -668,29 +787,40 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
           const isUpToDate =
             chaptersResult.chaptersFetched === 0 &&
             chaptersResult.imagesFetched === 0;
+          const isVolume = volume !== undefined;
           await alert({
-            title: title,
+            title: fileTitle,
             message: isUpToDate
-              ? t("browse.chaptersUpToDate", {
-                  total: chaptersResult.chaptersTotal,
-                })
-              : t("browse.chaptersUpdated", {
-                  count: chaptersResult.chaptersFetched,
-                  total: chaptersResult.chaptersTotal,
-                }),
+              ? t(
+                  isVolume
+                    ? "browse.volumeChaptersUpToDate"
+                    : "browse.chaptersUpToDate",
+                  { total: chaptersResult.chaptersTotal },
+                )
+              : t(
+                  isVolume
+                    ? "browse.volumeChaptersUpdated"
+                    : "browse.chaptersUpdated",
+                  {
+                    count: chaptersResult.chaptersFetched,
+                    total: chaptersResult.chaptersTotal,
+                  },
+                ),
             type: isUpToDate ? "info" : "success",
           });
         }
       }
     } catch (err: any) {
       console.error("Download error:", err);
-      setDownloadStates((prev) => ({ ...prev, [book.id]: "error" }));
+      setDownloadStates((prev) => ({ ...prev, [key]: "error" }));
       const message =
         err instanceof BookHasNoFileError
           ? t("browse.downloadNoFileError")
           : err instanceof BookHasNoChaptersError
             ? t("browse.downloadNoChaptersError")
-            : err?.message || err;
+            : err instanceof VolumesNotSupportedError
+              ? t("browse.downloadVolumesNotSupported")
+              : err?.message || err;
       await alert({
         title: t("common.error"),
         message: t("browse.downloadFailedAlert", { error: message }),
@@ -698,13 +828,65 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
       });
     } finally {
       setChaptersProgress((prev) => {
-        if (!(book.id in prev)) return prev;
+        if (!(key in prev)) return prev;
         const next = { ...prev };
-        delete next[book.id];
+        delete next[key];
         return next;
       });
     }
   };
+
+  // Main action of a book that is not downloaded as a whole: a book with several
+  // volumes asks what to download first
+  const handlePrimaryDownload = (book: BrowseItem) => {
+    if (hasVolumeChoice(book)) {
+      setVolumesModalBook(book);
+    } else {
+      handleDownloadBook(book);
+    }
+  };
+
+  // Icon and text of that action
+  const renderDownloadAction = (book: BrowseItem) => {
+    const volumeCopies = hasVolumeChoice(book) ? getVolumeCopies(book.id) : [];
+    if (volumeCopies.length > 0) {
+      return (
+        <>
+          <Layers size={13} />
+          <span>
+            {t("browse.volumesDownloaded", { count: volumeCopies.length })}
+          </span>
+        </>
+      );
+    }
+    return (
+      <>
+        <Download size={13} />
+        <span>{t("browse.download")}</span>
+      </>
+    );
+  };
+
+  // Opens the volume chooser of a book that is already downloaded as a whole
+  const renderVolumesButton = (book: BrowseItem) =>
+    hasVolumeChoice(book) ? (
+      <button
+        type="button"
+        className="auth-btn-secondary"
+        style={{
+          padding: "6px 8px",
+          fontSize: 12,
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+        onClick={() => setVolumesModalBook(book)}
+        title={t("browse.volumes")}
+        aria-label={t("browse.volumes")}
+      >
+        <Layers size={13} />
+      </button>
+    ) : null;
 
   const totalPages = Math.ceil(totalItems / limit) || 1;
 
@@ -1182,7 +1364,9 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
               const isDownloaded =
                 downloadStatus === "downloaded" ||
                 Boolean(downloadedPaths[item.id]);
-              const isDownloading = downloadStatus === "downloading";
+              // The whole book or one of its volumes is being downloaded
+              const activeDownload = getActiveDownloadKey(item.id);
+              const isDownloading = activeDownload !== null;
               const coverUrl = libraryApi.getBookCoverUrl(item.id);
               const progressPct = item.progress?.progressPercent ?? 0;
 
@@ -1362,7 +1546,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                             {isDownloading ? (
                               <>
                                 <Loader2 size={13} className="animate-spin" />
-                                <span>{getDownloadingLabel(item.id)}</span>
+                                <span>{getDownloadingLabel(activeDownload ?? item.id)}</span>
                               </>
                             ) : (
                               <>
@@ -1390,6 +1574,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                               <RefreshCw size={13} />
                             </button>
                           )}
+                        {renderVolumesButton(item)}
                         </>
                       ) : (
                         <button
@@ -1408,13 +1593,13 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                             justifyContent: "center",
                             gap: 4,
                           }}
-                          onClick={() => handleDownloadBook(item)}
+                          onClick={() => handlePrimaryDownload(item)}
                           disabled={isDownloading}
                         >
                           {isDownloading ? (
                             <>
                               <Loader2 size={13} className="animate-spin" />
-                              <span>{getDownloadingLabel(item.id)}</span>
+                              <span>{getDownloadingLabel(activeDownload ?? item.id)}</span>
                             </>
                           ) : isDownloaded ? (
                             <>
@@ -1425,10 +1610,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                               <span>{t("browse.download")}</span>
                             </>
                           ) : (
-                            <>
-                              <Download size={13} />
-                              <span>{t("browse.download")}</span>
-                            </>
+                            renderDownloadAction(item)
                           )}
                         </button>
                       )}
@@ -1505,7 +1687,9 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
               const isDownloaded =
                 downloadStatus === "downloaded" ||
                 Boolean(downloadedPaths[item.id]);
-              const isDownloading = downloadStatus === "downloading";
+              // The whole book or one of its volumes is being downloaded
+              const activeDownload = getActiveDownloadKey(item.id);
+              const isDownloading = activeDownload !== null;
               const coverUrl = libraryApi.getBookCoverUrl(item.id);
               const progressPct = item.progress?.progressPercent ?? 0;
               const isRead = Boolean(item.progress?.isRead);
@@ -1729,6 +1913,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                             <RefreshCw size={13} />
                           </button>
                         )}
+                        {renderVolumesButton(item)}
                         <button
                           type="button"
                           className="auth-btn-primary"
@@ -1753,7 +1938,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                           {isDownloading ? (
                             <>
                               <Loader2 size={13} className="animate-spin" />
-                              <span>{getDownloadingLabel(item.id)}</span>
+                              <span>{getDownloadingLabel(activeDownload ?? item.id)}</span>
                             </>
                           ) : (
                             <>
@@ -1779,13 +1964,13 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                           gap: 4,
                           whiteSpace: "nowrap",
                         }}
-                        onClick={() => handleDownloadBook(item)}
+                        onClick={() => handlePrimaryDownload(item)}
                         disabled={isDownloading}
                       >
                         {isDownloading ? (
                           <>
                             <Loader2 size={13} className="animate-spin" />
-                            <span>{getDownloadingLabel(item.id)}</span>
+                            <span>{getDownloadingLabel(activeDownload ?? item.id)}</span>
                           </>
                         ) : isDownloaded ? (
                           <>
@@ -1796,10 +1981,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
                             <span>{t("browse.download")}</span>
                           </>
                         ) : (
-                          <>
-                            <Download size={13} />
-                            <span>{t("browse.download")}</span>
-                          </>
+                          renderDownloadAction(item)
                         )}
                       </button>
                     )}
@@ -1867,6 +2049,42 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
           progressPercent={selectedBookForInfo.progressPercent}
           readingStats={selectedBookForInfo.stats}
           onResetStats={handleResetStatsInBrowse}
+        />
+      )}
+
+      {/* Whole book or single volumes of a book stored as chapters */}
+      {volumesModalBook && (
+        <ChapterVolumesModal
+          isOpen
+          bookTitle={volumesModalBook.name}
+          volumes={bookVolumes[volumesModalBook.id] ?? []}
+          copies={chapterCopies[volumesModalBook.id] ?? []}
+          isDownloading={(volume) =>
+            downloadStates[downloadKey(volumesModalBook.id, volume)] ===
+            "downloading"
+          }
+          getDownloadingLabel={(volume) =>
+            getDownloadingLabel(downloadKey(volumesModalBook.id, volume))
+          }
+          onDownload={(volume) =>
+            handleDownloadBook(volumesModalBook, volume ?? undefined)
+          }
+          onOpen={
+            onOpenBookFromPath
+              ? (copy) => {
+                  if (!copy.filePath) return;
+                  const book = volumesModalBook;
+                  setVolumesModalBook(null);
+                  onOpenBookFromPath(
+                    copy.filePath,
+                    copy.title || book.name,
+                    book.author ?? undefined,
+                    book.id,
+                  );
+                }
+              : undefined
+          }
+          onClose={() => setVolumesModalBook(null)}
         />
       )}
     </div>

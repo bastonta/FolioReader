@@ -12,11 +12,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reading books that have no EPUB file on the server yet (`Chapters` kind): the new `download_chapters_book` command downloads the chapters, illustrations and cover and builds a local EPUB that opens, works offline and syncs like any other book. The catalog marks such books with a "Chapters" badge and shows chapter / illustration progress while they are downloaded.
 - "Check for new chapters" action for downloaded `Chapters` books: only new and changed chapters are fetched, and the reading position, bookmarks and annotations follow their chapters when the chapter order changes.
 - Reading progress of `Chapters` books is exchanged with the server as a chapter reference (`ch:<chapterId>`), the same form the Folio web client uses, so the position carries over between the two.
+- Downloading `Chapters` books one volume at a time: for a book with several volumes the catalog offers the whole book or single volumes. Every volume becomes a file of its own (`{name} - Vol 03.epub`, titled `{title} — Том 3`, with series metadata) that can be opened and checked for new chapters independently of the other volumes and of a copy of the whole book. Requires a Folio server that lists volumes (`GET /books/{id}/volumes`); with an older server only the whole book is offered.
+- Reading state of a volume copy is exchanged with the server in the scale of the whole book: the position as `ch:<chapterId>`, percentages and reading-session bounds converted between the volume and the book, bookmarks and annotations shifted to the volume's place in the book. Finishing a volume marks the book as read only when it is the last one.
+- `db_get_chapter_copies`, `db_get_chapter_copy` and `db_get_chapter_position` commands describing the local copies of a `Chapters` book; `volume` argument of `download_chapters_book`.
 - Optional `kind` filter for `browse`, `getBooks` and `getRecentBooks` (all kinds are returned when it is omitted).
 - `BookHasNoFileError` and a dedicated `BOOK_HAS_NO_FILE` result from `download_book_file` when the server answers `409 Conflict` for a `Chapters` book; the catalog then falls back to building the book from its chapters.
 
 ### Changed
 - The catalog lists `Chapters` books alongside `File` books and downloads them chapter by chapter.
+- Local copies built from chapters keep their progress, bookmarks, annotations and reading sessions under the id of their own file (`chapter_copies` / `chapter_copy_chapters` tables replace `chapter_book_chapters`, existing data is migrated), so several copies of one server book never read one another's positions. Bookmark and annotation server ids are unique per local book instead of table-wide.
+- Deleting a book file from the library also forgets the chapter layout of a copy built from chapters.
 
 ## [0.8.2] - 2026-09-29
 

@@ -1,7 +1,7 @@
 use crate::auth_proxy::AuthHttpClientState;
 use crate::db::{
-    self, DbAnnotation, DbBookProgress, DbBookReadingStats, DbBookmark, DbLocalBookMeta, DbPool,
-    DbReadingSession, DbRecentBook,
+    self, DbAnnotation, DbBookProgress, DbBookReadingStats, DbBookmark, DbChapterCopy,
+    DbLocalBookMeta, DbPool, DbReadingSession, DbRecentBook,
 };
 use crate::sync_manager::{self, PullProgressResult, SyncResult};
 use tauri::State;
@@ -65,6 +65,58 @@ pub async fn db_check_downloaded_books(
     db: State<'_, DbPool>,
 ) -> Result<std::collections::HashMap<String, String>, String> {
     db::check_downloaded_books(&db, &server_book_ids)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Local copies of `Chapters` books built on this device — the whole book and single
+/// volumes — by server book id. Copies whose file is not on disk are left out.
+#[tauri::command]
+pub async fn db_get_chapter_copies(
+    server_book_ids: Vec<String>,
+    db: State<'_, DbPool>,
+) -> Result<std::collections::HashMap<String, Vec<DbChapterCopy>>, String> {
+    let copies = db::get_chapter_copies_of_books(&db, &server_book_ids)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let mut result: std::collections::HashMap<String, Vec<DbChapterCopy>> =
+        std::collections::HashMap::new();
+    for copy in copies {
+        let on_disk = copy
+            .file_path
+            .as_deref()
+            .is_some_and(|path| std::path::Path::new(path).is_file());
+        if on_disk {
+            result
+                .entry(copy.server_book_id.clone())
+                .or_default()
+                .push(copy);
+        }
+    }
+    Ok(result)
+}
+
+/// What a local book holds of a `Chapters` book; `None` for a book downloaded as a file.
+#[tauri::command]
+pub async fn db_get_chapter_copy(
+    book_id: String,
+    db: State<'_, DbPool>,
+) -> Result<Option<DbChapterCopy>, String> {
+    db::get_chapter_copy(&db, &book_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Spine position of a server chapter in a local copy; `None` when the copy does not
+/// hold the chapter (it belongs to another volume, or is newer than the copy).
+#[tauri::command]
+pub async fn db_get_chapter_position(
+    book_id: String,
+    chapter_id: String,
+    db: State<'_, DbPool>,
+) -> Result<Option<usize>, String> {
+    db::get_chapter_position(&db, &book_id, &chapter_id)
         .await
         .map_err(|e| e.to_string())
 }

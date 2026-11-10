@@ -378,9 +378,9 @@ pub async fn download_book_file(
     let resolved_author = author.unwrap_or_else(|| "Unknown Author".to_string());
 
     let _ = crate::db::save_book_mapping(&db, &local_id, &book_id, Some(&final_path_str)).await;
-    // The book has a real file now: a copy assembled from chapters earlier (if any) is no
+    // The book has a real file now: copies assembled from chapters earlier (if any) are no
     // longer what the reading position refers to.
-    let _ = crate::db::clear_chapter_positions(&db, &book_id).await;
+    let _ = crate::db::delete_chapter_copies_of_book(&db, &book_id).await;
 
     // Auto-fetch book cover from server and cache locally
     if let Ok(covers_dir) = get_covers_dir(&app) {
@@ -483,12 +483,17 @@ pub async fn download_book_file(
 }
 
 #[tauri::command]
-pub async fn delete_book_file(file_path: String) -> Result<bool, String> {
+pub async fn delete_book_file(
+    file_path: String,
+    db: tauri::State<'_, crate::db::DbPool>,
+) -> Result<bool, String> {
     let path = Path::new(&file_path);
     if path.exists() && path.is_file() {
         fs::remove_file(path)
             .await
             .map_err(|e| format!("Failed to delete file '{file_path}': {e}"))?;
+        // A copy built from server chapters is gone with its file
+        let _ = crate::db::delete_chapter_copy_at(&db, &file_path).await;
         Ok(true)
     } else {
         Ok(false)

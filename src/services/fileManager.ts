@@ -1,5 +1,9 @@
 import { Channel, invoke } from '@tauri-apps/api/core';
-import { BookHasNoChaptersError, BookHasNoFileError } from '../api/libraryApi';
+import {
+  BookHasNoChaptersError,
+  BookHasNoFileError,
+  VolumesNotSupportedError,
+} from '../api/libraryApi';
 import {
   ChaptersBookDownloadResult,
   ChaptersDownloadProgress,
@@ -11,6 +15,9 @@ const BOOK_HAS_NO_FILE_ERROR = 'BOOK_HAS_NO_FILE';
 
 /** Error string returned by the `download_chapters_book` command for a book without chapters. */
 const BOOK_HAS_NO_CHAPTERS_ERROR = 'BOOK_HAS_NO_CHAPTERS';
+
+/** Error string returned by `download_chapters_book` when the server cannot list volumes. */
+const VOLUMES_NOT_SUPPORTED_ERROR = 'VOLUMES_NOT_SUPPORTED';
 
 export interface DownloadBookOptions {
   serverUrl: string;
@@ -175,9 +182,12 @@ export const fileManager = {
    * Builds (or updates) a local EPUB copy of a book the server stores as separate chapters
    * (`Chapters` kind, no file to download). Running it again for a downloaded book fetches
    * only new and changed chapters. `onProgress` reports chapters / illustrations as they arrive.
+   *
+   * With `volume` only that volume is downloaded, as a file of its own next to where the
+   * whole book would go; every such copy is updated independently.
    */
   downloadChaptersBook: async (
-    options: DownloadBookOptions,
+    options: DownloadBookOptions & { volume?: number },
     onProgress?: (progress: ChaptersDownloadProgress) => void,
   ): Promise<ChaptersBookDownloadResult> => {
     const channel = new Channel<ChaptersDownloadProgress>();
@@ -194,11 +204,15 @@ export const fileManager = {
         baseDir: options.baseDir,
         customTargetDir: options.customTargetDir || null,
         progress: options.progress || null,
+        volume: options.volume ?? null,
         onProgress: channel,
       });
     } catch (err) {
       if (typeof err === 'string' && err === BOOK_HAS_NO_CHAPTERS_ERROR) {
         throw new BookHasNoChaptersError(options.bookId);
+      }
+      if (typeof err === 'string' && err === VOLUMES_NOT_SUPPORTED_ERROR) {
+        throw new VolumesNotSupportedError(options.bookId);
       }
       console.error(`Failed to download chapters of '${options.fileName}':`, err);
       throw err;

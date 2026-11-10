@@ -5,6 +5,7 @@ import { apiGet, apiPut, apiDelete } from '../api/client';
 import { statisticsApi } from '../api/statisticsApi';
 import { removeRecentBook, saveLastLocation } from './storage';
 import { parseCfiRange, toCfiRange } from '../utils/cfi';
+import type { ChapterCopy } from '../types/browse';
 
 export interface SyncResult {
   success: boolean;
@@ -112,6 +113,60 @@ export async function checkDownloadedServerBooks(
   }
 }
 
+/**
+ * Local copies of `Chapters` books built on this device — the whole book and single
+ * volumes, each a file of its own — by server book id. Only copies whose file is on disk.
+ */
+export async function getChapterCopies(
+  serverBookIds: string[]
+): Promise<Record<string, ChapterCopy[]>> {
+  if (!isTauri() || !serverBookIds.length) return {};
+  try {
+    return await invoke<Record<string, ChapterCopy[]>>('db_get_chapter_copies', {
+      serverBookIds,
+    });
+  } catch (err) {
+    console.warn('Failed to list local copies of chapter books:', err);
+    return {};
+  }
+}
+
+/**
+ * The volume copy a local book id stands for: a file that holds a single volume of a
+ * `Chapters` book. `null` for the whole book and for books downloaded as files.
+ */
+async function getVolumeCopy(bookId: string): Promise<ChapterCopy | null> {
+  if (!isTauri()) return null;
+  try {
+    const copy = await invoke<ChapterCopy | null>('db_get_chapter_copy', { bookId });
+    return copy && copy.volume !== null && copy.volume !== undefined ? copy : null;
+  } catch (err) {
+    console.warn('Failed to look up the chapter copy:', err);
+    return null;
+  }
+}
+
+/**
+ * Whether the reading position the server keeps for the book is inside a volume copy.
+ * The server has one position per book, shared by all of its volumes.
+ */
+async function isServerPositionInCopy(copy: ChapterCopy): Promise<boolean> {
+  try {
+    const remote = await apiGet<{ location?: string | null }>(
+      `/books/${copy.serverBookId}/progress`
+    );
+    const location = remote?.location;
+    if (!location || !location.startsWith('ch:')) return false;
+    const position = await invoke<number | null>('db_get_chapter_position', {
+      bookId: copy.localId,
+      chapterId: location.slice(3),
+    });
+    return position !== null && position !== undefined;
+  } catch {
+    return false;
+  }
+}
+
 // ================= PROGRESS =================
 
 export async function loadDbLastLocation(
@@ -182,7 +237,12 @@ export async function resetBookProgress(bookId: string, resetOnServer: boolean =
         serverBookId = await getDbServerBookId(bookId);
       }
 
-      if (serverBookId && !serverBookId.startsWith('local-')) {
+      // The server keeps one position per book. Resetting a single volume must not wipe
+      // a position that is in another volume.
+      const volumeCopy = await getVolumeCopy(bookId);
+      const ownsServerPosition = volumeCopy ? await isServerPositionInCopy(volumeCopy) : true;
+
+      if (serverBookId && !serverBookId.startsWith('local-') && ownsServerPosition) {
         await apiDelete(`/books/${serverBookId}/progress`);
       }
     } catch (err) {
@@ -202,6 +262,21 @@ export async function resetBookProgress(bookId: string, resetOnServer: boolean =
  */
 export async function setBookReadStatus(bookId: string, isRead: boolean): Promise<void> {
   const fraction = isRead ? 1.0 : 0.0;
+
+  // A single volume of a book: the state is stored at the end (or the start) of this
+  // file and goes to the server through the regular sync, which translates it into the
+  // scale of the whole book. Finishing a volume does not finish the book, and marking a
+  // volume unread must not clear the book's read flag.
+  const volumeCopy = await getVolumeCopy(bookId);
+  if (volumeCopy) {
+    const lastChapter = Math.max(1, volumeCopy.chaptersCount);
+    const volumeCfi = `epubcfi(/6/${isRead ? lastChapter * 2 : 2}!/4)`;
+    await saveDbLastLocation(bookId, volumeCfi, fraction, isRead);
+    saveLastLocation(bookId, volumeCfi, fraction);
+    await syncBookData(bookId);
+    return;
+  }
+
   const cfi = '';
 
   // 1. Save to local SQLite

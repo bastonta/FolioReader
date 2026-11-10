@@ -217,6 +217,18 @@ export const ru: Partial<Record<TranslationKey, string>> = {
   "browse.updateChapters": "Проверить новые главы",
   "browse.chaptersUpdated": "Книга обновлена. Загружено глав: {count}. Всего глав в книге: {total}.",
   "browse.chaptersUpToDate": "Новых глав нет. Всего глав в книге: {total}.",
+  "browse.volumes": "Скачать по томам",
+  "browse.volumesIntro":
+    "Скачайте книгу целиком одним файлом или отдельные тома. Каждый том — отдельный файл, который открывается и обновляется сам по себе.",
+  "browse.volumesDownloaded": "Тома: {count}",
+  "browse.wholeBook": "Вся книга",
+  "browse.volumeName": "Том {number}",
+  "browse.volumeChapters": "Глав: {count}",
+  "browse.volumeChapterRange": "гл. {first}–{last}",
+  "browse.volumeChaptersUpdated":
+    "Том обновлён. Загружено глав: {count}. Всего глав в томе: {total}.",
+  "browse.volumeChaptersUpToDate": "Новых глав нет. Всего глав в томе: {total}.",
+  "browse.downloadVolumesNotSupported": "Этот сервер не умеет отдавать книгу по томам",
 
   // Book Context Menu & Reset Modal
   "contextMenu.bookInfo": "Информация и статистика",

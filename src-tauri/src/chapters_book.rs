@@ -4,8 +4,14 @@
 //!
 //! Running the command again for a book that is already on disk updates it: only new and
 //! changed chapters are downloaded, everything else is copied from the previous build.
+//!
+//! A book with several volumes can also be downloaded one volume at a time: every volume
+//! becomes a file of its own (`{name} - Vol 03.epub`) that is updated independently of the
+//! other volumes and of a copy of the whole book.
 
-use crate::chapters_epub::{self, EpubMeta, EpubWriter, ExistingEpub, ManifestChapter};
+use crate::chapters_epub::{
+    self, EpubMeta, EpubWriter, ExistingEpub, ManifestChapter, VolumeScope,
+};
 use crate::fs_manager::{DownloadProgressInput, get_covers_dir, sanitize_filename_part};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -17,6 +23,9 @@ use tokio::task::JoinSet;
 /// Error returned by `download_chapters_book` when the book has no chapters yet.
 /// The frontend matches on this exact string.
 pub const BOOK_HAS_NO_CHAPTERS_ERROR: &str = "BOOK_HAS_NO_CHAPTERS";
+/// Error returned when a single volume is requested from a server that cannot list the
+/// volumes of a book (Folio older than this feature). The frontend matches on this string.
+pub const VOLUMES_NOT_SUPPORTED_ERROR: &str = "VOLUMES_NOT_SUPPORTED";
 
 /// Page size of the chapter list (the server clamps it to 500).
 const CHAPTERS_PAGE_SIZE: usize = 500;
@@ -41,6 +50,11 @@ pub struct ChaptersDownloadProgress {
 pub struct ChaptersBookDownloadResult {
     pub file_path: String,
     pub local_id: String,
+    /// Volume the file holds; `None` for a copy of the whole book.
+    pub volume: Option<f32>,
+    /// Title of the file: the book title, with the volume appended for a volume copy.
+    pub title: String,
+    /// Chapters in the file after this run.
     pub chapters_total: usize,
     /// Chapters downloaded by this run (the rest were reused from the previous build).
     pub chapters_fetched: usize,
@@ -49,6 +63,10 @@ pub struct ChaptersBookDownloadResult {
     pub images_missing: usize,
     /// Server reading position converted to a CFI of the built EPUB (first download only).
     pub location: Option<String>,
+    /// Reading progress the new file starts with, in its own scale (first download only;
+    /// `None` when the server position says nothing about this file).
+    pub progress_percent: Option<f32>,
+    pub is_read: Option<bool>,
     /// `true` when an existing local copy was updated.
     pub updated: bool,
 }
@@ -89,6 +107,23 @@ struct ServerChapterPage {
     items: Vec<ServerChapterSummary>,
     #[serde(default)]
     more: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ServerVolume {
+    volume: f32,
+    #[serde(default)]
+    chapters_count: usize,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ServerVolumes {
+    #[serde(default)]
+    items: Vec<ServerVolume>,
+    #[serde(default)]
+    chapters_total: Option<usize>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -316,6 +351,8 @@ struct ChaptersBookRequest {
     base_dir: String,
     custom_target_dir: Option<String>,
     progress: Option<DownloadProgressInput>,
+    /// Download only this volume, as a file of its own (`None`: the whole book).
+    volume: Option<f32>,
 }
 
 struct BuildSummary {
@@ -521,15 +558,20 @@ async fn feed_builder(
     })
 }
 
-/// The whole chapter list of a book, in reading order.
-async fn fetch_chapter_list(api: &Api, book_id: &str) -> Result<Vec<ServerChapterSummary>, String> {
+/// The chapter list of a book — or of one of its volumes — in reading order.
+async fn fetch_chapter_list(
+    api: &Api,
+    book_id: &str,
+    volume: Option<f32>,
+) -> Result<Vec<ServerChapterSummary>, String> {
+    let volume_filter = volume.map(|v| format!("&volume={v}")).unwrap_or_default();
     let mut list: Vec<ServerChapterSummary> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
     let mut offset = 0;
     loop {
         let page: ServerChapterPage = api
             .get_json(&format!(
-                "/api/books/{book_id}/chapters?offset={offset}&limit={CHAPTERS_PAGE_SIZE}"
+                "/api/books/{book_id}/chapters?offset={offset}&limit={CHAPTERS_PAGE_SIZE}{volume_filter}"
             ))
             .await?;
         if page.items.is_empty() {
@@ -537,6 +579,11 @@ async fn fetch_chapter_list(api: &Api, book_id: &str) -> Result<Vec<ServerChapte
         }
         offset += page.items.len();
         for item in page.items {
+            // A server that does not know the `volume` parameter answers with the whole
+            // book: chapters of other volumes must never end up in a volume copy.
+            if volume.is_some_and(|v| item.volume != v) {
+                continue;
+            }
             // The list may shift between pages while chapters are being added.
             if seen.insert(item.id.clone()) {
                 list.push(item);
@@ -549,6 +596,28 @@ async fn fetch_chapter_list(api: &Api, book_id: &str) -> Result<Vec<ServerChapte
     Ok(list)
 }
 
+/// Where a volume sits in its book, from the server's list of volumes. Fails when the
+/// server cannot list volumes: without it the copy could not report its progress in the
+/// scale of the whole book.
+async fn fetch_volume_scope(api: &Api, book_id: &str, volume: f32) -> Result<VolumeScope, String> {
+    let volumes: ServerVolumes = api
+        .get_json(&format!("/api/books/{book_id}/volumes"))
+        .await
+        .map_err(|_| VOLUMES_NOT_SUPPORTED_ERROR.to_string())?;
+    let chapters_before = volumes
+        .items
+        .iter()
+        .filter(|v| v.volume < volume)
+        .map(|v| v.chapters_count)
+        .sum();
+    let listed: usize = volumes.items.iter().map(|v| v.chapters_count).sum();
+    Ok(VolumeScope {
+        volume,
+        chapters_before,
+        book_chapters: volumes.chapters_total.unwrap_or(0).max(listed),
+    })
+}
+
 /// Where the book is (or will be) stored.
 struct Target {
     path: PathBuf,
@@ -558,18 +627,20 @@ struct Target {
     local_id: Option<String>,
 }
 
-fn is_build_of(existing: &Option<ExistingEpub>, book_id: &str) -> bool {
+/// Whether `existing` is the copy of `book_id` that holds `volume` (`None`: the whole book).
+fn is_build_of(existing: &Option<ExistingEpub>, book_id: &str, volume: Option<f32>) -> bool {
     existing
         .as_ref()
-        .is_some_and(|e| e.manifest.book_id == book_id)
+        .is_some_and(|e| e.is_copy_of(book_id, volume))
 }
 
 /// Picks the file to write: the copy this device already has (it is updated in place) or
-/// a new file in the download folder. A file that belongs to another book is never
-/// overwritten.
+/// a new file in the download folder. A file that belongs to another book — or holds
+/// another part of this one — is never overwritten.
 async fn resolve_target(
     db: &crate::db::DbPool,
     book_id: &str,
+    volume: Option<f32>,
     file_name: &str,
     series_name: Option<String>,
     base_dir: &str,
@@ -589,7 +660,7 @@ async fn resolve_target(
             .await
             .ok()
             .flatten();
-        if is_build_of(&existing, book_id) {
+        if is_build_of(&existing, book_id, volume) {
             return Ok(Target {
                 path,
                 existing,
@@ -628,6 +699,11 @@ async fn resolve_target(
     } else {
         clean_name
     };
+    // A volume is a file of its own next to where the whole book would go
+    let stem = match volume {
+        Some(v) => chapters_epub::volume_file_stem(&stem, v),
+        None => stem,
+    };
     let short_id: String = book_id.chars().take(8).collect();
     let candidates = [
         target_dir.join(format!("{stem}.epub")),
@@ -648,7 +724,7 @@ async fn resolve_target(
             .await
             .ok()
             .flatten();
-        if is_build_of(&existing, book_id) {
+        if is_build_of(&existing, book_id, volume) {
             return Ok(Target {
                 path,
                 existing,
@@ -663,7 +739,8 @@ async fn resolve_target(
     ))
 }
 
-/// Downloads (or updates) a `Chapters` book as a local EPUB.
+/// Downloads (or updates) a `Chapters` book as a local EPUB: the whole book, or — with
+/// `volume` — a single volume as a file of its own.
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn download_chapters_book(
@@ -678,6 +755,7 @@ pub async fn download_chapters_book(
     base_dir: String,
     custom_target_dir: Option<String>,
     progress: Option<DownloadProgressInput>,
+    volume: Option<f32>,
     on_progress: tauri::ipc::Channel<ChaptersDownloadProgress>,
     db: tauri::State<'_, crate::db::DbPool>,
 ) -> Result<ChaptersBookDownloadResult, String> {
@@ -692,6 +770,7 @@ pub async fn download_chapters_book(
         base_dir,
         custom_target_dir,
         progress,
+        volume,
     };
     let covers_dir = get_covers_dir(&app).ok();
     download_book(&db, covers_dir, request, &move |event| {
@@ -718,19 +797,32 @@ async fn download_book(
         base_dir,
         custom_target_dir,
         progress,
+        volume,
     } = request;
 
     // The id ends up in request paths and in the EPUB itself.
     if uuid::Uuid::parse_str(&book_id).is_err() {
         return Err(format!("'{book_id}' is not a Folio book id"));
     }
+    if volume.is_some_and(|v| !v.is_finite() || v < 0.0) {
+        return Err("Invalid volume number".to_string());
+    }
 
     let api = Api::new(&server_url, token)?;
 
-    let list = fetch_chapter_list(&api, &book_id).await?;
+    let scope = match volume {
+        Some(v) => Some(fetch_volume_scope(&api, &book_id, v).await?),
+        None => None,
+    };
+    let list = fetch_chapter_list(&api, &book_id, volume).await?;
     if list.is_empty() {
         return Err(BOOK_HAS_NO_CHAPTERS_ERROR.to_string());
     }
+    // The two requests are not atomic: the copy's own chapters always count
+    let scope = scope.map(|scope| VolumeScope {
+        book_chapters: scope.book_chapters.max(scope.chapters_before + list.len()),
+        ..scope
+    });
     // Book details only refine the metadata; the catalog already gave us the basics.
     let details: ServerBook = api
         .get_json(&format!("/api/books/{book_id}"))
@@ -752,6 +844,7 @@ async fn download_book(
     let target = resolve_target(
         db,
         &book_id,
+        volume,
         &file_name,
         series_name,
         &base_dir,
@@ -767,6 +860,12 @@ async fn download_book(
         author: resolved_author.clone(),
         language: chapters_epub::normalize_language(details.language.as_deref()),
         description: details.description,
+        scope,
+    };
+    // What the library shows for the file: a volume copy is titled like its EPUB
+    let resolved_title = match volume {
+        Some(v) => chapters_epub::volume_title(&meta.language, &resolved_title, v),
+        None => resolved_title,
     };
     let chapter_ids: Vec<String> = list.iter().map(|c| c.id.clone()).collect();
     let chapters_total = chapter_ids.len();
@@ -842,10 +941,24 @@ async fn download_book(
 
     let _ = crate::db::save_book_mapping(db, &local_id, &book_id, Some(&final_path_str)).await;
 
-    // Chapters that changed their place in the book take the stored positions with them.
-    match crate::db::replace_chapter_positions(db, &book_id, &chapter_ids).await {
+    // Chapters that changed their place in the file take the stored positions with them.
+    let (chapters_before, book_chapters) = match scope {
+        Some(scope) => (scope.chapters_before, scope.book_chapters),
+        None => (0, chapters_total),
+    };
+    match crate::db::save_chapter_copy(
+        db,
+        &local_id,
+        &book_id,
+        volume,
+        chapters_before,
+        book_chapters,
+        &chapter_ids,
+    )
+    .await
+    {
         Ok(moved) => {
-            let _ = crate::db::remap_book_cfis(db, &local_id, &book_id, &moved).await;
+            let _ = crate::db::remap_book_cfis(db, &local_id, &moved).await;
         }
         Err(e) => return Err(format!("Failed to save the chapter layout: {e}")),
     }
@@ -876,9 +989,11 @@ async fn download_book(
     // Reading position from the catalog: only for a fresh download, an existing copy has
     // its own progress which the regular sync reconciles.
     let mut location: Option<String> = None;
+    let mut seeded_percent: Option<f32> = None;
+    let mut seeded_is_read: Option<bool> = None;
     if !updated && let Some(prog) = progress {
         let server_location = prog.location.unwrap_or_default();
-        let progress_percent = prog.progress_percent.unwrap_or(0.0);
+        let server_percent = prog.progress_percent.unwrap_or(0.0);
         let is_read = prog.is_read.unwrap_or(false);
         let updated_at = prog
             .updated_at
@@ -890,23 +1005,36 @@ async fn download_book(
                 .iter()
                 .position(|id| id == chapter_id)
                 .map(chapters_epub::chapter_start_cfi),
+            // A position of another edition says nothing about a single volume
+            None if volume.is_some() => None,
             None => chapters_epub::cfi_spine_index(&server_location).map(|_| server_location),
         };
 
-        if cfi.is_some() || progress_percent > 0.0 || is_read {
+        // The server percentage is in the scale of the whole book. For a volume copy it
+        // only means something when the reader is inside this volume (or done with the
+        // book); a position in another volume leaves the new file untouched.
+        let seed = match scope {
+            None => (cfi.is_some() || server_percent > 0.0 || is_read)
+                .then_some((server_percent, is_read)),
+            Some(_) if is_read => Some((100.0, true)),
+            Some(scope) if cfi.is_some() => Some((
+                chapters_epub::book_to_copy_percent(
+                    server_percent,
+                    scope.chapters_before,
+                    chapters_total,
+                    scope.book_chapters,
+                ),
+                false,
+            )),
+            Some(_) => None,
+        };
+
+        if let Some((progress_percent, is_read)) = seed {
             let stored_location = cfi.clone().unwrap_or_default();
+            // Stored under the local id only: other copies of the book have their own
             let _ = crate::db::save_progress(
                 db,
                 &local_id,
-                &stored_location,
-                progress_percent,
-                is_read,
-                false,
-            )
-            .await;
-            let _ = crate::db::save_progress(
-                db,
-                &book_id,
                 &stored_location,
                 progress_percent,
                 is_read,
@@ -922,7 +1050,7 @@ async fn download_book(
 
             let recent_book = crate::db::DbRecentBook {
                 id: local_id.clone(),
-                title: resolved_title,
+                title: resolved_title.clone(),
                 author: resolved_author,
                 cover_path: disk_cover,
                 cover_url: None,
@@ -934,18 +1062,25 @@ async fn download_book(
                 last_opened_at: updated_at,
             };
             let _ = crate::db::save_recent_book(db, &recent_book).await;
+
+            seeded_percent = Some(progress_percent);
+            seeded_is_read = Some(is_read);
+            location = cfi;
         }
-        location = cfi;
     }
 
     Ok(ChaptersBookDownloadResult {
         file_path: final_path_str,
         local_id,
+        volume,
+        title: resolved_title,
         chapters_total,
         chapters_fetched: summary.chapters_fetched,
         images_fetched: summary.images_fetched,
         images_missing: summary.images_missing,
         location,
+        progress_percent: seeded_percent,
+        is_read: seeded_is_read,
         updated,
     })
 }
@@ -966,6 +1101,7 @@ mod tests {
     #[derive(Clone)]
     struct MockChapter {
         id: &'static str,
+        volume: f32,
         chapter: f32,
         name: &'static str,
         content: Vec<String>,
@@ -979,11 +1115,26 @@ mod tests {
         images: HashMap<String, Vec<u8>>,
         cover: Option<Vec<u8>>,
         requests: Vec<String>,
+        /// A server older than volume downloads: no `/volumes` route...
+        no_volumes_route: bool,
+        /// ...and a chapter list that ignores the `volume` parameter.
+        ignores_volume_filter: bool,
     }
 
     fn chapter(id: &'static str, number: f32, name: &'static str, text: &str) -> MockChapter {
+        chapter_in(1.0, id, number, name, text)
+    }
+
+    fn chapter_in(
+        volume: f32,
+        id: &'static str,
+        number: f32,
+        name: &'static str,
+        text: &str,
+    ) -> MockChapter {
         MockChapter {
             id,
+            volume,
             chapter: number,
             name,
             content: vec![text.to_string()],
@@ -1030,6 +1181,16 @@ mod tests {
                 let offset = param("offset").unwrap_or(0);
                 // A tiny page forces the client to walk several pages
                 let limit = param("limit").unwrap_or(100).min(2);
+                let volume = query
+                    .split('&')
+                    .filter_map(|pair| pair.split_once('='))
+                    .find(|(key, _)| *key == "volume")
+                    .and_then(|(_, value)| value.parse::<f32>().ok())
+                    .filter(|_| !state.ignores_volume_filter);
+                let chapters: Vec<&MockChapter> = chapters
+                    .iter()
+                    .filter(|c| volume.is_none_or(|v| c.volume == v))
+                    .collect();
                 let items: Vec<serde_json::Value> = chapters
                     .iter()
                     .skip(offset)
@@ -1038,7 +1199,7 @@ mod tests {
                         serde_json::json!({
                             "id": c.id,
                             "bookId": book_id,
-                            "volume": 1.0,
+                            "volume": c.volume,
                             "chapter": c.chapter,
                             "name": c.name,
                             "created": "2026-01-01T00:00:00Z",
@@ -1050,7 +1211,37 @@ mod tests {
                     "offset": offset,
                     "limit": limit,
                     "more": offset + items.len() < chapters.len(),
+                    "total": chapters.len(),
                     "items": items,
+                }))
+            }
+            (Some("volumes"), None) => {
+                if state.no_volumes_route {
+                    return (404, "text/plain", Vec::new());
+                }
+                let mut volumes: Vec<(f32, usize)> = Vec::new();
+                for c in chapters {
+                    match volumes.iter_mut().find(|(v, _)| *v == c.volume) {
+                        Some((_, count)) => *count += 1,
+                        None => volumes.push((c.volume, 1)),
+                    }
+                }
+                volumes.sort_by(|a, b| a.0.total_cmp(&b.0));
+                let items: Vec<serde_json::Value> = volumes
+                    .iter()
+                    .map(|(volume, count)| {
+                        serde_json::json!({
+                            "volume": volume,
+                            "chaptersCount": count,
+                            "firstChapter": 1.0,
+                            "lastChapter": *count as f32,
+                            "updated": "2026-01-01T00:00:00Z",
+                        })
+                    })
+                    .collect();
+                json(serde_json::json!({
+                    "items": items,
+                    "chaptersTotal": chapters.len(),
                 }))
             }
             (Some("chapters"), Some(chapter_id)) => {
@@ -1058,7 +1249,7 @@ mod tests {
                     Some(c) => json(serde_json::json!({
                         "id": c.id,
                         "bookId": book_id,
-                        "volume": 1.0,
+                        "volume": c.volume,
                         "chapter": c.chapter,
                         "name": c.name,
                         "content": c.content,
@@ -1124,7 +1315,30 @@ mod tests {
             base_dir: base_dir.to_string_lossy().to_string(),
             custom_target_dir: None,
             progress: None,
+            volume: None,
         }
+    }
+
+    fn volume_request(
+        server_url: &str,
+        book_id: &str,
+        base_dir: &Path,
+        volume: f32,
+    ) -> ChaptersBookRequest {
+        ChaptersBookRequest {
+            volume: Some(volume),
+            ..request(server_url, book_id, base_dir)
+        }
+    }
+
+    fn manifest_ids(path: &Path) -> Vec<String> {
+        read_existing_epub(path)
+            .unwrap()
+            .manifest
+            .chapters
+            .iter()
+            .map(|c| c.id.clone())
+            .collect()
     }
 
     fn read_entry(path: &Path, name: &str) -> Option<String> {
@@ -1152,7 +1366,9 @@ mod tests {
             ],
             images: HashMap::from([("pic.png".to_string(), PNG.to_vec())]),
             cover: Some(PNG.to_vec()),
-            requests: Vec::new(),
+            // The whole book needs nothing a server older than volume downloads lacks
+            no_volumes_route: true,
+            ..MockServer::default()
         }));
         let server_url = start_mock_server(state.clone()).await;
         let pool = crate::db::init_db(Path::new(":memory:")).await.unwrap();
@@ -1183,6 +1399,10 @@ mod tests {
         let book_path = books_dir.join("My Book.epub");
         assert_eq!(result.file_path, book_path.to_string_lossy());
         assert_eq!(result.local_id, "local-My_Book_epub");
+        assert_eq!(result.volume, None);
+        assert_eq!(result.title, "Server Title");
+        assert_eq!(result.progress_percent, Some(66.0));
+        assert_eq!(result.is_read, Some(false));
         assert_eq!(result.chapters_total, 3);
         assert_eq!(result.chapters_fetched, 3);
         assert_eq!(result.images_fetched, 1);
@@ -1193,6 +1413,7 @@ mod tests {
 
         let existing = read_existing_epub(&book_path).unwrap();
         assert_eq!(existing.manifest.book_id, BOOK_ID);
+        assert_eq!(existing.manifest.volume, None);
         assert_eq!(existing.manifest.language, "ru");
         let ids: Vec<&str> = existing
             .manifest
@@ -1223,10 +1444,24 @@ mod tests {
             Some(BOOK_ID)
         );
         assert_eq!(
-            crate::db::get_chapter_position(&pool, BOOK_ID, "ch-c")
+            crate::db::get_chapter_position(&pool, &result.local_id, "ch-c")
                 .await
                 .unwrap(),
             Some(2)
+        );
+        let copy = crate::db::get_chapter_copy(&pool, &result.local_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(copy.server_book_id, BOOK_ID);
+        assert_eq!((copy.volume, copy.chapters_before), (None, 0));
+        assert_eq!((copy.chapters_count, copy.book_chapters), (3, 3));
+        // The reading state of a copy lives under its own id, not under the server id
+        assert!(
+            crate::db::get_progress(&pool, BOOK_ID)
+                .await
+                .unwrap()
+                .is_none()
         );
         let progress = crate::db::get_progress(&pool, &result.local_id)
             .await
@@ -1328,7 +1563,7 @@ mod tests {
         assert_eq!(progress.location, "epubcfi(/6/8!/4/2/1:5)");
         assert_eq!(progress.sync_status, "pending");
         assert_eq!(
-            crate::db::get_chapter_position(&pool, BOOK_ID, "ch-c")
+            crate::db::get_chapter_position(&pool, &result.local_id, "ch-c")
                 .await
                 .unwrap(),
             Some(3)
@@ -1374,6 +1609,334 @@ mod tests {
         assert!(error.contains("not a Folio book id"));
         assert_eq!(std::fs::read_dir(&books_dir).unwrap().count(), 2);
 
+        // ---- A single volume cannot be downloaded from a server that does not list them ----
+        let error = download_book(
+            &pool,
+            None,
+            volume_request(&server_url, BOOK_ID, &books_dir, 1.0),
+            &sink,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error, VOLUMES_NOT_SUPPORTED_ERROR);
+        assert_eq!(std::fs::read_dir(&books_dir).unwrap().count(), 2);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn test_volume_copies_next_to_the_whole_book() {
+        let state = Arc::new(Mutex::new(MockServer {
+            chapters: vec![
+                chapter_in(1.0, "ch-a", 1.0, "One", "First chapter"),
+                chapter_in(1.0, "ch-b", 2.0, "Two", "Second chapter"),
+                chapter_in(2.0, "ch-c", 3.0, "Three", "Third chapter"),
+                chapter_in(
+                    2.0,
+                    "ch-d",
+                    4.0,
+                    "Four",
+                    &format!("![pic](/api/books/{BOOK_ID}/images/pic.png)"),
+                ),
+                chapter_in(3.0, "ch-e", 5.0, "Five", "Fifth chapter"),
+            ],
+            images: HashMap::from([("pic.png".to_string(), PNG.to_vec())]),
+            cover: Some(PNG.to_vec()),
+            ..MockServer::default()
+        }));
+        let server_url = start_mock_server(state.clone()).await;
+        let pool = crate::db::init_db(Path::new(":memory:")).await.unwrap();
+        let root = std::env::temp_dir().join(format!("folioreader-test-{}", uuid::Uuid::now_v7()));
+        let books_dir = root.join("books");
+        let covers_dir = root.join("covers");
+        std::fs::create_dir_all(&books_dir).unwrap();
+        std::fs::create_dir_all(&covers_dir).unwrap();
+        let sink = |_: ChaptersDownloadProgress| {};
+
+        // ---- The whole book, then its second volume as a file of its own ----
+        let whole = download_book(
+            &pool,
+            Some(covers_dir.clone()),
+            request(&server_url, BOOK_ID, &books_dir),
+            &sink,
+        )
+        .await
+        .unwrap();
+        let whole_path = books_dir.join("My Book.epub");
+        assert_eq!(whole.file_path, whole_path.to_string_lossy());
+        assert_eq!(whole.chapters_total, 5);
+
+        state.lock().unwrap().requests.clear();
+        // The server position is in the last chapter of volume 2, at 70% of the book
+        let mut second = volume_request(&server_url, BOOK_ID, &books_dir, 2.0);
+        second.progress = Some(DownloadProgressInput {
+            location: Some("ch:ch-d".to_string()),
+            progress_percent: Some(70.0),
+            is_read: Some(false),
+            updated_at: None,
+        });
+        let volume2 = download_book(&pool, Some(covers_dir.clone()), second, &sink)
+            .await
+            .unwrap();
+        let volume2_path = books_dir.join("My Book - Vol 02.epub");
+        assert_eq!(volume2.file_path, volume2_path.to_string_lossy());
+        assert_eq!(volume2.local_id, "local-My_Book_-_Vol_02_epub");
+        assert_eq!(volume2.volume, Some(2.0));
+        assert_eq!(volume2.title, "Server Title — Том 2");
+        assert!(!volume2.updated);
+        assert_eq!(volume2.chapters_total, 2);
+        assert_eq!(volume2.chapters_fetched, 2);
+        assert_eq!(volume2.images_fetched, 1);
+        // `ch-d` is the second spine item of this file; 70% of 5 chapters is 1.5 chapters
+        // into a volume of 2
+        assert_eq!(volume2.location.as_deref(), Some("epubcfi(/6/4!/4)"));
+        assert_eq!(volume2.progress_percent, Some(75.0));
+        {
+            let state = state.lock().unwrap();
+            assert!(state.requests.iter().any(|r| r.ends_with("/volumes")));
+            assert!(
+                state
+                    .requests
+                    .iter()
+                    .any(|r| r.contains("/chapters?") && r.contains("volume=2"))
+            );
+            // Chapters of other volumes are not downloaded
+            assert!(!state.requests.iter().any(|r| r.ends_with("/chapters/ch-a")));
+            assert!(!state.requests.iter().any(|r| r.ends_with("/chapters/ch-e")));
+        }
+
+        assert_eq!(manifest_ids(&volume2_path), ["ch-c", "ch-d"]);
+        let manifest = read_existing_epub(&volume2_path).unwrap().manifest;
+        assert_eq!(manifest.book_id, BOOK_ID);
+        assert_eq!(manifest.volume, Some(2.0));
+        assert_eq!(manifest.chapters_before, Some(2));
+        assert_eq!(manifest.book_chapters, Some(5));
+        let opf = read_entry(
+            &volume2_path,
+            &chapters_epub::content_entry_name("content.opf"),
+        )
+        .unwrap();
+        assert!(opf.contains("<dc:title>Server Title — Том 2</dc:title>"));
+        assert!(opf.contains(&format!("urn:folio:{BOOK_ID}:volume:2")));
+        assert!(opf.contains("<meta name=\"calibre:series\" content=\"Server Title\"/>"));
+        assert!(opf.contains("<meta name=\"calibre:series_index\" content=\"2\"/>"));
+
+        // The whole book is still the whole book
+        assert_eq!(
+            manifest_ids(&whole_path),
+            ["ch-a", "ch-b", "ch-c", "ch-d", "ch-e"]
+        );
+        assert_eq!(
+            read_existing_epub(&whole_path).unwrap().manifest.volume,
+            None
+        );
+
+        // Each copy has its own layout and its own reading state
+        let copy = crate::db::get_chapter_copy(&pool, &volume2.local_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(copy.volume, Some(2.0));
+        assert_eq!((copy.chapters_before, copy.chapters_count), (2, 2));
+        assert_eq!(copy.book_chapters, 5);
+        assert_eq!(
+            crate::db::get_chapter_position(&pool, &volume2.local_id, "ch-d")
+                .await
+                .unwrap(),
+            Some(1)
+        );
+        assert_eq!(
+            crate::db::get_chapter_position(&pool, &whole.local_id, "ch-d")
+                .await
+                .unwrap(),
+            Some(3)
+        );
+        let progress = crate::db::get_progress(&pool, &volume2.local_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(progress.location, "epubcfi(/6/4!/4)");
+        assert_eq!(progress.progress_percent, 75.0);
+        assert!(
+            crate::db::get_progress(&pool, &whole.local_id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(covers_dir.join("local-My_Book_-_Vol_02_epub.jpg").is_file());
+        let meta = crate::db::get_local_book_meta(&pool, &volume2.local_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(meta.title, "Server Title — Том 2");
+
+        // ---- A volume the server position is not in starts unread ----
+        let mut third = volume_request(&server_url, BOOK_ID, &books_dir, 3.0);
+        third.progress = Some(DownloadProgressInput {
+            location: Some("ch:ch-d".to_string()),
+            progress_percent: Some(70.0),
+            is_read: Some(false),
+            updated_at: None,
+        });
+        let volume3 = download_book(&pool, None, third, &sink).await.unwrap();
+        let volume3_path = books_dir.join("My Book - Vol 03.epub");
+        assert_eq!(volume3.file_path, volume3_path.to_string_lossy());
+        assert_eq!(volume3.location, None);
+        assert_eq!(volume3.progress_percent, None);
+        assert!(
+            crate::db::get_progress(&pool, &volume3.local_id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(manifest_ids(&volume3_path), ["ch-e"]);
+        let copy = crate::db::get_chapter_copy(&pool, &volume3.local_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!((copy.chapters_before, copy.chapters_count), (4, 1));
+        assert!(copy.ends_book());
+
+        // ---- Volume 2 gets a new chapter: only that copy changes ----
+        crate::db::save_progress(
+            &pool,
+            &volume2.local_id,
+            "epubcfi(/6/4!/4/2/1:5)",
+            80.0,
+            false,
+            true,
+        )
+        .await
+        .unwrap();
+        {
+            let mut state = state.lock().unwrap();
+            state.chapters.insert(
+                3,
+                chapter_in(2.0, "ch-c2", 3.5, "Interlude", "Inserted chapter"),
+            );
+            state.requests.clear();
+        }
+        let whole_before = std::fs::read(&whole_path).unwrap();
+        let volume3_before = std::fs::read(&volume3_path).unwrap();
+        let updated = download_book(
+            &pool,
+            None,
+            volume_request(&server_url, BOOK_ID, &books_dir, 2.0),
+            &sink,
+        )
+        .await
+        .unwrap();
+        assert!(updated.updated);
+        assert_eq!(updated.file_path, volume2_path.to_string_lossy());
+        assert_eq!(updated.local_id, volume2.local_id);
+        assert_eq!(updated.chapters_total, 3);
+        assert_eq!(updated.chapters_fetched, 1);
+        assert_eq!(updated.images_fetched, 0);
+        assert_eq!(updated.location, None);
+        {
+            let state = state.lock().unwrap();
+            assert!(
+                state
+                    .requests
+                    .iter()
+                    .any(|r| r.ends_with("/chapters/ch-c2"))
+            );
+            assert!(!state.requests.iter().any(|r| r.ends_with("/chapters/ch-c")));
+            assert!(
+                !state
+                    .requests
+                    .iter()
+                    .any(|r| r.ends_with("/images/pic.png"))
+            );
+        }
+        assert_eq!(manifest_ids(&volume2_path), ["ch-c", "ch-c2", "ch-d"]);
+        let manifest = read_existing_epub(&volume2_path).unwrap().manifest;
+        assert_eq!(manifest.chapters_before, Some(2));
+        assert_eq!(manifest.book_chapters, Some(6));
+        assert_eq!(std::fs::read(&whole_path).unwrap(), whole_before);
+        assert_eq!(std::fs::read(&volume3_path).unwrap(), volume3_before);
+        // The reading position followed `ch-d` to its new place in this file only
+        let progress = crate::db::get_progress(&pool, &volume2.local_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(progress.location, "epubcfi(/6/6!/4/2/1:5)");
+        assert_eq!(progress.sync_status, "pending");
+
+        // ---- Updating the whole book leaves the volume copies alone ----
+        let volume2_before = std::fs::read(&volume2_path).unwrap();
+        let whole = download_book(
+            &pool,
+            None,
+            request(&server_url, BOOK_ID, &books_dir),
+            &sink,
+        )
+        .await
+        .unwrap();
+        assert!(whole.updated);
+        assert_eq!(whole.file_path, whole_path.to_string_lossy());
+        assert_eq!(whole.chapters_total, 6);
+        assert_eq!(whole.chapters_fetched, 1);
+        assert_eq!(std::fs::read(&volume2_path).unwrap(), volume2_before);
+
+        let copies = crate::db::get_chapter_copies_of_books(&pool, &[BOOK_ID.to_string()])
+            .await
+            .unwrap();
+        let listed: Vec<(Option<f32>, i64)> = copies
+            .iter()
+            .map(|c| (c.volume, c.chapters_count))
+            .collect();
+        assert_eq!(listed, [(None, 6), (Some(2.0), 3), (Some(3.0), 1)]);
+        assert_eq!(std::fs::read_dir(&books_dir).unwrap().count(), 3);
+
+        // ---- The same volume of another book with the same name gets its own file ----
+        let other = download_book(
+            &pool,
+            None,
+            volume_request(&server_url, OTHER_BOOK_ID, &books_dir, 2.0),
+            &sink,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            other.file_path,
+            books_dir
+                .join("My Book - Vol 02 (0198c0de).epub")
+                .to_string_lossy()
+        );
+        assert_eq!(
+            read_existing_epub(&volume2_path).unwrap().manifest.book_id,
+            BOOK_ID
+        );
+
+        // ---- A volume without chapters cannot be built ----
+        let error = download_book(
+            &pool,
+            None,
+            volume_request(&server_url, BOOK_ID, &books_dir, 9.0),
+            &sink,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error, BOOK_HAS_NO_CHAPTERS_ERROR);
+
+        // ---- A chapter list that ignores the volume filter never mislabels a file ----
+        state.lock().unwrap().ignores_volume_filter = true;
+        let first = download_book(
+            &pool,
+            None,
+            volume_request(&server_url, BOOK_ID, &books_dir, 1.0),
+            &sink,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            first.file_path,
+            books_dir.join("My Book - Vol 01.epub").to_string_lossy()
+        );
+        assert_eq!(manifest_ids(Path::new(&first.file_path)), ["ch-a", "ch-b"]);
+        assert_eq!(std::fs::read_dir(&books_dir).unwrap().count(), 5);
+
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -1390,7 +1953,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
 
         let api = Api::new(&server_url, None).unwrap();
-        let list = fetch_chapter_list(&api, BOOK_ID).await.unwrap();
+        let list = fetch_chapter_list(&api, BOOK_ID, None).await.unwrap();
         state.lock().unwrap().chapters.clear();
 
         let tmp_path = root.join(".book.epub.tmp");
@@ -1405,6 +1968,7 @@ mod tests {
             author: "Author".to_string(),
             language: "en".to_string(),
             description: None,
+            scope: None,
         };
         let fed = feed_builder(&api, BOOK_ID, meta, list, None, steps_tx, &|_| {}).await;
         assert!(fed.is_err_and(|e| e.contains("404")));

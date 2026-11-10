@@ -14,6 +14,8 @@ import type {
   AddBookToSeriesResponse,
   RemoveBookFromSeriesResponse,
   BrowseProgressInfo,
+  BookVolume,
+  BookVolumesResponse,
 } from '../types/browse';
 
 export interface BrowseParams {
@@ -44,6 +46,14 @@ export class BookHasNoFileError extends Error {
   constructor(bookId: string) {
     super(`Book ${bookId} is assembled from chapters and has no downloadable file`);
     this.name = 'BookHasNoFileError';
+  }
+}
+
+/** Error thrown when a single volume is requested from a server that cannot list volumes. */
+export class VolumesNotSupportedError extends Error {
+  constructor(bookId: string) {
+    super(`The server cannot list the volumes of book ${bookId}`);
+    this.name = 'VolumesNotSupportedError';
   }
 }
 
@@ -171,6 +181,25 @@ export const libraryApi = {
     const qs = query.toString();
     const path = qs ? `/books/${id}?${qs}` : `/books/${id}`;
     return apiGet<BookDetail>(path);
+  },
+
+  /**
+   * Volumes of a `Chapters` book, in reading order. `null` when the server cannot tell
+   * (a Folio older than volume downloads has no such route, the book is not a `Chapters`
+   * book, the request failed): the book is then offered as a whole only.
+   */
+  getBookVolumes: async (bookId: string): Promise<BookVolume[] | null> => {
+    try {
+      const res = await apiGet<BookVolumesResponse>(`/books/${bookId}/volumes`);
+      if (!res || !Array.isArray(res.items)) return null;
+      return res.items
+        .filter(
+          (v) => typeof v?.volume === 'number' && Number.isFinite(v.volume) && v.chaptersCount > 0,
+        )
+        .sort((a, b) => a.volume - b.volume);
+    } catch {
+      return null;
+    }
   },
 
   /**

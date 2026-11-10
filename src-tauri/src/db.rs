@@ -1,7 +1,7 @@
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::{
-    Pool, Sqlite,
+    AssertSqlSafe, Pool, Sqlite,
     sqlite::{SqliteConnectOptions, SqlitePoolOptions},
 };
 use std::path::Path;
@@ -173,7 +173,7 @@ pub async fn init_db(db_path: &Path) -> Result<DbPool, sqlx::Error> {
 
         CREATE TABLE IF NOT EXISTS bookmarks (
             id TEXT PRIMARY KEY,
-            server_id TEXT UNIQUE,
+            server_id TEXT,
             book_id TEXT NOT NULL,
             location TEXT NOT NULL,
             fraction REAL NOT NULL DEFAULT 0.0,
@@ -187,7 +187,7 @@ pub async fn init_db(db_path: &Path) -> Result<DbPool, sqlx::Error> {
 
         CREATE TABLE IF NOT EXISTS annotations (
             id TEXT PRIMARY KEY,
-            server_id TEXT UNIQUE,
+            server_id TEXT,
             book_id TEXT NOT NULL,
             location_start TEXT NOT NULL,
             location_end TEXT NOT NULL,
@@ -254,19 +254,38 @@ pub async fn init_db(db_path: &Path) -> Result<DbPool, sqlx::Error> {
         CREATE INDEX IF NOT EXISTS idx_reading_sessions_book_id ON reading_sessions(book_id);
         CREATE INDEX IF NOT EXISTS idx_reading_sessions_sync_status ON reading_sessions(sync_status);
 
-        -- Reading order of books assembled on device from server chapters (`Chapters` kind):
-        -- `position` is the spine index of the chapter in the locally built EPUB.
-        CREATE TABLE IF NOT EXISTS chapter_book_chapters (
+        -- Local EPUBs assembled on device from server chapters (`Chapters` kind): which part
+        -- of which server book a local file holds (`volume` NULL: the whole book)...
+        CREATE TABLE IF NOT EXISTS chapter_copies (
+            local_id TEXT PRIMARY KEY,
             server_book_id TEXT NOT NULL,
+            volume REAL,
+            chapters_before INTEGER NOT NULL DEFAULT 0,
+            book_chapters INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_chapter_copies_server_id ON chapter_copies(server_book_id);
+
+        -- ...and its reading order: `position` is the spine index of the chapter in that file.
+        CREATE TABLE IF NOT EXISTS chapter_copy_chapters (
+            local_id TEXT NOT NULL,
             chapter_id TEXT NOT NULL,
             position INTEGER NOT NULL,
-            PRIMARY KEY (server_book_id, chapter_id)
+            PRIMARY KEY (local_id, chapter_id)
         );
-        CREATE INDEX IF NOT EXISTS idx_chapter_book_chapters_position ON chapter_book_chapters(server_book_id, position);
+        CREATE INDEX IF NOT EXISTS idx_chapter_copy_chapters_position ON chapter_copy_chapters(local_id, position);
         "#,
     )
     .execute(&pool)
     .await?;
+
+    // Schema migrations. A failure leaves the previous schema in place (each step runs in
+    // a transaction) and must not keep the application from starting.
+    if let Err(e) = relax_server_id_uniqueness(&pool).await {
+        eprintln!("Failed to migrate bookmark/annotation indexes: {e}");
+    }
+    if let Err(e) = migrate_chapter_layouts(&pool).await {
+        eprintln!("Failed to migrate chapter layouts: {e}");
+    }
 
     let _ = sqlx::query(
         r#"
@@ -295,6 +314,156 @@ pub async fn init_db(db_path: &Path) -> Result<DbPool, sqlx::Error> {
     .await;
 
     Ok(pool)
+}
+
+// ================= SCHEMA MIGRATIONS =================
+
+async fn table_sql(pool: &DbPool, table: &str) -> Result<Option<String>, sqlx::Error> {
+    sqlx::query_scalar::<_, String>(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
+    )
+    .bind(table)
+    .fetch_optional(pool)
+    .await
+}
+
+/// Bookmarks and annotations used to carry a table-wide `UNIQUE` server id. Two local
+/// copies of one server book (the whole book next to one of its volumes) both hold the
+/// same server item, so the id is now unique per local book only.
+async fn relax_server_id_uniqueness(pool: &DbPool) -> Result<(), sqlx::Error> {
+    const BOOKMARK_COLUMNS: &str = "id, server_id, book_id, location, fraction, location_label, chapter_title, created_at, is_deleted, sync_status";
+    const ANNOTATION_COLUMNS: &str = "id, server_id, book_id, location_start, location_end, value, selected_text, note, color, style, chapter_title, section_index, created_at, updated_at, is_deleted, sync_status";
+
+    let rebuilds = [
+        (
+            "bookmarks",
+            BOOKMARK_COLUMNS,
+            r#"CREATE TABLE bookmarks_rebuilt (
+                id TEXT PRIMARY KEY,
+                server_id TEXT,
+                book_id TEXT NOT NULL,
+                location TEXT NOT NULL,
+                fraction REAL NOT NULL DEFAULT 0.0,
+                location_label TEXT,
+                chapter_title TEXT,
+                created_at TEXT NOT NULL,
+                is_deleted INTEGER NOT NULL DEFAULT 0,
+                sync_status TEXT NOT NULL DEFAULT 'synced'
+            )"#,
+        ),
+        (
+            "annotations",
+            ANNOTATION_COLUMNS,
+            r#"CREATE TABLE annotations_rebuilt (
+                id TEXT PRIMARY KEY,
+                server_id TEXT,
+                book_id TEXT NOT NULL,
+                location_start TEXT NOT NULL,
+                location_end TEXT NOT NULL,
+                value TEXT NOT NULL,
+                selected_text TEXT NOT NULL,
+                note TEXT,
+                color TEXT NOT NULL DEFAULT 'yellow',
+                style TEXT DEFAULT 'highlight',
+                chapter_title TEXT,
+                section_index INTEGER,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                is_deleted INTEGER NOT NULL DEFAULT 0,
+                sync_status TEXT NOT NULL DEFAULT 'synced'
+            )"#,
+        ),
+    ];
+
+    for (table, columns, create_rebuilt) in rebuilds {
+        let has_table_wide_unique = table_sql(pool, table)
+            .await?
+            .is_some_and(|sql| sql.contains("server_id TEXT UNIQUE"));
+        if has_table_wide_unique {
+            let mut tx = pool.begin().await?;
+            // Table and column names come from the constants above, never from data
+            sqlx::query(AssertSqlSafe(format!(
+                "DROP TABLE IF EXISTS {table}_rebuilt"
+            )))
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query(create_rebuilt).execute(&mut *tx).await?;
+            sqlx::query(AssertSqlSafe(format!(
+                "INSERT INTO {table}_rebuilt ({columns}) SELECT {columns} FROM {table}"
+            )))
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query(AssertSqlSafe(format!("DROP TABLE {table}")))
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query(AssertSqlSafe(format!(
+                "ALTER TABLE {table}_rebuilt RENAME TO {table}"
+            )))
+            .execute(&mut *tx)
+            .await?;
+            tx.commit().await?;
+        }
+
+        sqlx::query(AssertSqlSafe(format!(
+            "CREATE INDEX IF NOT EXISTS idx_{table}_book_id ON {table}(book_id)"
+        )))
+        .execute(pool)
+        .await?;
+        sqlx::query(AssertSqlSafe(format!(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_{table}_book_server_id ON {table}(book_id, server_id)"
+        )))
+        .execute(pool)
+        .await?;
+    }
+
+    Ok(())
+}
+
+/// Chapter layouts used to be keyed by server book id (`chapter_book_chapters`): one copy
+/// per book. They move to the local file that holds them, together with the reading
+/// state that was mirrored under the server id.
+async fn migrate_chapter_layouts(pool: &DbPool) -> Result<(), sqlx::Error> {
+    if table_sql(pool, "chapter_book_chapters").await?.is_none() {
+        return Ok(());
+    }
+
+    let mut tx = pool.begin().await?;
+    sqlx::query(
+        r#"
+        INSERT OR IGNORE INTO chapter_copies (local_id, server_book_id, volume, chapters_before, book_chapters)
+        SELECT bm.local_id, bm.server_book_id, NULL, 0,
+               (SELECT COUNT(*) FROM chapter_book_chapters c WHERE c.server_book_id = bm.server_book_id)
+        FROM book_mappings bm
+        WHERE bm.server_book_id IN (SELECT DISTINCT server_book_id FROM chapter_book_chapters);
+
+        INSERT OR IGNORE INTO chapter_copy_chapters (local_id, chapter_id, position)
+        SELECT bm.local_id, c.chapter_id, c.position
+        FROM chapter_book_chapters c
+        JOIN book_mappings bm ON bm.server_book_id = c.server_book_id;
+
+        INSERT OR IGNORE INTO book_progress (book_id, location, progress_percent, is_read, updated_at, sync_status)
+        SELECT cc.local_id, bp.location, bp.progress_percent, bp.is_read, bp.updated_at, bp.sync_status
+        FROM book_progress bp
+        JOIN chapter_copies cc ON cc.server_book_id = bp.book_id;
+        DELETE FROM book_progress WHERE book_id IN (SELECT server_book_id FROM chapter_copies);
+
+        UPDATE OR IGNORE bookmarks
+        SET book_id = (SELECT cc.local_id FROM chapter_copies cc WHERE cc.server_book_id = bookmarks.book_id LIMIT 1)
+        WHERE book_id IN (SELECT server_book_id FROM chapter_copies);
+        UPDATE OR IGNORE annotations
+        SET book_id = (SELECT cc.local_id FROM chapter_copies cc WHERE cc.server_book_id = annotations.book_id LIMIT 1)
+        WHERE book_id IN (SELECT server_book_id FROM chapter_copies);
+        UPDATE reading_sessions
+        SET book_id = (SELECT cc.local_id FROM chapter_copies cc WHERE cc.server_book_id = reading_sessions.book_id LIMIT 1)
+        WHERE book_id IN (SELECT server_book_id FROM chapter_copies);
+
+        DROP TABLE chapter_book_chapters;
+        "#,
+    )
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 // ================= BOOK MAPPINGS REPO =================
@@ -434,6 +603,41 @@ pub async fn get_file_path_for_book(
     Ok(recent_fp.flatten())
 }
 
+/// Other ids the rows of a book may be stored under, as (server id, local id); either
+/// falls back to `book_id` itself.
+///
+/// A book downloaded as a file keeps its reading state under its local id and under the
+/// server id alike. A copy built from chapters keeps it under its own local id only:
+/// several copies of one server book (the whole book, single volumes) address different
+/// files, and a position stored by one must never be opened in another.
+async fn related_row_ids(pool: &DbPool, book_id: &str) -> (String, String) {
+    let copy_scoped = sqlx::query_scalar::<_, i64>(
+        "SELECT 1 FROM chapter_copies WHERE local_id = ? OR server_book_id = ? LIMIT 1",
+    )
+    .bind(book_id)
+    .bind(book_id)
+    .fetch_optional(pool)
+    .await
+    .unwrap_or(None)
+    .is_some();
+    if copy_scoped {
+        return (book_id.to_string(), book_id.to_string());
+    }
+
+    let server_id = get_server_book_id(pool, book_id).await.unwrap_or(None);
+    let local_id = if uuid::Uuid::parse_str(book_id).is_ok() {
+        get_local_id_by_server_id(pool, book_id)
+            .await
+            .unwrap_or(None)
+    } else {
+        None
+    };
+    (
+        server_id.unwrap_or_else(|| book_id.to_string()),
+        local_id.unwrap_or_else(|| book_id.to_string()),
+    )
+}
+
 #[derive(sqlx::FromRow)]
 struct DownloadedMappingRow {
     server_book_id: String,
@@ -451,7 +655,9 @@ pub async fn check_downloaded_books(
 
     for chunk in server_book_ids.chunks(100) {
         let mut builder: sqlx::QueryBuilder<sqlx::Sqlite> = sqlx::QueryBuilder::new(
-            "SELECT server_book_id, file_path FROM book_mappings WHERE file_path IS NOT NULL AND file_path != '' AND server_book_id IN (",
+            // A copy that holds a single volume of a `Chapters` book is not "the book":
+            // those are listed by `get_chapter_copies_of_books`.
+            "SELECT server_book_id, file_path FROM book_mappings WHERE file_path IS NOT NULL AND file_path != '' AND local_id NOT IN (SELECT local_id FROM chapter_copies WHERE volume IS NOT NULL) AND server_book_id IN (",
         );
         let mut separated = builder.separated(", ");
         for id in chunk {
@@ -479,17 +685,8 @@ pub async fn get_progress(
     pool: &DbPool,
     book_id: &str,
 ) -> Result<Option<DbBookProgress>, sqlx::Error> {
-    let server_id = get_server_book_id(pool, book_id).await.unwrap_or(None);
-    let local_id = if uuid::Uuid::parse_str(book_id).is_ok() {
-        get_local_id_by_server_id(pool, book_id)
-            .await
-            .unwrap_or(None)
-    } else {
-        None
-    };
-
-    let s_id = server_id.as_deref().unwrap_or(book_id);
-    let l_id = local_id.as_deref().unwrap_or(book_id);
+    let (s_id, l_id) = related_row_ids(pool, book_id).await;
+    let (s_id, l_id) = (s_id.as_str(), l_id.as_str());
 
     sqlx::query_as::<_, DbBookProgress>(
         "SELECT book_id, location, progress_percent, is_read != 0 AS is_read, updated_at, sync_status FROM book_progress WHERE book_id = ? OR book_id = ? OR book_id = ? ORDER BY updated_at DESC LIMIT 1",
@@ -574,17 +771,8 @@ pub async fn save_progress(
 }
 
 pub async fn delete_progress(pool: &DbPool, book_id: &str) -> Result<(), sqlx::Error> {
-    let server_id = get_server_book_id(pool, book_id).await.unwrap_or(None);
-    let local_id = if uuid::Uuid::parse_str(book_id).is_ok() {
-        get_local_id_by_server_id(pool, book_id)
-            .await
-            .unwrap_or(None)
-    } else {
-        None
-    };
-
-    let s_id = server_id.as_deref().unwrap_or(book_id);
-    let l_id = local_id.as_deref().unwrap_or(book_id);
+    let (s_id, l_id) = related_row_ids(pool, book_id).await;
+    let (s_id, l_id) = (s_id.as_str(), l_id.as_str());
 
     sqlx::query("DELETE FROM book_progress WHERE book_id = ? OR book_id = ? OR book_id = ?")
         .bind(book_id)
@@ -599,17 +787,8 @@ pub async fn delete_progress(pool: &DbPool, book_id: &str) -> Result<(), sqlx::E
 // ================= BOOKMARKS REPO =================
 
 pub async fn get_bookmarks(pool: &DbPool, book_id: &str) -> Result<Vec<DbBookmark>, sqlx::Error> {
-    let server_id = get_server_book_id(pool, book_id).await.unwrap_or(None);
-    let local_id = if uuid::Uuid::parse_str(book_id).is_ok() {
-        get_local_id_by_server_id(pool, book_id)
-            .await
-            .unwrap_or(None)
-    } else {
-        None
-    };
-
-    let s_id = server_id.as_deref().unwrap_or(book_id);
-    let l_id = local_id.as_deref().unwrap_or(book_id);
+    let (s_id, l_id) = related_row_ids(pool, book_id).await;
+    let (s_id, l_id) = (s_id.as_str(), l_id.as_str());
 
     sqlx::query_as::<_, DbBookmark>(
         r#"
@@ -722,17 +901,8 @@ pub async fn get_annotations(
     pool: &DbPool,
     book_id: &str,
 ) -> Result<Vec<DbAnnotation>, sqlx::Error> {
-    let server_id = get_server_book_id(pool, book_id).await.unwrap_or(None);
-    let local_id = if uuid::Uuid::parse_str(book_id).is_ok() {
-        get_local_id_by_server_id(pool, book_id)
-            .await
-            .unwrap_or(None)
-    } else {
-        None
-    };
-
-    let s_id = server_id.as_deref().unwrap_or(book_id);
-    let l_id = local_id.as_deref().unwrap_or(book_id);
+    let (s_id, l_id) = related_row_ids(pool, book_id).await;
+    let (s_id, l_id) = (s_id.as_str(), l_id.as_str());
 
     sqlx::query_as::<_, DbAnnotation>(
         r#"
@@ -1199,17 +1369,8 @@ pub async fn get_book_reading_stats(
     pool: &DbPool,
     book_id: &str,
 ) -> Result<DbBookReadingStats, sqlx::Error> {
-    let server_id = get_server_book_id(pool, book_id).await.unwrap_or(None);
-    let local_id = if uuid::Uuid::parse_str(book_id).is_ok() {
-        get_local_id_by_server_id(pool, book_id)
-            .await
-            .unwrap_or(None)
-    } else {
-        None
-    };
-
-    let s_id = server_id.as_deref().unwrap_or(book_id);
-    let l_id = local_id.as_deref().unwrap_or(book_id);
+    let (s_id, l_id) = related_row_ids(pool, book_id).await;
+    let (s_id, l_id) = (s_id.as_str(), l_id.as_str());
 
     #[derive(sqlx::FromRow)]
     struct StatsRow {
@@ -1306,17 +1467,8 @@ pub async fn get_book_reading_stats(
 }
 
 pub async fn delete_book_reading_stats(pool: &DbPool, book_id: &str) -> Result<(), sqlx::Error> {
-    let server_id = get_server_book_id(pool, book_id).await.unwrap_or(None);
-    let local_id = if uuid::Uuid::parse_str(book_id).is_ok() {
-        get_local_id_by_server_id(pool, book_id)
-            .await
-            .unwrap_or(None)
-    } else {
-        None
-    };
-
-    let s_id = server_id.as_deref().unwrap_or(book_id);
-    let l_id = local_id.as_deref().unwrap_or(book_id);
+    let (s_id, l_id) = related_row_ids(pool, book_id).await;
+    let (s_id, l_id) = (s_id.as_str(), l_id.as_str());
 
     sqlx::query(
         r#"
@@ -1335,10 +1487,91 @@ pub async fn delete_book_reading_stats(pool: &DbPool, book_id: &str) -> Result<(
 
 // ================= CHAPTERS BOOKS REPO =================
 //
-// `Chapters` books have no file on the server: the reader builds an EPUB from their
-// chapters, one spine item per chapter. The table below remembers which chapter sits at
-// which spine position, so progress can be exchanged with the server as `ch:<chapterId>`
-// and locally stored CFIs survive a rebuild that shifts chapters.
+// `Chapters` books have no file on the server: the reader builds EPUBs from their
+// chapters, one spine item per chapter — the whole book in one file, or one file per
+// volume. Every such file is a *copy*: `chapter_copies` records which part of which
+// server book a local file holds, `chapter_copy_chapters` which chapter sits at which
+// spine position. With that, progress is exchanged with the server as `ch:<chapterId>`,
+// locally stored CFIs survive a rebuild that shifts chapters, and several copies of one
+// server book keep their reading state apart (see `related_row_ids`).
+
+/// A local EPUB built from the chapters of a server book.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, sqlx::FromRow)]
+#[serde(rename_all = "camelCase")]
+pub struct DbChapterCopy {
+    pub local_id: String,
+    pub server_book_id: String,
+    /// Volume the copy holds; `None` for a copy of the whole book.
+    pub volume: Option<f32>,
+    /// Chapters of the book in the volumes before this copy (0 for the whole book).
+    pub chapters_before: i64,
+    /// Chapters in the whole book when the copy was built.
+    pub book_chapters: i64,
+    /// Chapters in the copy itself.
+    pub chapters_count: i64,
+    pub file_path: Option<String>,
+    /// Title the library shows for the file (a volume copy carries its volume).
+    pub title: Option<String>,
+}
+
+impl DbChapterCopy {
+    fn counts(&self) -> (usize, usize, usize) {
+        let as_count = |n: i64| usize::try_from(n).unwrap_or(0);
+        (
+            as_count(self.chapters_before),
+            as_count(self.chapters_count),
+            as_count(self.book_chapters),
+        )
+    }
+
+    /// Spine items between the start of the book and the start of this copy.
+    pub fn spine_offset(&self) -> usize {
+        if self.volume.is_some() {
+            self.counts().0
+        } else {
+            0
+        }
+    }
+
+    /// Whether the copy reaches the end of the book (always true for the whole book).
+    pub fn ends_book(&self) -> bool {
+        let (before, count, book) = self.counts();
+        self.volume.is_none() || before + count >= book
+    }
+
+    /// Reading percentage inside this copy -> percentage of the whole book.
+    pub fn to_book_percent(&self, percent: f32) -> f32 {
+        if self.volume.is_none() {
+            return percent;
+        }
+        let (before, count, book) = self.counts();
+        crate::chapters_epub::copy_to_book_percent(percent, before, count, book)
+    }
+
+    /// Percentage of the whole book -> reading percentage inside this copy.
+    pub fn to_copy_percent(&self, percent: f32) -> f32 {
+        if self.volume.is_none() {
+            return percent;
+        }
+        let (before, count, book) = self.counts();
+        crate::chapters_epub::book_to_copy_percent(percent, before, count, book)
+    }
+}
+
+/// Selects `DbChapterCopy` rows; a `WHERE` clause follows.
+macro_rules! chapter_copy_select {
+    ($tail:literal) => {
+        concat!(
+            "SELECT cc.local_id, cc.server_book_id, cc.volume, cc.chapters_before, cc.book_chapters, ",
+            "(SELECT COUNT(*) FROM chapter_copy_chapters ch WHERE ch.local_id = cc.local_id) AS chapters_count, ",
+            "bm.file_path, lbm.title ",
+            "FROM chapter_copies cc ",
+            "LEFT JOIN book_mappings bm ON bm.local_id = cc.local_id ",
+            "LEFT JOIN local_books_metadata lbm ON lbm.book_id = cc.local_id ",
+            $tail
+        )
+    };
+}
 
 /// All mappings of a server book (a book may have been downloaded to several places).
 pub async fn get_book_mappings_by_server_id(
@@ -1353,21 +1586,73 @@ pub async fn get_book_mappings_by_server_id(
     .await
 }
 
-/// Stores the reading order of a locally built `Chapters` book. Returns the chapters whose
-/// spine position changed since the previous build as `old position -> new position`.
-pub async fn replace_chapter_positions(
+/// The copy stored under a local id; `None` for any other book.
+pub async fn get_chapter_copy(
     pool: &DbPool,
+    local_id: &str,
+) -> Result<Option<DbChapterCopy>, sqlx::Error> {
+    sqlx::query_as::<_, DbChapterCopy>(chapter_copy_select!("WHERE cc.local_id = ? LIMIT 1"))
+        .bind(local_id)
+        .fetch_optional(pool)
+        .await
+}
+
+/// Copies of the given server books (whole books and single volumes), ordered by book and
+/// volume with the whole book first. Files are not checked for existence here.
+pub async fn get_chapter_copies_of_books(
+    pool: &DbPool,
+    server_book_ids: &[String],
+) -> Result<Vec<DbChapterCopy>, sqlx::Error> {
+    let mut result = Vec::new();
+    for chunk in server_book_ids.chunks(100) {
+        let mut builder: sqlx::QueryBuilder<sqlx::Sqlite> =
+            sqlx::QueryBuilder::new(chapter_copy_select!("WHERE cc.server_book_id IN ("));
+        let mut separated = builder.separated(", ");
+        for id in chunk {
+            separated.push_bind(id);
+        }
+        separated
+            .push_unseparated(") ORDER BY cc.server_book_id, cc.volume IS NOT NULL, cc.volume");
+        result.extend(
+            builder
+                .build_query_as::<DbChapterCopy>()
+                .fetch_all(pool)
+                .await?,
+        );
+    }
+    Ok(result)
+}
+
+/// Whether the server book is read from copies built on device from its chapters.
+pub async fn has_chapter_copies(pool: &DbPool, server_book_id: &str) -> Result<bool, sqlx::Error> {
+    let found = sqlx::query_scalar::<_, i64>(
+        "SELECT 1 FROM chapter_copies WHERE server_book_id = ? LIMIT 1",
+    )
+    .bind(server_book_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(found.is_some())
+}
+
+/// Records a freshly built copy: what it holds and its reading order. Returns the chapters
+/// whose spine position changed since the previous build of the same file as
+/// `old position -> new position`.
+pub async fn save_chapter_copy(
+    pool: &DbPool,
+    local_id: &str,
     server_book_id: &str,
+    volume: Option<f32>,
+    chapters_before: usize,
+    book_chapters: usize,
     chapter_ids: &[String],
 ) -> Result<std::collections::HashMap<usize, usize>, sqlx::Error> {
     let mut tx = pool.begin().await?;
 
-    let old_rows: Vec<(String, i64)> = sqlx::query_as(
-        "SELECT chapter_id, position FROM chapter_book_chapters WHERE server_book_id = ?",
-    )
-    .bind(server_book_id)
-    .fetch_all(&mut *tx)
-    .await?;
+    let old_rows: Vec<(String, i64)> =
+        sqlx::query_as("SELECT chapter_id, position FROM chapter_copy_chapters WHERE local_id = ?")
+            .bind(local_id)
+            .fetch_all(&mut *tx)
+            .await?;
     let old: std::collections::HashMap<String, i64> = old_rows.into_iter().collect();
 
     let mut moved = std::collections::HashMap::new();
@@ -1380,89 +1665,123 @@ pub async fn replace_chapter_positions(
         }
     }
 
-    sqlx::query("DELETE FROM chapter_book_chapters WHERE server_book_id = ?")
-        .bind(server_book_id)
+    sqlx::query("DELETE FROM chapter_copy_chapters WHERE local_id = ?")
+        .bind(local_id)
         .execute(&mut *tx)
         .await?;
 
     const CHUNK: usize = 200;
     for (chunk_index, chunk) in chapter_ids.chunks(CHUNK).enumerate() {
         let mut builder: sqlx::QueryBuilder<sqlx::Sqlite> = sqlx::QueryBuilder::new(
-            "INSERT OR REPLACE INTO chapter_book_chapters (server_book_id, chapter_id, position) ",
+            "INSERT OR REPLACE INTO chapter_copy_chapters (local_id, chapter_id, position) ",
         );
         builder.push_values(chunk.iter().enumerate(), |mut row, (i, chapter_id)| {
-            row.push_bind(server_book_id)
+            row.push_bind(local_id)
                 .push_bind(chapter_id)
                 .push_bind((chunk_index * CHUNK + i) as i64);
         });
         builder.build().execute(&mut *tx).await?;
     }
 
+    sqlx::query(
+        r#"
+        INSERT INTO chapter_copies (local_id, server_book_id, volume, chapters_before, book_chapters)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(local_id) DO UPDATE SET
+            server_book_id = excluded.server_book_id,
+            volume = excluded.volume,
+            chapters_before = excluded.chapters_before,
+            book_chapters = excluded.book_chapters
+        "#,
+    )
+    .bind(local_id)
+    .bind(server_book_id)
+    .bind(volume)
+    .bind(chapters_before as i64)
+    .bind(book_chapters as i64)
+    .execute(&mut *tx)
+    .await?;
+
     tx.commit().await?;
     Ok(moved)
 }
 
-/// Forgets the chapter layout of a book (it is no longer read from a locally built EPUB).
-pub async fn clear_chapter_positions(
-    pool: &DbPool,
-    server_book_id: &str,
-) -> Result<(), sqlx::Error> {
-    sqlx::query("DELETE FROM chapter_book_chapters WHERE server_book_id = ?")
-        .bind(server_book_id)
-        .execute(pool)
-        .await?;
+/// Forgets the copy stored in a file the user deleted.
+pub async fn delete_chapter_copy_at(pool: &DbPool, file_path: &str) -> Result<(), sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    sqlx::query(
+        "DELETE FROM chapter_copy_chapters WHERE local_id IN (SELECT local_id FROM book_mappings WHERE file_path = ?)",
+    )
+    .bind(file_path)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "DELETE FROM chapter_copies WHERE local_id IN (SELECT local_id FROM book_mappings WHERE file_path = ?)",
+    )
+    .bind(file_path)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
     Ok(())
 }
 
-/// Whether the book is read from an EPUB built on device from server chapters.
-pub async fn is_chapters_book(pool: &DbPool, server_book_id: &str) -> Result<bool, sqlx::Error> {
-    let found = sqlx::query_scalar::<_, i64>(
-        "SELECT 1 FROM chapter_book_chapters WHERE server_book_id = ? LIMIT 1",
-    )
-    .bind(server_book_id)
-    .fetch_optional(pool)
-    .await?;
-    Ok(found.is_some())
-}
-
-/// Spine position of a chapter in the locally built EPUB.
-pub async fn get_chapter_position(
+/// Forgets every copy of a server book (it is no longer read from locally built EPUBs).
+pub async fn delete_chapter_copies_of_book(
     pool: &DbPool,
     server_book_id: &str,
+) -> Result<(), sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    sqlx::query(
+        "DELETE FROM chapter_copy_chapters WHERE local_id IN (SELECT local_id FROM chapter_copies WHERE server_book_id = ?)",
+    )
+    .bind(server_book_id)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query("DELETE FROM chapter_copies WHERE server_book_id = ?")
+        .bind(server_book_id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Spine position of a chapter in a copy.
+pub async fn get_chapter_position(
+    pool: &DbPool,
+    local_id: &str,
     chapter_id: &str,
 ) -> Result<Option<usize>, sqlx::Error> {
     let position = sqlx::query_scalar::<_, i64>(
-        "SELECT position FROM chapter_book_chapters WHERE server_book_id = ? AND chapter_id = ? LIMIT 1",
+        "SELECT position FROM chapter_copy_chapters WHERE local_id = ? AND chapter_id = ? LIMIT 1",
     )
-    .bind(server_book_id)
+    .bind(local_id)
     .bind(chapter_id)
     .fetch_optional(pool)
     .await?;
     Ok(position.and_then(|p| usize::try_from(p).ok()))
 }
 
-/// Id of the chapter stored at a spine position of the locally built EPUB.
+/// Id of the chapter stored at a spine position of a copy.
 pub async fn get_chapter_id_at(
     pool: &DbPool,
-    server_book_id: &str,
+    local_id: &str,
     position: usize,
 ) -> Result<Option<String>, sqlx::Error> {
     sqlx::query_scalar::<_, String>(
-        "SELECT chapter_id FROM chapter_book_chapters WHERE server_book_id = ? AND position = ? LIMIT 1",
+        "SELECT chapter_id FROM chapter_copy_chapters WHERE local_id = ? AND position = ? LIMIT 1",
     )
-    .bind(server_book_id)
+    .bind(local_id)
     .bind(position as i64)
     .fetch_optional(pool)
     .await
 }
 
-/// Rewrites the spine step of every stored CFI of a book after its chapters moved
+/// Rewrites the spine step of every stored CFI of a copy after its chapters moved
 /// (`moved`: old spine position -> new spine position). Covers reading progress, the
-/// recent books list, bookmarks and annotations stored under either id of the book.
+/// recent books list, bookmarks and annotations of that copy.
 pub async fn remap_book_cfis(
     pool: &DbPool,
     local_id: &str,
-    server_book_id: &str,
     moved: &std::collections::HashMap<usize, usize>,
 ) -> Result<(), sqlx::Error> {
     use crate::chapters_epub::remap_cfi_spine;
@@ -1475,44 +1794,40 @@ pub async fn remap_book_cfis(
     // moved position would remap the same row twice when positions chain (1 -> 2, 2 -> 3).
     let mut tx = pool.begin().await?;
 
-    let progress: Vec<(String, String)> = sqlx::query_as(
-        "SELECT book_id, location FROM book_progress WHERE book_id = ? OR book_id = ?",
-    )
-    .bind(local_id)
-    .bind(server_book_id)
-    .fetch_all(&mut *tx)
-    .await?;
-    for (book_id, location) in progress {
-        if let Some(remapped) = remap_cfi_spine(&location, moved) {
-            sqlx::query("UPDATE book_progress SET location = ? WHERE book_id = ?")
-                .bind(remapped)
-                .bind(book_id)
-                .execute(&mut *tx)
-                .await?;
-        }
+    let progress: Option<String> =
+        sqlx::query_scalar("SELECT location FROM book_progress WHERE book_id = ?")
+            .bind(local_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    if let Some(location) = progress
+        && let Some(remapped) = remap_cfi_spine(&location, moved)
+    {
+        sqlx::query("UPDATE book_progress SET location = ? WHERE book_id = ?")
+            .bind(remapped)
+            .bind(local_id)
+            .execute(&mut *tx)
+            .await?;
     }
 
-    let recents: Vec<(String, String)> = sqlx::query_as(
-        "SELECT id, last_location FROM recent_books WHERE (id = ? OR id = ?) AND last_location IS NOT NULL",
+    let recent: Option<String> = sqlx::query_scalar(
+        "SELECT last_location FROM recent_books WHERE id = ? AND last_location IS NOT NULL",
     )
     .bind(local_id)
-    .bind(server_book_id)
-    .fetch_all(&mut *tx)
+    .fetch_optional(&mut *tx)
     .await?;
-    for (id, location) in recents {
-        if let Some(remapped) = remap_cfi_spine(&location, moved) {
-            sqlx::query("UPDATE recent_books SET last_location = ? WHERE id = ?")
-                .bind(remapped)
-                .bind(id)
-                .execute(&mut *tx)
-                .await?;
-        }
+    if let Some(location) = recent
+        && let Some(remapped) = remap_cfi_spine(&location, moved)
+    {
+        sqlx::query("UPDATE recent_books SET last_location = ? WHERE id = ?")
+            .bind(remapped)
+            .bind(local_id)
+            .execute(&mut *tx)
+            .await?;
     }
 
     let bookmarks: Vec<(String, String)> =
-        sqlx::query_as("SELECT id, location FROM bookmarks WHERE book_id = ? OR book_id = ?")
+        sqlx::query_as("SELECT id, location FROM bookmarks WHERE book_id = ?")
             .bind(local_id)
-            .bind(server_book_id)
             .fetch_all(&mut *tx)
             .await?;
     for (id, location) in bookmarks {
@@ -1526,10 +1841,9 @@ pub async fn remap_book_cfis(
     }
 
     let annotations: Vec<(String, String, String, String, Option<i64>)> = sqlx::query_as(
-        "SELECT id, location_start, location_end, value, section_index FROM annotations WHERE book_id = ? OR book_id = ?",
+        "SELECT id, location_start, location_end, value, section_index FROM annotations WHERE book_id = ?",
     )
     .bind(local_id)
-    .bind(server_book_id)
     .fetch_all(&mut *tx)
     .await?;
     for (id, location_start, location_end, value, section_index) in annotations {
@@ -1567,7 +1881,8 @@ pub async fn clear_all_data(pool: &DbPool) -> Result<(), sqlx::Error> {
         DELETE FROM annotations;
         DELETE FROM book_progress;
         DELETE FROM book_mappings;
-        DELETE FROM chapter_book_chapters;
+        DELETE FROM chapter_copies;
+        DELETE FROM chapter_copy_chapters;
         DELETE FROM local_books_metadata;
         DELETE FROM recent_books;
         DELETE FROM reading_sessions;
@@ -2070,35 +2385,59 @@ mod tests {
         let local_id = "local-chapters_book_epub";
         let ids = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<Vec<_>>();
 
-        assert!(!is_chapters_book(&pool, server_id).await.expect("kind"));
+        assert!(!has_chapter_copies(&pool, server_id).await.expect("kind"));
+        assert_eq!(get_chapter_copy(&pool, local_id).await.expect("copy"), None);
 
         // First build: nothing to remap
-        let moved = replace_chapter_positions(&pool, server_id, &ids(&["a", "b", "c"]))
-            .await
-            .expect("store positions");
+        save_book_mapping(
+            &pool,
+            local_id,
+            server_id,
+            Some("/books/chapters book.epub"),
+        )
+        .await
+        .expect("mapping");
+        let moved = save_chapter_copy(
+            &pool,
+            local_id,
+            server_id,
+            None,
+            0,
+            3,
+            &ids(&["a", "b", "c"]),
+        )
+        .await
+        .expect("store positions");
         assert!(moved.is_empty());
-        assert!(is_chapters_book(&pool, server_id).await.expect("kind"));
+        assert!(has_chapter_copies(&pool, server_id).await.expect("kind"));
+        let copy = get_chapter_copy(&pool, local_id)
+            .await
+            .expect("copy")
+            .expect("stored");
+        assert_eq!(copy.server_book_id, server_id);
+        assert_eq!(copy.volume, None);
+        assert_eq!(copy.chapters_count, 3);
+        assert_eq!(copy.file_path.as_deref(), Some("/books/chapters book.epub"));
+        assert!(copy.ends_book());
+        assert_eq!(copy.to_book_percent(40.0), 40.0);
         assert_eq!(
-            get_chapter_position(&pool, server_id, "c")
+            get_chapter_position(&pool, local_id, "c")
                 .await
                 .expect("position"),
             Some(2)
         );
         assert_eq!(
-            get_chapter_id_at(&pool, server_id, 1)
+            get_chapter_id_at(&pool, local_id, 1)
                 .await
                 .expect("id")
                 .as_deref(),
             Some("b")
         );
         assert_eq!(
-            get_chapter_id_at(&pool, server_id, 7).await.expect("id"),
+            get_chapter_id_at(&pool, local_id, 7).await.expect("id"),
             None
         );
 
-        save_book_mapping(&pool, local_id, server_id, None)
-            .await
-            .expect("mapping");
         // Reading chapter "b" (spine index 1), bookmark in "c", highlight in "a"
         save_progress(
             &pool,
@@ -2128,7 +2467,7 @@ mod tests {
             &pool,
             "ann-ch",
             None,
-            server_id,
+            local_id,
             "epubcfi(/6/2!/4/2/1:0)",
             "epubcfi(/6/2!/4/2/1:5)",
             "epubcfi(/6/2!/4/2,/1:0,/1:5)",
@@ -2145,21 +2484,29 @@ mod tests {
         .expect("annotation");
 
         // The server inserted chapter "x" before "b": "b" and "c" shift, "a" stays
-        let moved = replace_chapter_positions(&pool, server_id, &ids(&["a", "x", "b", "c"]))
-            .await
-            .expect("update positions");
+        let moved = save_chapter_copy(
+            &pool,
+            local_id,
+            server_id,
+            None,
+            0,
+            4,
+            &ids(&["a", "x", "b", "c"]),
+        )
+        .await
+        .expect("update positions");
         assert_eq!(moved.len(), 2);
         assert_eq!(moved.get(&1), Some(&2));
         assert_eq!(moved.get(&2), Some(&3));
         assert_eq!(
-            get_chapter_id_at(&pool, server_id, 1)
+            get_chapter_id_at(&pool, local_id, 1)
                 .await
                 .expect("id")
                 .as_deref(),
             Some("x")
         );
 
-        remap_book_cfis(&pool, local_id, server_id, &moved)
+        remap_book_cfis(&pool, local_id, &moved)
             .await
             .expect("remap");
 
@@ -2180,25 +2527,394 @@ mod tests {
         assert_eq!(annotations[0].section_index, Some(0));
 
         // A removed chapter disappears from the layout
-        replace_chapter_positions(&pool, server_id, &ids(&["a", "c"]))
+        save_chapter_copy(&pool, local_id, server_id, None, 0, 2, &ids(&["a", "c"]))
             .await
             .expect("shrink");
         assert_eq!(
-            get_chapter_position(&pool, server_id, "x")
+            get_chapter_position(&pool, local_id, "x")
                 .await
                 .expect("position"),
             None
         );
         assert_eq!(
-            get_chapter_position(&pool, server_id, "c")
+            get_chapter_position(&pool, local_id, "c")
                 .await
                 .expect("position"),
             Some(1)
         );
 
-        clear_chapter_positions(&pool, server_id)
+        delete_chapter_copies_of_book(&pool, server_id)
             .await
             .expect("clear");
-        assert!(!is_chapters_book(&pool, server_id).await.expect("kind"));
+        assert!(!has_chapter_copies(&pool, server_id).await.expect("kind"));
+        assert_eq!(
+            get_chapter_position(&pool, local_id, "c")
+                .await
+                .expect("position"),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn test_copies_of_one_book_keep_their_state_apart() {
+        let pool = init_db(Path::new(":memory:"))
+            .await
+            .expect("init memory db");
+
+        let server_id = "018f3a2b-7c4d-7e8f-9a0b-1c2d3e4f5a6d";
+        let whole = "local-Book_epub";
+        let volume2 = "local-Book_-_Vol_02_epub";
+        let ids = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<Vec<_>>();
+
+        save_book_mapping(&pool, whole, server_id, Some("/books/Book.epub"))
+            .await
+            .expect("mapping");
+        save_book_mapping(&pool, volume2, server_id, Some("/books/Book - Vol 02.epub"))
+            .await
+            .expect("mapping");
+        save_chapter_copy(
+            &pool,
+            whole,
+            server_id,
+            None,
+            0,
+            4,
+            &ids(&["a", "b", "c", "d"]),
+        )
+        .await
+        .expect("whole copy");
+        save_chapter_copy(
+            &pool,
+            volume2,
+            server_id,
+            Some(2.0),
+            2,
+            4,
+            &ids(&["c", "d"]),
+        )
+        .await
+        .expect("volume copy");
+
+        // The same chapter sits at different spine positions of the two files
+        assert_eq!(
+            get_chapter_position(&pool, whole, "c").await.expect("p"),
+            Some(2)
+        );
+        assert_eq!(
+            get_chapter_position(&pool, volume2, "c").await.expect("p"),
+            Some(0)
+        );
+        assert_eq!(
+            get_chapter_id_at(&pool, volume2, 1)
+                .await
+                .expect("id")
+                .as_deref(),
+            Some("d")
+        );
+
+        let copy = get_chapter_copy(&pool, volume2)
+            .await
+            .expect("copy")
+            .expect("stored");
+        assert_eq!(copy.volume, Some(2.0));
+        assert_eq!(copy.spine_offset(), 2);
+        assert!(copy.ends_book());
+        assert_eq!(copy.to_book_percent(50.0), 75.0);
+        assert_eq!(copy.to_copy_percent(75.0), 50.0);
+
+        let copies = get_chapter_copies_of_books(&pool, &[server_id.to_string()])
+            .await
+            .expect("copies");
+        let listed: Vec<(&str, Option<f32>)> = copies
+            .iter()
+            .map(|c| (c.local_id.as_str(), c.volume))
+            .collect();
+        assert_eq!(listed, [(whole, None), (volume2, Some(2.0))]);
+
+        // Progress, bookmarks and annotations of one copy are invisible to the other, and
+        // to whoever asks by the server id
+        save_progress(&pool, whole, "epubcfi(/6/8!/4/2/1:10)", 90.0, false, true)
+            .await
+            .expect("progress");
+        save_progress(&pool, volume2, "epubcfi(/6/2!/4/2/1:1)", 10.0, false, true)
+            .await
+            .expect("progress");
+        save_bookmark(
+            &pool,
+            "bm-whole",
+            Some("server-bookmark"),
+            whole,
+            "epubcfi(/6/6!/4)",
+            0.5,
+            None,
+            None,
+            None,
+            false,
+        )
+        .await
+        .expect("bookmark");
+        // The same server bookmark, stored once per copy in that copy's own coordinates
+        save_bookmark(
+            &pool,
+            "bm-volume",
+            Some("server-bookmark"),
+            volume2,
+            "epubcfi(/6/2!/4)",
+            0.0,
+            None,
+            None,
+            None,
+            false,
+        )
+        .await
+        .expect("the server id is unique per book only");
+        save_annotation(
+            &pool,
+            "ann-volume",
+            Some("server-annotation"),
+            volume2,
+            "epubcfi(/6/4!/4/2/1:0)",
+            "epubcfi(/6/4!/4/2/1:5)",
+            "epubcfi(/6/4!/4/2,/1:0,/1:5)",
+            "text",
+            None,
+            "yellow",
+            None,
+            None,
+            Some(1),
+            None,
+            false,
+        )
+        .await
+        .expect("annotation");
+
+        let progress = get_progress(&pool, volume2).await.expect("p").expect("row");
+        assert_eq!(progress.location, "epubcfi(/6/2!/4/2/1:1)");
+        let progress = get_progress(&pool, whole).await.expect("p").expect("row");
+        assert_eq!(progress.location, "epubcfi(/6/8!/4/2/1:10)");
+        assert!(get_progress(&pool, server_id).await.expect("p").is_none());
+
+        let bookmarks = get_bookmarks(&pool, whole).await.expect("bookmarks");
+        assert_eq!(bookmarks.len(), 1);
+        assert_eq!(bookmarks[0].id, "bm-whole");
+        let bookmarks = get_bookmarks(&pool, volume2).await.expect("bookmarks");
+        assert_eq!(bookmarks.len(), 1);
+        assert_eq!(bookmarks[0].location, "epubcfi(/6/2!/4)");
+        assert!(get_annotations(&pool, whole).await.expect("a").is_empty());
+        assert_eq!(get_annotations(&pool, volume2).await.expect("a").len(), 1);
+
+        // Only the whole book counts as "the book is downloaded"
+        let downloaded_file =
+            std::env::temp_dir().join(format!("folio-copy-{}.epub", uuid::Uuid::now_v7()));
+        tokio::fs::write(&downloaded_file, b"x")
+            .await
+            .expect("file");
+        let downloaded_path = downloaded_file.to_string_lossy().to_string();
+        save_book_mapping(&pool, volume2, server_id, Some(&downloaded_path))
+            .await
+            .expect("mapping");
+        let downloaded = check_downloaded_books(&pool, &[server_id.to_string()])
+            .await
+            .expect("downloaded");
+        assert!(downloaded.is_empty());
+        save_book_mapping(&pool, whole, server_id, Some(&downloaded_path))
+            .await
+            .expect("mapping");
+        let downloaded = check_downloaded_books(&pool, &[server_id.to_string()])
+            .await
+            .expect("downloaded");
+        assert_eq!(downloaded.get(server_id), Some(&downloaded_path));
+        let _ = tokio::fs::remove_file(&downloaded_file).await;
+
+        // Resetting one copy leaves the other alone
+        delete_progress(&pool, volume2).await.expect("reset");
+        assert!(get_progress(&pool, volume2).await.expect("p").is_none());
+        assert!(get_progress(&pool, whole).await.expect("p").is_some());
+
+        // The user deletes the volume file: that copy is forgotten, the other one stays
+        save_book_mapping(&pool, whole, server_id, Some("/books/Book.epub"))
+            .await
+            .expect("mapping");
+        delete_chapter_copy_at(&pool, &downloaded_path)
+            .await
+            .expect("forget");
+        assert_eq!(get_chapter_copy(&pool, volume2).await.expect("copy"), None);
+        assert!(has_chapter_copies(&pool, server_id).await.expect("kind"));
+    }
+
+    #[tokio::test]
+    async fn test_migration_from_per_book_chapter_layout() {
+        let db_path =
+            std::env::temp_dir().join(format!("folio-migrate-{}.db", uuid::Uuid::now_v7()));
+        let server_id = "018f3a2b-7c4d-7e8f-9a0b-1c2d3e4f5a6e";
+        let file_book = "018f3a2b-7c4d-7e8f-9a0b-1c2d3e4f5a6f";
+        let local_id = "local-Old_Book_epub";
+
+        // A database written by the previous build: table-wide unique server ids and the
+        // chapter layout keyed by server book id
+        {
+            let options =
+                SqliteConnectOptions::from_str(&format!("sqlite://{}", db_path.display()))
+                    .expect("options")
+                    .create_if_missing(true);
+            let old = SqlitePoolOptions::new()
+                .max_connections(1)
+                .connect_with(options)
+                .await
+                .expect("old db");
+            sqlx::query(
+                r#"
+                CREATE TABLE book_mappings (local_id TEXT PRIMARY KEY, server_book_id TEXT NOT NULL, file_path TEXT, created_at TEXT NOT NULL);
+                CREATE TABLE book_progress (book_id TEXT PRIMARY KEY, location TEXT NOT NULL, progress_percent REAL NOT NULL DEFAULT 0.0, is_read INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL, sync_status TEXT NOT NULL DEFAULT 'synced');
+                CREATE TABLE bookmarks (
+                    id TEXT PRIMARY KEY,
+                    server_id TEXT UNIQUE,
+                    book_id TEXT NOT NULL,
+                    location TEXT NOT NULL,
+                    fraction REAL NOT NULL DEFAULT 0.0,
+                    location_label TEXT,
+                    chapter_title TEXT,
+                    created_at TEXT NOT NULL,
+                    is_deleted INTEGER NOT NULL DEFAULT 0,
+                    sync_status TEXT NOT NULL DEFAULT 'synced'
+                );
+                CREATE INDEX idx_bookmarks_book_id ON bookmarks(book_id);
+                CREATE TABLE annotations (
+                    id TEXT PRIMARY KEY,
+                    server_id TEXT UNIQUE,
+                    book_id TEXT NOT NULL,
+                    location_start TEXT NOT NULL,
+                    location_end TEXT NOT NULL,
+                    value TEXT NOT NULL,
+                    selected_text TEXT NOT NULL,
+                    note TEXT,
+                    color TEXT NOT NULL DEFAULT 'yellow',
+                    style TEXT DEFAULT 'highlight',
+                    chapter_title TEXT,
+                    section_index INTEGER,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    is_deleted INTEGER NOT NULL DEFAULT 0,
+                    sync_status TEXT NOT NULL DEFAULT 'synced'
+                );
+                CREATE INDEX idx_annotations_book_id ON annotations(book_id);
+                CREATE TABLE chapter_book_chapters (server_book_id TEXT NOT NULL, chapter_id TEXT NOT NULL, position INTEGER NOT NULL, PRIMARY KEY (server_book_id, chapter_id));
+
+                INSERT INTO book_mappings VALUES ('local-Old_Book_epub', '018f3a2b-7c4d-7e8f-9a0b-1c2d3e4f5a6e', '/books/Old Book.epub', '2026-11-10T00:00:00Z');
+                INSERT INTO book_mappings VALUES ('local-File_epub', '018f3a2b-7c4d-7e8f-9a0b-1c2d3e4f5a6f', '/books/File.epub', '2026-11-10T00:00:00Z');
+                INSERT INTO chapter_book_chapters VALUES ('018f3a2b-7c4d-7e8f-9a0b-1c2d3e4f5a6e', 'a', 0), ('018f3a2b-7c4d-7e8f-9a0b-1c2d3e4f5a6e', 'b', 1);
+                INSERT INTO book_progress VALUES ('018f3a2b-7c4d-7e8f-9a0b-1c2d3e4f5a6e', 'epubcfi(/6/4!/4)', 50.0, 0, '2026-11-10T00:00:00Z', 'synced');
+                INSERT INTO book_progress VALUES ('018f3a2b-7c4d-7e8f-9a0b-1c2d3e4f5a6f', 'epubcfi(/6/8!/4)', 20.0, 0, '2026-11-10T00:00:00Z', 'synced');
+                INSERT INTO bookmarks VALUES ('bm-1', 'srv-bm-1', 'local-Old_Book_epub', 'epubcfi(/6/2!/4)', 0.1, NULL, 'One', '2026-11-10T00:00:00Z', 0, 'synced');
+                INSERT INTO bookmarks VALUES ('bm-2', NULL, '018f3a2b-7c4d-7e8f-9a0b-1c2d3e4f5a6e', 'epubcfi(/6/4!/4)', 0.6, NULL, 'Two', '2026-11-10T00:00:00Z', 0, 'pending_create');
+                INSERT INTO annotations VALUES ('ann-1', 'srv-ann-1', 'local-Old_Book_epub', 'epubcfi(/6/2!/4/2/1:0)', 'epubcfi(/6/2!/4/2/1:5)', 'epubcfi(/6/2!/4/2,/1:0,/1:5)', 'text', 'note', 'blue', 'highlight', 'One', 0, '2026-11-10T00:00:00Z', '2026-11-10T00:00:00Z', 0, 'synced');
+                "#,
+            )
+            .execute(&old)
+            .await
+            .expect("old schema");
+            old.close().await;
+        }
+
+        let pool = init_db(&db_path).await.expect("migrated db");
+
+        // The layout belongs to the local file now
+        assert!(
+            table_sql(&pool, "chapter_book_chapters")
+                .await
+                .expect("sql")
+                .is_none()
+        );
+        let copy = get_chapter_copy(&pool, local_id)
+            .await
+            .expect("copy")
+            .expect("migrated");
+        assert_eq!(copy.server_book_id, server_id);
+        assert_eq!(copy.volume, None);
+        assert_eq!(copy.chapters_count, 2);
+        assert_eq!(copy.book_chapters, 2);
+        assert_eq!(
+            get_chapter_id_at(&pool, local_id, 1)
+                .await
+                .expect("id")
+                .as_deref(),
+            Some("b")
+        );
+        assert_eq!(
+            get_chapter_copy(&pool, "local-File_epub")
+                .await
+                .expect("copy"),
+            None
+        );
+
+        // ...together with the reading state that was mirrored under the server id
+        let progress = get_progress(&pool, local_id)
+            .await
+            .expect("p")
+            .expect("row");
+        assert_eq!(progress.book_id, local_id);
+        assert_eq!(progress.location, "epubcfi(/6/4!/4)");
+        let bookmarks = get_bookmarks(&pool, local_id).await.expect("bookmarks");
+        assert_eq!(bookmarks.len(), 2);
+        assert!(bookmarks.iter().all(|b| b.book_id == local_id));
+        let annotations = get_annotations(&pool, local_id).await.expect("annotations");
+        assert_eq!(annotations.len(), 1);
+        assert_eq!(annotations[0].note.as_deref(), Some("note"));
+        assert_eq!(annotations[0].server_id.as_deref(), Some("srv-ann-1"));
+
+        // A book downloaded as a file is untouched: its progress is still found by either id
+        let progress = get_progress(&pool, "local-File_epub")
+            .await
+            .expect("p")
+            .expect("row");
+        assert_eq!(progress.book_id, file_book);
+
+        // Server ids are unique per book, not table-wide
+        for table in ["bookmarks", "annotations"] {
+            let sql = table_sql(&pool, table).await.expect("sql").expect("table");
+            assert!(!sql.contains("server_id TEXT UNIQUE"), "{table}: {sql}");
+        }
+        save_bookmark(
+            &pool,
+            "bm-3",
+            Some("srv-bm-1"),
+            "local-Other_epub",
+            "epubcfi(/6/2!/4)",
+            0.0,
+            None,
+            None,
+            None,
+            false,
+        )
+        .await
+        .expect("same server bookmark in another copy");
+        let duplicate = sqlx::query(
+            "INSERT INTO bookmarks (id, server_id, book_id, location, created_at) VALUES ('bm-4', 'srv-bm-1', 'local-Other_epub', 'x', 'now')",
+        )
+        .execute(&pool)
+        .await;
+        assert!(duplicate.is_err());
+
+        // Opening the database again changes nothing
+        pool.close().await;
+        let pool = init_db(&db_path).await.expect("second start");
+        assert_eq!(
+            get_bookmarks(&pool, local_id)
+                .await
+                .expect("bookmarks")
+                .len(),
+            2
+        );
+        assert!(
+            get_chapter_copy(&pool, local_id)
+                .await
+                .expect("copy")
+                .is_some()
+        );
+        pool.close().await;
+
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffix}", db_path.display()));
+        }
     }
 }

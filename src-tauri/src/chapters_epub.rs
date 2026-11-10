@@ -13,6 +13,10 @@
 //!   holds;
 //! - spine `itemref`s carry no ids, so every CFI is purely positional
 //!   (`/6/{2 * (index + 1)}`) and can be converted to and from a chapter id.
+//!
+//! A book can also be built one volume at a time ([`VolumeScope`]): such a copy holds the
+//! chapters of a single volume, is titled `{title} — Том {n}`, carries series metadata and
+//! records in its manifest where it sits in the whole book.
 
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -51,17 +55,39 @@ pub struct ChaptersManifest {
     /// Cover file name inside `OEBPS/`, e.g. `cover.jpg`.
     #[serde(default)]
     pub cover: Option<String>,
+    /// Volume the file holds; absent in a copy of the whole book.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub volume: Option<f32>,
+    /// Chapters of the book in the volumes before this one (volume copies only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chapters_before: Option<u32>,
+    /// Chapters in the whole book when the file was built (volume copies only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub book_chapters: Option<u32>,
     pub chapters: Vec<ManifestChapter>,
+}
+
+/// The part of a book a volume copy holds.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct VolumeScope {
+    pub volume: f32,
+    /// Chapters of the book in the volumes before this one.
+    pub chapters_before: usize,
+    /// Chapters in the whole book.
+    pub book_chapters: usize,
 }
 
 #[derive(Debug, Clone)]
 pub struct EpubMeta {
     pub book_id: String,
+    /// Title of the book; a volume copy appends its volume ([`volume_title`]).
     pub title: String,
     pub author: String,
     /// Already normalised with [`normalize_language`].
     pub language: String,
     pub description: Option<String>,
+    /// `Some` when the file holds a single volume, `None` for the whole book.
+    pub scope: Option<VolumeScope>,
 }
 
 // ================= TEXT HELPERS =================
@@ -112,6 +138,45 @@ fn chapter_word(lang: &str) -> &'static str {
 
 fn volume_word(lang: &str) -> &'static str {
     if is_russian(lang) { "Том" } else { "Volume" }
+}
+
+/// Title of a copy that holds a single volume: `{title} — Том {n}`.
+pub fn volume_title(lang: &str, title: &str, volume: f32) -> String {
+    format!(
+        "{} — {} {}",
+        title.trim(),
+        volume_word(lang),
+        format_number(volume)
+    )
+}
+
+/// File name stem of a volume copy: `{stem} - Vol {NN}`. Whole volumes are padded to two
+/// digits so that files sort in reading order; a fractional volume keeps its fraction
+/// (`Vol 03.5`).
+pub fn volume_file_stem(stem: &str, volume: f32) -> String {
+    let whole = volume.trunc();
+    let number = if !volume.is_finite() || volume < 0.0 {
+        format_number(volume)
+    } else if volume.fract() == 0.0 {
+        format!("{:02}", whole as i64)
+    } else {
+        let formatted = format_number(volume);
+        let fraction = formatted.split_once('.').map(|(_, f)| f).unwrap_or("0");
+        format!("{:02}.{fraction}", whole as i64)
+    };
+    format!("{stem} - Vol {number}")
+}
+
+/// `dc:identifier` of a built EPUB.
+fn publication_identifier(meta: &EpubMeta) -> String {
+    match &meta.scope {
+        Some(scope) => format!(
+            "urn:folio:{}:volume:{}",
+            meta.book_id,
+            format_number(scope.volume)
+        ),
+        None => format!("urn:uuid:{}", meta.book_id),
+    }
 }
 
 /// Table of contents label of a chapter.
@@ -589,10 +654,14 @@ impl<W: Write + Seek> EpubWriter<W> {
         }
 
         let lang = meta.language.as_str();
-        let title = if meta.title.trim().is_empty() {
+        let book_title = if meta.title.trim().is_empty() {
             "Untitled".to_string()
         } else {
             meta.title.trim().to_string()
+        };
+        let title = match &meta.scope {
+            Some(scope) => volume_title(lang, &book_title, scope.volume),
+            None => book_title.clone(),
         };
 
         let nav_xhtml = build_nav(lang, &title, chapters);
@@ -606,7 +675,14 @@ impl<W: Write + Seek> EpubWriter<W> {
             .map_err(zip_err)?;
         self.zip.write_all(STYLESHEET.as_bytes()).map_err(zip_err)?;
 
-        let opf = build_opf(meta, &title, chapters, &self.images, self.cover.as_ref());
+        let opf = build_opf(
+            meta,
+            &title,
+            &book_title,
+            chapters,
+            &self.images,
+            self.cover.as_ref(),
+        );
         self.zip
             .start_file(content_entry_name("content.opf"), Self::deflated())
             .map_err(zip_err)?;
@@ -617,6 +693,9 @@ impl<W: Write + Seek> EpubWriter<W> {
             book_id: meta.book_id.clone(),
             language: meta.language.clone(),
             cover: self.cover.as_ref().map(|(name, _)| name.clone()),
+            volume: meta.scope.map(|s| s.volume),
+            chapters_before: meta.scope.map(|s| s.chapters_before as u32),
+            book_chapters: meta.scope.map(|s| s.book_chapters as u32),
             chapters: chapters.to_vec(),
         };
         let manifest_json = serde_json::to_vec(&manifest).map_err(zip_err)?;
@@ -695,6 +774,7 @@ fn build_nav(lang: &str, title: &str, chapters: &[ManifestChapter]) -> String {
 fn build_opf(
     meta: &EpubMeta,
     title: &str,
+    book_title: &str,
     chapters: &[ManifestChapter],
     images: &[(String, String)],
     cover: Option<&(String, String)>,
@@ -748,6 +828,25 @@ fn build_opf(
     } else {
         ""
     };
+    // A volume copy is one book of a series named after the whole book.
+    let series_meta = meta
+        .scope
+        .map(|scope| {
+            let index = format_number(scope.volume);
+            format!(
+                concat!(
+                    "    <meta property=\"belongs-to-collection\" id=\"series\">{name}</meta>\n",
+                    "    <meta refines=\"#series\" property=\"collection-type\">series</meta>\n",
+                    "    <meta refines=\"#series\" property=\"group-position\">{index}</meta>\n",
+                    "    <meta name=\"calibre:series\" content=\"{attr}\"/>\n",
+                    "    <meta name=\"calibre:series_index\" content=\"{index}\"/>\n",
+                ),
+                name = escape_text(book_title),
+                attr = escape_attr(book_title),
+                index = index,
+            )
+        })
+        .unwrap_or_default();
 
     // `metadata`, `manifest`, `spine` must stay in this order: CFIs address the spine as
     // the third child of `package` (`/6`).
@@ -755,19 +854,19 @@ fn build_opf(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="pub-id" xml:lang="{lang}">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-    <dc:identifier id="pub-id">urn:uuid:{identifier}</dc:identifier>
+    <dc:identifier id="pub-id">{identifier}</dc:identifier>
     <dc:title>{title}</dc:title>
     <dc:creator id="creator">{author}</dc:creator>
     <dc:language>{lang}</dc:language>
 {description}    <meta property="dcterms:modified">{modified}</meta>
-{cover_meta}  </metadata>
+{cover_meta}{series_meta}  </metadata>
   <manifest>
 {manifest}  </manifest>
   <spine>
 {spine}  </spine>
 </package>
 "#,
-        identifier = escape_text(&meta.book_id),
+        identifier = escape_text(&publication_identifier(meta)),
         title = escape_text(title),
         author = escape_text(meta.author.trim()),
         description = description_xml,
@@ -809,6 +908,12 @@ impl ExistingEpub {
 
     pub fn has_image(&self, filename: &str) -> bool {
         self.entries.contains(&image_entry_name(filename))
+    }
+
+    /// Whether the file is the copy of `book_id` holding `volume` (`None`: the whole book).
+    /// Copies of different scopes are different files and never replace one another.
+    pub fn is_copy_of(&self, book_id: &str, volume: Option<f32>) -> bool {
+        self.manifest.book_id == book_id && self.manifest.volume == volume
     }
 
     /// Cover file name, when the previous build embedded one.
@@ -874,6 +979,64 @@ pub fn remap_cfi_spine(cfi: &str, moved: &HashMap<usize, usize>) -> Option<Strin
     Some(format!("{CFI_SPINE_PREFIX}{}{rest}", (new + 1) * 2))
 }
 
+/// Moves the spine step of a CFI by `delta` spine items (a volume copy addresses its
+/// first chapter as spine item 0, the server counts from the start of the book).
+/// Returns `None` for anything that is not a spine-addressed CFI or would leave the spine.
+pub fn shift_cfi_spine(cfi: &str, delta: i64) -> Option<String> {
+    let (_, rest) = split_spine_step(cfi)?;
+    let old = cfi_spine_index(cfi)? as i64;
+    let new = old.checked_add(delta)?;
+    if new < 0 {
+        return None;
+    }
+    Some(format!("{CFI_SPINE_PREFIX}{}{rest}", (new + 1) * 2))
+}
+
+// ================= PERCENTAGES OF A VOLUME COPY =================
+//
+// The server keeps one reading percentage per book, in the scale of the whole book. A
+// volume copy covers `chapters_in_copy` chapters that start `chapters_before` chapters
+// into a book of `book_chapters`.
+
+fn scale_total(chapters_before: usize, chapters_in_copy: usize, book_chapters: usize) -> usize {
+    // Counts recorded at build time may lag behind one another
+    book_chapters.max(chapters_before + chapters_in_copy)
+}
+
+/// Reading percentage inside a volume copy -> percentage of the whole book.
+pub fn copy_to_book_percent(
+    percent: f32,
+    chapters_before: usize,
+    chapters_in_copy: usize,
+    book_chapters: usize,
+) -> f32 {
+    let total = scale_total(chapters_before, chapters_in_copy, book_chapters);
+    if total == 0 || percent.is_nan() {
+        return percent;
+    }
+    // f64: a few thousand chapters times a percentage should not pick up f32 noise
+    let fraction = (f64::from(percent) / 100.0).clamp(0.0, 1.0);
+    let chapters_read = chapters_before as f64 + fraction * chapters_in_copy as f64;
+    (chapters_read / total as f64 * 100.0).clamp(0.0, 100.0) as f32
+}
+
+/// Percentage of the whole book -> reading percentage inside a volume copy (0 before the
+/// copy starts, 100 after it ends).
+pub fn book_to_copy_percent(
+    percent: f32,
+    chapters_before: usize,
+    chapters_in_copy: usize,
+    book_chapters: usize,
+) -> f32 {
+    let total = scale_total(chapters_before, chapters_in_copy, book_chapters);
+    if total == 0 || chapters_in_copy == 0 || percent.is_nan() {
+        return percent;
+    }
+    let chapters_read = (f64::from(percent) / 100.0).clamp(0.0, 1.0) * total as f64;
+    let fraction = (chapters_read - chapters_before as f64) / chapters_in_copy as f64;
+    (fraction.clamp(0.0, 1.0) * 100.0) as f32
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -888,6 +1051,7 @@ mod tests {
             author: "Author".into(),
             language: "ru".into(),
             description: Some("Desc <b>".into()),
+            scope: None,
         }
     }
 
@@ -1055,6 +1219,89 @@ mod tests {
     }
 
     #[test]
+    fn test_volume_copy_metadata() {
+        let mut writer = EpubWriter::new(Cursor::new(Vec::new())).expect("writer");
+        let (doc, _) = render_chapter("ru", 7.0, "Seventh", &["text".to_string()], PREFIX);
+        writer.add_chapter("c7", &doc).expect("chapter");
+        let mut meta = meta();
+        meta.scope = Some(VolumeScope {
+            volume: 3.0,
+            chapters_before: 40,
+            book_chapters: 100,
+        });
+        let chapters = vec![manifest_chapter("c7", 3.0, 7.0, "Seventh")];
+        let (cursor, manifest) = writer.finish(&meta, &chapters).expect("finish");
+        assert_eq!(manifest.volume, Some(3.0));
+        assert_eq!(manifest.chapters_before, Some(40));
+        assert_eq!(manifest.book_chapters, Some(100));
+
+        let mut archive = ZipArchive::new(Cursor::new(cursor.into_inner())).expect("archive");
+        let opf = read_entry(&mut archive, "OEBPS/content.opf");
+        assert!(opf.contains("<dc:title>Test &amp; Title — Том 3</dc:title>"));
+        assert!(opf.contains(
+            "<dc:identifier id=\"pub-id\">urn:folio:00000000-0000-0000-0000-000000000001:volume:3</dc:identifier>"
+        ));
+        assert!(opf.contains("<meta name=\"calibre:series\" content=\"Test &amp; Title\"/>"));
+        assert!(opf.contains("<meta name=\"calibre:series_index\" content=\"3\"/>"));
+        assert!(opf.contains(
+            "<meta property=\"belongs-to-collection\" id=\"series\">Test &amp; Title</meta>"
+        ));
+        assert!(
+            opf.contains("<meta refines=\"#series\" property=\"collection-type\">series</meta>")
+        );
+        assert!(opf.contains("<meta refines=\"#series\" property=\"group-position\">3</meta>"));
+        // Series metadata stays inside `metadata`, the spine is still the third child
+        assert!(opf.find("calibre:series").expect("series") < opf.find("<manifest>").expect("m"));
+
+        // One volume: a flat table of contents under the volume title
+        let nav = read_entry(&mut archive, "OEBPS/nav.xhtml");
+        assert!(nav.contains("<h1>Test &amp; Title — Том 3</h1>"));
+        assert!(nav.contains("<li><a href=\"ch-c7.xhtml\">7. Seventh</a></li>"));
+
+        let raw = read_entry(&mut archive, MANIFEST_PATH);
+        assert!(raw.contains("\"volume\":3.0"));
+        assert!(raw.contains("\"chaptersBefore\":40"));
+        assert!(raw.contains("\"bookChapters\":100"));
+
+        let existing = read_existing(&mut archive).expect("manifest");
+        assert!(existing.is_copy_of("00000000-0000-0000-0000-000000000001", Some(3.0)));
+        assert!(!existing.is_copy_of("00000000-0000-0000-0000-000000000001", None));
+        assert!(!existing.is_copy_of("00000000-0000-0000-0000-000000000001", Some(4.0)));
+        assert!(!existing.is_copy_of("00000000-0000-0000-0000-000000000002", Some(3.0)));
+    }
+
+    #[test]
+    fn test_whole_book_manifest_has_no_volume_fields() {
+        let mut writer = EpubWriter::new(Cursor::new(Vec::new())).expect("writer");
+        let (doc, _) = render_chapter("ru", 1.0, "First", &["text".to_string()], PREFIX);
+        writer.add_chapter("c1", &doc).expect("chapter");
+        let chapters = vec![manifest_chapter("c1", 1.0, 1.0, "First")];
+        let (cursor, _) = writer.finish(&meta(), &chapters).expect("finish");
+        let mut archive = ZipArchive::new(Cursor::new(cursor.into_inner())).expect("archive");
+        let raw: serde_json::Value =
+            serde_json::from_str(&read_entry(&mut archive, MANIFEST_PATH)).expect("json");
+        let fields = raw.as_object().expect("object");
+        assert!(!fields.contains_key("volume"));
+        assert!(!fields.contains_key("chaptersBefore"));
+        assert!(!fields.contains_key("bookChapters"));
+        let opf = read_entry(&mut archive, "OEBPS/content.opf");
+        assert!(!opf.contains("calibre:series"));
+        let existing = read_existing(&mut archive).expect("manifest");
+        assert!(existing.is_copy_of("00000000-0000-0000-0000-000000000001", None));
+    }
+
+    #[test]
+    fn test_volume_names() {
+        assert_eq!(volume_title("ru", " Книга ", 3.0), "Книга — Том 3");
+        assert_eq!(volume_title("en", "Book", 1.5), "Book — Volume 1.5");
+        assert_eq!(volume_file_stem("Book", 3.0), "Book - Vol 03");
+        assert_eq!(volume_file_stem("Book", 14.0), "Book - Vol 14");
+        assert_eq!(volume_file_stem("Book", 120.0), "Book - Vol 120");
+        assert_eq!(volume_file_stem("Book", 3.5), "Book - Vol 03.5");
+        assert_eq!(volume_file_stem("Book", 0.0), "Book - Vol 00");
+    }
+
+    #[test]
     fn test_update_reuses_unchanged_chapters() {
         let mut writer = EpubWriter::new(Cursor::new(Vec::new())).expect("writer");
         let (doc1, _) = render_chapter("ru", 1.0, "First", &["old text".to_string()], PREFIX);
@@ -1166,6 +1413,40 @@ mod tests {
         assert_eq!(remap_cfi_spine("epubcfi(/6/12!/4)", &moved), None);
         assert_eq!(remap_cfi_spine("epubcfi(/6/2!/4)", &moved), None);
         assert_eq!(remap_cfi_spine("not a cfi", &moved), None);
+
+        assert_eq!(
+            shift_cfi_spine("epubcfi(/6/4!/4/2,/1:0,/1:5)", 40).as_deref(),
+            Some("epubcfi(/6/84!/4/2,/1:0,/1:5)")
+        );
+        assert_eq!(
+            shift_cfi_spine("epubcfi(/6/84!/4/2/1:3)", -40).as_deref(),
+            Some("epubcfi(/6/4!/4/2/1:3)")
+        );
+        assert_eq!(
+            shift_cfi_spine("epubcfi(/6/2!/4)", 0).as_deref(),
+            Some("epubcfi(/6/2!/4)")
+        );
+        assert_eq!(shift_cfi_spine("epubcfi(/6/4!/4)", -2), None);
+        assert_eq!(shift_cfi_spine("ch:abc", 3), None);
+    }
+
+    #[test]
+    fn test_volume_copy_percentages() {
+        // A volume of 50 chapters that starts 100 chapters into a book of 200
+        assert_eq!(copy_to_book_percent(0.0, 100, 50, 200), 50.0);
+        assert_eq!(copy_to_book_percent(50.0, 100, 50, 200), 62.5);
+        assert_eq!(copy_to_book_percent(100.0, 100, 50, 200), 75.0);
+        assert_eq!(book_to_copy_percent(62.5, 100, 50, 200), 50.0);
+        // Positions outside the copy clamp to its ends
+        assert_eq!(book_to_copy_percent(10.0, 100, 50, 200), 0.0);
+        assert_eq!(book_to_copy_percent(90.0, 100, 50, 200), 100.0);
+        // The last volume ends the book
+        assert_eq!(copy_to_book_percent(100.0, 150, 50, 200), 100.0);
+        // The book grew after the copy was built: its own chapters still count
+        assert_eq!(copy_to_book_percent(100.0, 150, 60, 200), 100.0);
+        // Nothing known about the book: the value passes through
+        assert_eq!(copy_to_book_percent(40.0, 0, 0, 0), 40.0);
+        assert_eq!(book_to_copy_percent(40.0, 10, 0, 0), 40.0);
     }
 
     #[test]

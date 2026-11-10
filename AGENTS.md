@@ -34,6 +34,8 @@ FolioReader/
 │       ├── lib.rs                # Tauri plugin registrations, app data dir resolution, invoke handlers
 │       ├── main.rs               # Executable desktop entrypoint
 │       ├── auth_proxy.rs         # Reqwest client with native cookie-jar for resilient auth sessions
+│       ├── chapters_book.rs      # Chapters books: chapter-by-chapter download/update of the whole book or single volumes
+│       ├── chapters_epub.rs      # EPUB 3 builder for Chapters books (chapters → XHTML, nav, OPF, manifest, CFI helpers)
 │       ├── db.rs                 # Embedded SQLite (sqlx) schema, migrations, and local CRUD
 │       ├── fs_manager.rs         # Local book scanning, streaming downloads, custom font management
 │       ├── reader_commands.rs    # Tauri IPC invoke commands bridging frontend to SQLite & Sync
@@ -66,7 +68,14 @@ FolioReader/
 - Reading progress and bookmarks are tracked using **EPUB Canonical Fragment Identifiers (CFI)** (e.g. `epubcfi(/6/8!/4/2/1:0)`).
 - When communicating with the Folio server, positions are submitted with format negotiation (CFI or CFL) to ensure cross-device consistency with KOReader (`FolioSync`).
 
-### D. Platform-Native Integrations
+### D. Books Without a File (`Chapters` Kind)
+
+- Folio stores some books as separate chapters (`kind = "Chapters"`); they have no file and `/download` answers `409`. The core downloads the chapters (`GET /books/{id}/chapters`, `/chapters/{chapterId}`, `/images/{file}`, `/cover`) and builds a local EPUB (`chapters_book.rs`, `chapters_epub.rs`): one `ch-<chapterId>.xhtml` per chapter, nothing but chapters in the spine, and `META-INF/folio-chapters.json` listing what the file holds. Running the download again updates the file, reusing unchanged chapters and illustrations. The layout is shared with the server compiler and FolioSync — change it in all three together.
+- **Copies**: a book can be downloaded whole (one file) or one volume at a time (`GET /books/{id}/volumes`, `/chapters?volume=N`): every volume is a file of its own (`{name} - Vol 03.epub`, title `{title} — Том 3`, series metadata, manifest fields `volume` / `chaptersBefore` / `bookChapters`) that is updated independently. A file is the copy of (book, volume) only if its manifest says so; copies never overwrite one another.
+- **Bookkeeping** (`db.rs`): `chapter_copies` records which part of which server book a local file holds, `chapter_copy_chapters` its chapter order. Reading state of a copy (progress, recent entry, bookmarks, annotations, sessions) is stored under its **local id only** — never under the server id, which several copies share (`related_row_ids`). Books downloaded as files keep the "local id or server id" lookup.
+- **Sync** (`sync_manager.rs`): the position goes to the server as `ch:<chapterId>`. A volume copy translates between its own scale and the whole book: percentages (`chaptersBefore`, chapters in the copy, `bookChapters`), the read flag (finishing a volume finishes the book only if it is the last one, and never clears the flag), and the spine index of bookmarks and annotations (shifted by `chaptersBefore`; server items outside the copy are ignored, never deleted).
+
+### E. Platform-Native Integrations
 
 - **Android Navigation**: Uses hardware back button handlers (`useBackButton`) to dismiss modals, drawers, and reader views before allowing the app to background.
 - **Dynamic Status Bar**: Updates system UI colors on mobile to match the active reader theme (`Light`, `Sepia`, `Gray`, `Dark`, `Solarized`).

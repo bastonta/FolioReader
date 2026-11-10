@@ -17,13 +17,53 @@ export interface ChaptersDownloadProgress {
   total: number;
 }
 
+/** A volume of a `Chapters` book (`GET /books/{id}/volumes`). */
+export interface BookVolume {
+  volume: number;
+  chaptersCount: number;
+  firstChapter?: number | null;
+  lastChapter?: number | null;
+  /** Latest change among the chapters of the volume */
+  updated?: string | null;
+}
+
+export interface BookVolumesResponse {
+  items: BookVolume[];
+  chaptersTotal?: number | null;
+}
+
+/**
+ * A local EPUB built from the chapters of a `Chapters` book: the whole book, or a single
+ * volume as a file of its own (`db_get_chapter_copies`).
+ */
+export interface ChapterCopy {
+  /** Local library id of the file */
+  localId: string;
+  serverBookId: string;
+  /** Volume the file holds; absent for a copy of the whole book */
+  volume?: number | null;
+  /** Chapters of the book in the volumes before this one */
+  chaptersBefore: number;
+  /** Chapters in the whole book when the copy was built */
+  bookChapters: number;
+  /** Chapters in the file */
+  chaptersCount: number;
+  filePath?: string | null;
+  /** Title the library shows for the file (a volume copy carries its volume) */
+  title?: string | null;
+}
+
 /** Result of the `download_chapters_book` command. */
 export interface ChaptersBookDownloadResult {
   /** Absolute path of the EPUB built from the chapters */
   filePath: string;
   /** Local library id of that file */
   localId: string;
-  /** Chapters in the book after this run */
+  /** Volume the file holds; absent for a copy of the whole book */
+  volume?: number | null;
+  /** Title of the file: the book title, with the volume appended for a volume copy */
+  title: string;
+  /** Chapters in the file after this run */
   chaptersTotal: number;
   /** Chapters downloaded in this run (new or changed since the previous build) */
   chaptersFetched: number;
@@ -32,6 +72,12 @@ export interface ChaptersBookDownloadResult {
   imagesMissing: number;
   /** Reading position (EPUB CFI) restored from the server progress on a first download */
   location?: string | null;
+  /**
+   * Reading progress the new file starts with, in its own scale (a volume copy counts
+   * from its first chapter). Absent when the server position says nothing about this file.
+   */
+  progressPercent?: number | null;
+  isRead?: boolean | null;
   /** `true` when an existing local copy was updated rather than created */
   updated: boolean;
 }
