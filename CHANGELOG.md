@@ -21,7 +21,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - The catalog lists `Chapters` books alongside `File` books and downloads them chapter by chapter.
 - Local copies built from chapters keep their progress, bookmarks, annotations and reading sessions under the id of their own file (`chapter_copies` / `chapter_copy_chapters` tables replace `chapter_book_chapters`, existing data is migrated), so several copies of one server book never read one another's positions. Bookmark and annotation server ids are unique per local book instead of table-wide.
-- Deleting a book file from the library also forgets the chapter layout of a copy built from chapters.
+- Deleting a book file from the library keeps the record of what the file was (a copy built from chapters), so changes that were not synced yet are still sent in the scale of the whole book.
+- Signing out, an expired session and changing the server no longer delete local data. The local database remembers the account it belongs to and is cleared only when a different account signs in; changes that were not synced yet are sent after the next sign-in.
+- Reading progress is exchanged with the server together with the time of the change (`updatedAt`; requires a Folio server that compares it): an older position never replaces a newer one, a background sync never moves the reader, and the reader moves to the server position only when a book is opened or synced by hand.
+- Marking a book read or unread no longer invents a reading position; the mark reaches the server through the regular sync (`db_set_read_status` command).
+- Books are read from disk in pieces (`get_book_file_size`, `read_book_file_range`) instead of one buffer of the whole file.
+
+### Security
+- Scripts inside books are no longer executed: `blob:` is removed from `script-src` of the Content-Security-Policy (`object-src 'none'`, `base-uri 'self'` and `form-action 'none'` are added), and scripts listed in a book's manifest are not loaded. A script in an EPUB could read the access token and call application commands.
+- Links in a book or in its description open in the system browser instead of replacing the application window.
+
+### Fixed
+- A failed request after a token refresh (a `404` for a book without progress, a `409`, a server error) no longer signs the user out and deletes all local data. The session ends only when the server rejects the refresh token itself.
+- A device that comes online with an old reading position no longer overwrites a newer one; a page turned while a sync is in flight is no longer lost; closing or minimising the reader no longer re-sends an unchanged position; page turns made before the first server answer arrives are kept.
+- "Mark as unread" is no longer undone by the next sync, and "mark as read" is no longer lost for a whole book built from chapters.
+- A downloaded file is matched to a server book by its content, not by its file name: "Volume 1" of one series is no longer bound to "Volume 1" of another, and a download never overwrites the file of a different book (it is saved as `{name} ({id}).epub`).
+- A volume copy learns about volumes and chapters added on the server before every sync, so finishing what used to be the last volume no longer marks the whole book as read.
+- An expired access token is renewed before commands of the native core use it (sync, downloads, building a book from chapters); a rejected token is reported instead of being taken for a finished sync, and no longer builds a book with missing illustrations.
+- Changing the password keeps the session alive (`auth_password_change_proxy` stores the refresh token the server issues with the change).
+- Clearing the note of an annotation is saved; creating a bookmark or an annotation is not duplicated when the answer of the server is lost; a deletion applies to the book it was made in only.
+- Reading time: the tail of a session is saved when the application goes to the background, activity inside the book counts, and statistics use the time zone of the device.
+- Downloads of large files are no longer cut off after two minutes; stale temporary files are removed; control characters in chapter or book titles no longer break a book built from chapters.
+- A damaged local database is set aside and recreated instead of crashing the application at every start.
+- Opening one book while another is still loading no longer replaces the book being read; out-of-order catalog answers are ignored; both pages of a fixed-layout spread react to touches; arrow keys in the image viewer no longer turn pages; a custom font applies to the first book opened after start; a copy keeps its identity when the download folder changes.
 
 ## [0.8.2] - 2026-09-29
 
