@@ -1039,6 +1039,27 @@ pub fn copy_to_book_percent(
     (chapters_read / total as f64 * 100.0).clamp(0.0, 100.0) as f32
 }
 
+/// Reading percentage of a copy after its chapter list changed (chapters added, removed or
+/// reordered by an update), for a reader whose position is in the same chapter: it was the
+/// `old_index`-th of `old_total` chapters and is the `new_index`-th of `new_total` now.
+///
+/// The place inside that chapter is taken from the old percentage, so a reader who finished
+/// the last of 100 chapters is at 50 % once 100 more arrive.
+pub fn rescale_percent(
+    percent: f32,
+    old_index: usize,
+    old_total: usize,
+    new_index: usize,
+    new_total: usize,
+) -> f32 {
+    if old_total == 0 || new_total == 0 || percent.is_nan() {
+        return percent;
+    }
+    let fraction = (f64::from(percent) / 100.0).clamp(0.0, 1.0);
+    let in_chapter = (fraction * old_total as f64 - old_index as f64).clamp(0.0, 1.0);
+    ((new_index as f64 + in_chapter) / new_total as f64 * 100.0).clamp(0.0, 100.0) as f32
+}
+
 /// Percentage of the whole book -> reading percentage inside a volume copy (0 before the
 /// copy starts, 100 after it ends).
 pub fn book_to_copy_percent(
@@ -1504,6 +1525,21 @@ mod tests {
         // Nothing known about the book: the value passes through
         assert_eq!(copy_to_book_percent(40.0, 0, 0, 0), 40.0);
         assert_eq!(book_to_copy_percent(40.0, 10, 0, 0), 40.0);
+    }
+
+    #[test]
+    fn test_rescale_percent_after_update() {
+        // Finished the last of 100 chapters, 100 more arrived
+        assert_eq!(rescale_percent(100.0, 99, 100, 99, 200), 50.0);
+        // Halfway through chapter 3 of 4 (62.5 %), one chapter inserted before it
+        assert_eq!(rescale_percent(62.5, 2, 4, 3, 5), 70.0);
+        // Chapters removed after the position
+        assert_eq!(rescale_percent(25.0, 0, 4, 0, 2), 50.0);
+        // Rounding of the stored percentage never leaves the chapter
+        assert_eq!(rescale_percent(99.9, 9, 10, 9, 20), 49.95);
+        assert_eq!(rescale_percent(0.0, 5, 10, 5, 20), 25.0);
+        // Nothing known: the value passes through
+        assert_eq!(rescale_percent(40.0, 0, 0, 0, 10), 40.0);
     }
 
     #[test]

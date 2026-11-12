@@ -2137,8 +2137,84 @@ pub async fn save_chapter_copy(
     // was saved without them would leave every CFI on the indexes of the previous build.
     remap_book_cfis_in(&mut tx, local_id, &moved).await?;
 
+    if !old.is_empty() {
+        rescale_copy_progress_in(&mut tx, local_id, &old, chapter_ids).await?;
+    }
+
     tx.commit().await?;
     Ok(moved)
+}
+
+/// The percentage of a copy follows its chapter list: after an update added, removed or
+/// reordered chapters, the stored percentage is recomputed for the chapter the reader is in
+/// ([`crate::chapters_epub::rescale_percent`]) and queued for the server. A book that has
+/// more chapters after the reading position than before is no longer read.
+///
+/// Runs after [`remap_book_cfis_in`]: the stored CFI already points at the new spine index.
+/// The change is dated just after the stored position, not now: a newer position that
+/// another device sent in the meantime keeps priority on the server.
+async fn rescale_copy_progress_in(
+    tx: &mut sqlx::Transaction<'_, Sqlite>,
+    local_id: &str,
+    old: &std::collections::HashMap<String, i64>,
+    chapter_ids: &[String],
+) -> Result<(), sqlx::Error> {
+    let row: Option<(String, f32, bool, String, String)> = sqlx::query_as(
+        "SELECT location, progress_percent, is_read != 0, updated_at, sync_status FROM book_progress WHERE book_id = ?",
+    )
+    .bind(local_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    let Some((location, percent, is_read, updated_at, sync_status)) = row else {
+        return Ok(());
+    };
+
+    let Some(new_index) = crate::chapters_epub::cfi_spine_index(&location) else {
+        return Ok(());
+    };
+    let Some(&old_index) = chapter_ids.get(new_index).and_then(|id| old.get(id)) else {
+        return Ok(());
+    };
+    if old_index < 0 {
+        return Ok(());
+    }
+    let (old_index, old_total) = (old_index as usize, old.len());
+    let new_total = chapter_ids.len();
+
+    let new_percent =
+        crate::chapters_epub::rescale_percent(percent, old_index, old_total, new_index, new_total);
+    let new_is_read = is_read && new_total - new_index <= old_total - old_index;
+    if (new_percent - percent).abs() < 0.0001 && new_is_read == is_read {
+        return Ok(());
+    }
+
+    let changed_at = parse_timestamp(&updated_at)
+        .map(|t| t + chrono::Duration::milliseconds(1))
+        .unwrap_or_else(Utc::now);
+    let sync_status = if sync_status == "local_only" {
+        "local_only"
+    } else {
+        "pending"
+    };
+
+    sqlx::query(
+        "UPDATE book_progress SET progress_percent = ?, is_read = ?, updated_at = ?, sync_status = ? WHERE book_id = ?",
+    )
+    .bind(new_percent)
+    .bind(if new_is_read { 1 } else { 0 })
+    .bind(format_timestamp(changed_at))
+    .bind(sync_status)
+    .bind(local_id)
+    .execute(&mut **tx)
+    .await?;
+
+    sqlx::query("UPDATE recent_books SET progress_fraction = ? WHERE id = ?")
+        .bind(new_percent / 100.0)
+        .bind(local_id)
+        .execute(&mut **tx)
+        .await?;
+
+    Ok(())
 }
 
 /// Updates where a volume copy sits in its book (the server's list of volumes is the
@@ -2993,7 +3069,10 @@ mod tests {
             .expect("must exist");
         // Chained moves (1 -> 2, 2 -> 3) must be applied exactly once
         assert_eq!(progress.location, "epubcfi(/6/6!/4/2/1:10)");
-        assert_eq!(progress.sync_status, "synced");
+        // Halfway through chapter 2 of 3 is halfway through chapter 3 of 4 now, and the
+        // corrected percentage waits to be pushed
+        assert!((progress.progress_percent - 62.5).abs() < 0.001);
+        assert_eq!(progress.sync_status, "pending");
 
         let bookmarks = get_bookmarks(&pool, local_id).await.expect("bookmarks");
         assert_eq!(bookmarks[0].location, "epubcfi(/6/8!/4/2/1:3)");
