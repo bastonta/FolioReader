@@ -92,10 +92,29 @@ pub struct EpubMeta {
 
 // ================= TEXT HELPERS =================
 
+/// Whether XML 1.0 can carry the character at all. The rest — control characters,
+/// `U+FFFE`, `U+FFFF` — make a document ill-formed even as character references: one of
+/// them in a chapter name takes the whole table of contents with it.
+fn is_xml_char(c: char) -> bool {
+    matches!(
+        c,
+        '\t' | '\n' | '\r' | '\u{20}'..='\u{D7FF}' | '\u{E000}'..='\u{FFFD}' | '\u{10000}'..='\u{10FFFF}'
+    )
+}
+
 fn escape_text(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
+    let mut escaped = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            c if is_xml_char(c) => escaped.push(c),
+            // Dropped: there is no way to write it
+            _ => {}
+        }
+    }
+    escaped
 }
 
 fn escape_attr(s: &str) -> String {
@@ -1074,6 +1093,44 @@ mod tests {
             .read_to_string(&mut out)
             .expect("utf-8 entry");
         out
+    }
+
+    #[test]
+    fn test_characters_xml_cannot_carry_are_dropped() {
+        assert_eq!(
+            escape_text("a\u{0}b\u{8}c\u{1b}[0m\u{b}\u{c}d\u{ffff}e\tf\ng"),
+            "abc[0mde\tf\ng"
+        );
+        assert_eq!(
+            escape_attr("\"q\u{1f}\" & <я 🙂>"),
+            "&quot;q&quot; &amp; &lt;я 🙂&gt;"
+        );
+
+        // A chapter name and a book title with control characters still give documents
+        // an XML parser accepts: nothing it would reject is left in any of them
+        let mut writer = EpubWriter::new(Cursor::new(Vec::new())).expect("writer");
+        let (doc, _) = render_chapter("en", 1.0, "Na\u{1}me", &["Te\u{2}xt".to_string()], PREFIX);
+        writer.add_chapter("c1", &doc).expect("chapter");
+        let meta = EpubMeta {
+            title: "Ti\u{3}tle".into(),
+            author: "Au\u{4}thor".into(),
+            description: Some("De\u{5}sc".into()),
+            ..meta()
+        };
+        let chapters = vec![manifest_chapter("c1", 1.0, 1.0, "Na\u{1}me")];
+        let (cursor, _) = writer.finish(&meta, &chapters).expect("finish");
+        let mut archive = ZipArchive::new(Cursor::new(cursor.into_inner())).expect("archive");
+        for (entry, expected) in [
+            ("OEBPS/nav.xhtml", "Name"),
+            ("OEBPS/content.opf", "<dc:title>Title</dc:title>"),
+            ("OEBPS/content.opf", "Author"),
+            ("OEBPS/content.opf", "Desc"),
+            (chapter_entry_name("c1").as_str(), "Text"),
+        ] {
+            let text = read_entry(&mut archive, entry);
+            assert!(text.contains(expected), "{entry}: {expected}");
+            assert!(text.chars().all(is_xml_char), "{entry}");
+        }
     }
 
     #[test]

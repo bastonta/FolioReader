@@ -55,7 +55,7 @@ pub fn run() {
             let db_path = base_dir.join("folio_local.db");
 
             tauri::async_runtime::block_on(async move {
-                let pool = db::init_db(&db_path)
+                let pool = db::init_db_or_recover(&db_path)
                     .await
                     .expect("failed to initialize sqlite database");
                 app_handle.manage(pool);
@@ -69,6 +69,7 @@ pub fn run() {
             auth_proxy::auth_login_proxy,
             auth_proxy::auth_login_2fa_proxy,
             auth_proxy::auth_email_confirm_proxy,
+            auth_proxy::auth_password_change_proxy,
             auth_proxy::refresh_access_token,
             auth_proxy::auth_revoke_token,
             auth_proxy::clear_auth_cookies,
@@ -76,10 +77,13 @@ pub fn run() {
             fs_manager::pick_folder,
             fs_manager::scan_local_books,
             fs_manager::read_book_file,
+            fs_manager::get_book_file_size,
+            fs_manager::read_book_file_range,
             fs_manager::download_book_file,
             chapters_book::download_chapters_book,
             fs_manager::delete_book_file,
             fs_manager::check_book_downloaded,
+            fs_manager::find_downloaded_book,
             fs_manager::save_custom_font,
             fs_manager::list_custom_fonts,
             fs_manager::delete_custom_font,
@@ -89,11 +93,13 @@ pub fn run() {
             fs_manager::open_external_path,
             reader_commands::db_save_book_mapping,
             reader_commands::db_get_server_book_id,
+            reader_commands::db_get_local_id_for_file,
             reader_commands::db_check_downloaded_books,
             reader_commands::db_get_chapter_copies,
             reader_commands::db_get_chapter_copy,
             reader_commands::db_get_chapter_position,
             reader_commands::db_save_progress,
+            reader_commands::db_set_read_status,
             reader_commands::db_get_progress,
             reader_commands::db_delete_progress,
             reader_commands::db_get_bookmarks,

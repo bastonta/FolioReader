@@ -133,6 +133,13 @@ pub struct DbBookReadingStats {
     pub device_breakdown: Vec<DbDeviceStats>,
 }
 
+/// Path that opens a database kept in memory only.
+const IN_MEMORY_DB: &str = ":memory:";
+
+/// `app_kv` key set when the database file could not be used and the application runs on
+/// a database in memory: nothing it stores survives a restart. The value is the error.
+pub const STORAGE_ERROR_KEY: &str = "db:storage_error";
+
 pub async fn init_db(db_path: &Path) -> Result<DbPool, sqlx::Error> {
     if let Some(parent) = db_path.parent() {
         std::fs::create_dir_all(parent).ok();
@@ -145,10 +152,16 @@ pub async fn init_db(db_path: &Path) -> Result<DbPool, sqlx::Error> {
         .pragma("journal_mode", "WAL")
         .pragma("synchronous", "NORMAL");
 
-    let pool = SqlitePoolOptions::new()
-        .max_connections(5)
-        .connect_with(options)
-        .await?;
+    let mut pool_options = SqlitePoolOptions::new().max_connections(5);
+    if db_str == IN_MEMORY_DB {
+        // An in-memory database exists only while a connection to it is open: the pool
+        // must never let the last one go (idle connections are closed after ten minutes)
+        pool_options = pool_options
+            .min_connections(1)
+            .idle_timeout(None)
+            .max_lifetime(None);
+    }
+    let pool = pool_options.connect_with(options).await?;
 
     // Create tables
     sqlx::query(
@@ -287,32 +300,65 @@ pub async fn init_db(db_path: &Path) -> Result<DbPool, sqlx::Error> {
         eprintln!("Failed to migrate chapter layouts: {e}");
     }
 
-    let _ = sqlx::query(
-        r#"
-        UPDATE book_progress
-        SET progress_percent = (
-            SELECT rb.progress_fraction * 100.0
-            FROM recent_books rb
-            LEFT JOIN book_mappings bm ON bm.local_id = rb.id OR bm.server_book_id = rb.id
-            WHERE (rb.id = book_progress.book_id OR bm.local_id = book_progress.book_id OR bm.server_book_id = book_progress.book_id)
-              AND rb.progress_fraction > 0.01
-            LIMIT 1
-        )
-        WHERE is_read = 0
-          AND progress_percent > 0.0
-          AND progress_percent <= 1.0
-          AND EXISTS (
-            SELECT 1
-            FROM recent_books rb
-            LEFT JOIN book_mappings bm ON bm.local_id = rb.id OR bm.server_book_id = rb.id
-            WHERE (rb.id = book_progress.book_id OR bm.local_id = book_progress.book_id OR bm.server_book_id = book_progress.book_id)
-              AND rb.progress_fraction > 0.01
-          )
-        "#,
-    )
-    .execute(&pool)
-    .await;
+    if let Err(e) = normalize_progress_timestamps(&pool).await {
+        eprintln!("Failed to normalize progress timestamps: {e}");
+    }
+    if let Err(e) = fix_legacy_progress_fractions(&pool).await {
+        eprintln!("Failed to fix legacy progress fractions: {e}");
+    }
 
+    Ok(pool)
+}
+
+/// Whether the error says the file is not a usable SQLite database (`SQLITE_CORRUPT`,
+/// `SQLITE_NOTADB`), as opposed to a database that is merely busy or out of reach.
+fn is_corruption(error: &sqlx::Error) -> bool {
+    let Some(database_error) = error.as_database_error() else {
+        return false;
+    };
+    let primary_code = database_error
+        .code()
+        .and_then(|code| code.parse::<i32>().ok())
+        .map(|code| code & 0xff);
+    matches!(primary_code, Some(11) | Some(26))
+        || database_error.message().contains("malformed")
+        || database_error.message().contains("not a database")
+}
+
+/// [`init_db`] that does not leave the application crashing on every start. A database
+/// file that is damaged is set aside (`*.corrupt-<time>`, nothing is deleted) and a new
+/// one is created. If the database still cannot be opened, the application runs on an
+/// in-memory one: it starts, and the file on disk is left for a later start. That state
+/// is recorded under [`STORAGE_ERROR_KEY`] for the interface to show.
+pub async fn init_db_or_recover(db_path: &Path) -> Result<DbPool, sqlx::Error> {
+    let mut error = match init_db(db_path).await {
+        Ok(pool) => return Ok(pool),
+        Err(error) => error,
+    };
+    eprintln!("Failed to open the local database: {error}");
+
+    if is_corruption(&error) {
+        let stamp = Utc::now().format("%Y%m%d%H%M%S");
+        for suffix in ["", "-wal", "-shm"] {
+            let file = format!("{}{suffix}", db_path.display());
+            if Path::new(&file).exists() {
+                let _ = std::fs::rename(
+                    &file,
+                    format!("{}.corrupt-{stamp}{suffix}", db_path.display()),
+                );
+            }
+        }
+        match init_db(db_path).await {
+            Ok(pool) => return Ok(pool),
+            Err(recreate_error) => {
+                eprintln!("Failed to recreate the local database: {recreate_error}");
+                error = recreate_error;
+            }
+        }
+    }
+
+    let pool = init_db(Path::new(IN_MEMORY_DB)).await?;
+    set_app_kv(&pool, STORAGE_ERROR_KEY, &error.to_string()).await?;
     Ok(pool)
 }
 
@@ -325,6 +371,90 @@ async fn table_sql(pool: &DbPool, table: &str) -> Result<Option<String>, sqlx::E
     .bind(table)
     .fetch_optional(pool)
     .await
+}
+
+/// Early versions stored the reading fraction (0..1) where a percentage belongs. Such rows
+/// carry exactly the number the recent books list has as a fraction. The repair runs once
+/// per database: genuine progress below 1% (a few chapters of a book with thousands) must
+/// never be "repaired" on a later start.
+async fn fix_legacy_progress_fractions(pool: &DbPool) -> Result<(), sqlx::Error> {
+    const DONE_KEY: &str = "migration:legacy_progress_fractions";
+    if get_app_kv(pool, DONE_KEY).await?.is_some() {
+        return Ok(());
+    }
+
+    sqlx::query(
+        r#"
+        UPDATE book_progress
+        SET progress_percent = (
+            SELECT rb.progress_fraction * 100.0
+            FROM recent_books rb
+            LEFT JOIN book_mappings bm ON bm.local_id = rb.id OR bm.server_book_id = rb.id
+            WHERE (rb.id = book_progress.book_id OR bm.local_id = book_progress.book_id OR bm.server_book_id = book_progress.book_id)
+              AND rb.progress_fraction > 0.01
+              AND ABS(rb.progress_fraction - book_progress.progress_percent) < 0.0005
+            LIMIT 1
+        )
+        WHERE is_read = 0
+          AND progress_percent > 0.0
+          AND progress_percent <= 1.0
+          AND EXISTS (
+            SELECT 1
+            FROM recent_books rb
+            LEFT JOIN book_mappings bm ON bm.local_id = rb.id OR bm.server_book_id = rb.id
+            WHERE (rb.id = book_progress.book_id OR bm.local_id = book_progress.book_id OR bm.server_book_id = book_progress.book_id)
+              AND rb.progress_fraction > 0.01
+              AND ABS(rb.progress_fraction - book_progress.progress_percent) < 0.0005
+          )
+        "#,
+    )
+    .execute(pool)
+    .await?;
+
+    set_app_kv(pool, DONE_KEY, "done").await
+}
+
+// ================= TIMESTAMPS =================
+//
+// `book_progress.updated_at` is the time the position actually changed: the local clock
+// for a position the user read to, the server's `updatedAt` for a position taken from the
+// server. It decides which side wins when both changed, so it is kept in one fixed-width
+// UTC format whose text order is the chronological order.
+
+pub fn format_timestamp(time: chrono::DateTime<Utc>) -> String {
+    time.to_rfc3339_opts(chrono::SecondsFormat::Micros, true)
+}
+
+pub fn parse_timestamp(value: &str) -> Option<chrono::DateTime<Utc>> {
+    chrono::DateTime::parse_from_rfc3339(value.trim())
+        .ok()
+        .map(|time| time.with_timezone(&Utc))
+}
+
+/// Any RFC 3339 timestamp in the format of [`format_timestamp`].
+pub fn normalize_timestamp(value: &str) -> Option<String> {
+    parse_timestamp(value).map(format_timestamp)
+}
+
+/// Rewrites progress timestamps written by earlier versions (`+00:00`, variable precision).
+async fn normalize_progress_timestamps(pool: &DbPool) -> Result<(), sqlx::Error> {
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT book_id, updated_at FROM book_progress WHERE updated_at NOT LIKE '____-__-__T__:__:__.______Z'",
+    )
+    .fetch_all(pool)
+    .await?;
+    for (book_id, updated_at) in rows {
+        // A value that is not a timestamp loses against everything
+        let normalized = normalize_timestamp(&updated_at)
+            .unwrap_or_else(|| format_timestamp(chrono::DateTime::UNIX_EPOCH));
+        sqlx::query("UPDATE book_progress SET updated_at = ? WHERE book_id = ? AND updated_at = ?")
+            .bind(normalized)
+            .bind(&book_id)
+            .bind(&updated_at)
+            .execute(pool)
+            .await?;
+    }
+    Ok(())
 }
 
 /// Bookmarks and annotations used to carry a table-wide `UNIQUE` server id. Two local
@@ -468,12 +598,28 @@ async fn migrate_chapter_layouts(pool: &DbPool) -> Result<(), sqlx::Error> {
 
 // ================= BOOK MAPPINGS REPO =================
 
+/// Records which server book a local file is (an empty `server_book_id` only records the
+/// file). A local id that is already bound to a server book is never rebound to another
+/// one: its reading state would silently start syncing into that other book. Returns
+/// `false` when such a binding was left as it is.
 pub async fn save_book_mapping(
     pool: &DbPool,
     local_id: &str,
     server_book_id: &str,
     file_path: Option<&str>,
-) -> Result<(), sqlx::Error> {
+) -> Result<bool, sqlx::Error> {
+    if !server_book_id.is_empty() {
+        let bound = sqlx::query_scalar::<_, String>(
+            "SELECT server_book_id FROM book_mappings WHERE local_id = ? LIMIT 1",
+        )
+        .bind(local_id)
+        .fetch_optional(pool)
+        .await?;
+        if bound.is_some_and(|bound| !bound.is_empty() && bound != server_book_id) {
+            return Ok(false);
+        }
+    }
+
     let now = Utc::now().to_rfc3339();
     sqlx::query(
         r#"
@@ -526,7 +672,66 @@ pub async fn save_book_mapping(
         .await;
     }
 
-    Ok(())
+    Ok(true)
+}
+
+/// The server book a local id is bound to in `book_mappings` (`None`: not bound).
+pub async fn get_bound_server_book_id(
+    pool: &DbPool,
+    local_id: &str,
+) -> Result<Option<String>, sqlx::Error> {
+    let bound = sqlx::query_scalar::<_, String>(
+        "SELECT server_book_id FROM book_mappings WHERE local_id = ? LIMIT 1",
+    )
+    .bind(local_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(bound.filter(|id| !id.is_empty()))
+}
+
+/// Local id recorded for a file. The id is derived from the path of the file relative to
+/// the download folder at the time it was first seen; the recorded one must be used from
+/// then on, or the reading state of the file is lost when the folder setting changes.
+pub async fn get_local_id_for_file(
+    pool: &DbPool,
+    file_path: &str,
+) -> Result<Option<String>, sqlx::Error> {
+    sqlx::query_scalar::<_, String>(
+        r#"
+        SELECT bm.local_id FROM book_mappings bm
+        WHERE bm.file_path = ?
+        ORDER BY (bm.local_id IN (SELECT local_id FROM chapter_copies)) DESC,
+                 (bm.server_book_id != '') DESC,
+                 bm.created_at ASC
+        LIMIT 1
+        "#,
+    )
+    .bind(file_path)
+    .fetch_optional(pool)
+    .await
+}
+
+/// [`get_local_id_for_file`] for every recorded file, as `file path -> local id`.
+pub async fn get_local_ids_by_file(
+    pool: &DbPool,
+) -> Result<std::collections::HashMap<String, String>, sqlx::Error> {
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        r#"
+        SELECT bm.file_path, bm.local_id FROM book_mappings bm
+        WHERE bm.file_path IS NOT NULL AND bm.file_path != ''
+        ORDER BY (bm.local_id IN (SELECT local_id FROM chapter_copies)) DESC,
+                 (bm.server_book_id != '') DESC,
+                 bm.created_at ASC
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+    let mut result = std::collections::HashMap::new();
+    for (file_path, local_id) in rows {
+        // The first row of a file is the preferred one
+        result.entry(file_path).or_insert(local_id);
+    }
+    Ok(result)
 }
 
 pub async fn get_server_book_id(
@@ -698,6 +903,10 @@ pub async fn get_progress(
     .await
 }
 
+/// Stores a reading position. With `mark_pending` it is a position the user read to: it
+/// gets the current time as its change time and waits to be pushed. Saving the position
+/// that is already stored changes nothing — re-saving on close or when the app goes to
+/// the background must not turn an old position into a new change.
 pub async fn save_progress(
     pool: &DbPool,
     book_id: &str,
@@ -706,8 +915,50 @@ pub async fn save_progress(
     is_read: bool,
     mark_pending: bool,
 ) -> Result<DbBookProgress, sqlx::Error> {
-    let now = Utc::now().to_rfc3339();
+    save_progress_at(
+        pool,
+        book_id,
+        location,
+        progress_percent,
+        is_read,
+        mark_pending,
+        None,
+    )
+    .await
+}
+
+/// [`save_progress`] with an explicit change time (the server's `updatedAt` for a
+/// position that came from the server). A local change is never dated before the state
+/// it replaces, whatever the clocks say.
+pub async fn save_progress_at(
+    pool: &DbPool,
+    book_id: &str,
+    location: &str,
+    progress_percent: f32,
+    is_read: bool,
+    mark_pending: bool,
+    updated_at: Option<&str>,
+) -> Result<DbBookProgress, sqlx::Error> {
+    let mut changed_at = updated_at
+        .and_then(parse_timestamp)
+        .unwrap_or_else(Utc::now);
+
     let sync_status = if mark_pending {
+        let current = get_progress(pool, book_id).await?;
+        if let Some(current) = current {
+            let unchanged = current.location == location
+                && current.is_read == is_read
+                && (current.progress_percent - progress_percent).abs() < 0.0001;
+            if unchanged {
+                return Ok(current);
+            }
+            if let Some(previous) = parse_timestamp(&current.updated_at)
+                && previous >= changed_at
+            {
+                changed_at = previous + chrono::Duration::milliseconds(1);
+            }
+        }
+
         let is_mapped = uuid::Uuid::parse_str(book_id).is_ok()
             || sqlx::query_scalar::<_, i32>(
                 "SELECT COUNT(1) FROM book_mappings WHERE (local_id = ? OR file_path = ?) AND server_book_id != ''",
@@ -738,6 +989,7 @@ pub async fn save_progress(
     } else {
         "synced"
     };
+    let now = format_timestamp(changed_at);
 
     sqlx::query(
         r#"
@@ -768,6 +1020,126 @@ pub async fn save_progress(
         updated_at: now,
         sync_status: sync_status.to_string(),
     })
+}
+
+/// Marks the position that was pushed to the server as synced. `snapshot_updated_at` is
+/// the change time of the position the request was built from: a position saved while
+/// the request was in flight is newer and stays pending (`false` is returned).
+///
+/// `server_updated_at` is the time the server stored for the position (`None`: it did
+/// not say, or nothing was sent). It becomes the change time of the local position: the
+/// next pull compares against what the server holds, not against the clock of this
+/// device, which may run ahead of the server's.
+///
+/// The rows of the book under its other id that are not newer are brought to the same
+/// state: the newest row is the position of the book, and it must stay the pushed one.
+pub async fn mark_progress_synced(
+    pool: &DbPool,
+    book_id: &str,
+    alias_id: &str,
+    snapshot_updated_at: &str,
+    server_updated_at: Option<&str>,
+) -> Result<bool, sqlx::Error> {
+    let recorded = server_updated_at
+        .and_then(normalize_timestamp)
+        .unwrap_or_else(|| snapshot_updated_at.to_string());
+
+    let mut tx = pool.begin().await?;
+    let pushed: Option<(String, f32, i64)> = sqlx::query_as(
+        "SELECT location, progress_percent, is_read FROM book_progress WHERE (book_id = ? OR book_id = ?) AND updated_at = ? AND sync_status != 'synced' LIMIT 1",
+    )
+    .bind(book_id)
+    .bind(alias_id)
+    .bind(snapshot_updated_at)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some((location, progress_percent, is_read)) = pushed else {
+        return Ok(false);
+    };
+
+    sqlx::query(
+        "UPDATE book_progress SET location = ?, progress_percent = ?, is_read = ?, updated_at = ?, sync_status = 'synced' WHERE (book_id = ? OR book_id = ?) AND updated_at <= ?",
+    )
+    .bind(location)
+    .bind(progress_percent)
+    .bind(is_read)
+    .bind(&recorded)
+    .bind(book_id)
+    .bind(alias_id)
+    .bind(snapshot_updated_at)
+    .execute(&mut *tx)
+    .await?;
+    tx.commit().await?;
+    Ok(true)
+}
+
+/// Replaces the local position with the state of the server (`sync_status = 'synced'`),
+/// under `book_id` and `alias_id` alike. Nothing is written when the local position
+/// changed after `snapshot_updated_at` (the change time of the local position the
+/// decision was based on; `None`: there was none): that change stays pending. Returns
+/// whether the server state was stored.
+#[allow(clippy::too_many_arguments)]
+pub async fn adopt_remote_progress(
+    pool: &DbPool,
+    book_id: &str,
+    alias_id: &str,
+    snapshot_updated_at: Option<&str>,
+    location: &str,
+    progress_percent: f32,
+    is_read: bool,
+    remote_updated_at: Option<&str>,
+) -> Result<bool, sqlx::Error> {
+    let snapshot = snapshot_updated_at.unwrap_or("");
+    // The change time of the adopted position is the server's (see `mark_progress_synced`)
+    let updated_at = remote_updated_at
+        .and_then(normalize_timestamp)
+        .unwrap_or_else(|| {
+            if snapshot.is_empty() {
+                format_timestamp(Utc::now())
+            } else {
+                snapshot.to_string()
+            }
+        });
+
+    let mut tx = pool.begin().await?;
+    let mut stored = false;
+    let ids: &[&str] = if alias_id == book_id {
+        &[book_id]
+    } else {
+        &[book_id, alias_id]
+    };
+    for id in ids {
+        let written = sqlx::query(
+            r#"
+            INSERT INTO book_progress (book_id, location, progress_percent, is_read, updated_at, sync_status)
+            SELECT ?, ?, ?, ?, ?, 'synced'
+            WHERE NOT EXISTS (
+                SELECT 1 FROM book_progress
+                WHERE (book_id = ? OR book_id = ?) AND sync_status != 'synced' AND updated_at > ?
+            )
+            ON CONFLICT(book_id) DO UPDATE SET
+                location = excluded.location,
+                progress_percent = excluded.progress_percent,
+                is_read = excluded.is_read,
+                updated_at = excluded.updated_at,
+                sync_status = excluded.sync_status
+            "#,
+        )
+        .bind(id)
+        .bind(location)
+        .bind(progress_percent)
+        .bind(if is_read { 1 } else { 0 })
+        .bind(&updated_at)
+        .bind(book_id)
+        .bind(alias_id)
+        .bind(snapshot)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        stored |= written > 0;
+    }
+    tx.commit().await?;
+    Ok(stored)
 }
 
 pub async fn delete_progress(pool: &DbPool, book_id: &str) -> Result<(), sqlx::Error> {
@@ -1012,22 +1384,58 @@ pub async fn save_annotation(
     })
 }
 
-pub async fn delete_annotation(pool: &DbPool, id_or_value: &str) -> Result<(), sqlx::Error> {
-    let items = sqlx::query_as::<_, DbAnnotation>(
-        r#"
-        SELECT id, server_id, book_id, location_start, location_end, value, selected_text,
-               note, color, style, chapter_title, section_index, created_at, updated_at,
-               is_deleted != 0 AS is_deleted, sync_status
-        FROM annotations
-        WHERE (id = ? OR value = ? OR (value != '' AND value IN (SELECT a2.value FROM annotations a2 WHERE a2.id = ? AND a2.book_id = annotations.book_id)))
-          AND is_deleted = 0
-        "#,
-    )
-    .bind(id_or_value)
-    .bind(id_or_value)
-    .bind(id_or_value)
-    .fetch_all(pool)
-    .await?;
+/// Deletes an annotation by its id or by its CFI range (`value`). The same range exists
+/// in many books (and in every copy of one book), so a match by value is limited to
+/// `book_id`. Without `book_id` it is limited to the book of the annotation whose id was
+/// given; a bare range is then accepted only while a single book has it.
+pub async fn delete_annotation(
+    pool: &DbPool,
+    id_or_value: &str,
+    book_id: Option<&str>,
+) -> Result<(), sqlx::Error> {
+    const COLUMNS: &str = "id, server_id, book_id, location_start, location_end, value, selected_text, note, color, style, chapter_title, section_index, created_at, updated_at, is_deleted != 0 AS is_deleted, sync_status";
+
+    let items = match book_id {
+        Some(book_id) => {
+            let (s_id, l_id) = related_row_ids(pool, book_id).await;
+            sqlx::query_as::<_, DbAnnotation>(AssertSqlSafe(format!(
+                r#"
+                SELECT {COLUMNS}
+                FROM annotations
+                WHERE (book_id = ? OR book_id = ? OR book_id = ?)
+                  AND (id = ? OR value = ? OR (value != '' AND value IN (SELECT a2.value FROM annotations a2 WHERE a2.id = ? AND a2.book_id = annotations.book_id)))
+                  AND is_deleted = 0
+                "#
+            )))
+            .bind(book_id)
+            .bind(s_id)
+            .bind(l_id)
+            .bind(id_or_value)
+            .bind(id_or_value)
+            .bind(id_or_value)
+            .fetch_all(pool)
+            .await?
+        }
+        None => {
+            let by_id = sqlx::query_as::<_, DbAnnotation>(AssertSqlSafe(format!(
+                r#"
+                SELECT {COLUMNS}
+                FROM annotations
+                WHERE (id = ? OR (value != '' AND value IN (SELECT a2.value FROM annotations a2 WHERE a2.id = ? AND a2.book_id = annotations.book_id)))
+                  AND is_deleted = 0
+                "#
+            )))
+            .bind(id_or_value)
+            .bind(id_or_value)
+            .fetch_all(pool)
+            .await?;
+            if by_id.is_empty() {
+                annotations_of_single_book(pool, id_or_value, COLUMNS).await?
+            } else {
+                by_id
+            }
+        }
+    };
 
     for ann in items {
         if ann.server_id.is_none() && ann.sync_status == "pending_create" {
@@ -1044,6 +1452,29 @@ pub async fn delete_annotation(pool: &DbPool, id_or_value: &str) -> Result<(), s
     }
 
     Ok(())
+}
+
+/// Live annotations with the CFI range `value`, when all of them belong to one book
+/// (under its local id or its server id); none when several books have that range.
+async fn annotations_of_single_book(
+    pool: &DbPool,
+    value: &str,
+    columns: &str,
+) -> Result<Vec<DbAnnotation>, sqlx::Error> {
+    let items = sqlx::query_as::<_, DbAnnotation>(AssertSqlSafe(format!(
+        "SELECT {columns} FROM annotations WHERE value = ? AND value != '' AND is_deleted = 0"
+    )))
+    .bind(value)
+    .fetch_all(pool)
+    .await?;
+    let Some(first) = items.first() else {
+        return Ok(items);
+    };
+    let (s_id, l_id) = related_row_ids(pool, &first.book_id).await;
+    let same_book = items
+        .iter()
+        .all(|a| a.book_id == first.book_id || a.book_id == s_id || a.book_id == l_id);
+    Ok(if same_book { items } else { Vec::new() })
 }
 
 // ================= LOCAL BOOKS METADATA REPO =================
@@ -1702,35 +2133,84 @@ pub async fn save_chapter_copy(
     .execute(&mut *tx)
     .await?;
 
+    // The stored positions move together with the layout or not at all: a layout that
+    // was saved without them would leave every CFI on the indexes of the previous build.
+    remap_book_cfis_in(&mut tx, local_id, &moved).await?;
+
     tx.commit().await?;
     Ok(moved)
 }
 
-/// Forgets the copy stored in a file the user deleted.
-pub async fn delete_chapter_copy_at(pool: &DbPool, file_path: &str) -> Result<(), sqlx::Error> {
-    let mut tx = pool.begin().await?;
+/// Updates where a volume copy sits in its book (the server's list of volumes is the
+/// source): chapters in the volumes before it and chapters in the whole book. The copy
+/// itself — its file and its chapters — is not touched.
+pub async fn update_chapter_copy_scope(
+    pool: &DbPool,
+    local_id: &str,
+    chapters_before: usize,
+    book_chapters: usize,
+) -> Result<(), sqlx::Error> {
     sqlx::query(
-        "DELETE FROM chapter_copy_chapters WHERE local_id IN (SELECT local_id FROM book_mappings WHERE file_path = ?)",
+        "UPDATE chapter_copies SET chapters_before = ?, book_chapters = ? WHERE local_id = ? AND volume IS NOT NULL",
     )
-    .bind(file_path)
-    .execute(&mut *tx)
+    .bind(chapters_before as i64)
+    .bind(book_chapters as i64)
+    .bind(local_id)
+    .execute(pool)
     .await?;
-    sqlx::query(
-        "DELETE FROM chapter_copies WHERE local_id IN (SELECT local_id FROM book_mappings WHERE file_path = ?)",
-    )
-    .bind(file_path)
-    .execute(&mut *tx)
-    .await?;
-    tx.commit().await?;
     Ok(())
 }
 
-/// Forgets every copy of a server book (it is no longer read from locally built EPUBs).
+/// The server book is no longer read from locally built EPUBs (it has a real file now).
+/// The copies stop being copies — and stop being bound to the server book: a file built
+/// from chapters that synced as a regular book would report its own percentages and CFIs
+/// as those of the whole book. Their reading time, which is the same whatever the file,
+/// moves to the server book so that it still reaches the statistics.
+///
+/// `replaced_local_id` is the copy whose file was just overwritten by the real book: it
+/// keeps its binding, and its position (a CFI of the old build) is dropped.
 pub async fn delete_chapter_copies_of_book(
     pool: &DbPool,
     server_book_id: &str,
+    replaced_local_id: Option<&str>,
 ) -> Result<(), sqlx::Error> {
+    let copies = get_chapter_copies_of_books(pool, &[server_book_id.to_string()]).await?;
+    if copies.is_empty() {
+        return Ok(());
+    }
+
     let mut tx = pool.begin().await?;
+    for copy in &copies {
+        let sessions: Vec<(String, Option<f32>, Option<f32>)> = sqlx::query_as(
+            "SELECT id, start_progress, end_progress FROM reading_sessions WHERE book_id = ? AND sync_status = 'pending'",
+        )
+        .bind(&copy.local_id)
+        .fetch_all(&mut *tx)
+        .await?;
+        for (id, start_progress, end_progress) in sessions {
+            sqlx::query(
+                "UPDATE reading_sessions SET book_id = ?, start_progress = ?, end_progress = ? WHERE id = ?",
+            )
+            .bind(server_book_id)
+            .bind(start_progress.map(|p| copy.to_book_percent(p)))
+            .bind(end_progress.map(|p| copy.to_book_percent(p)))
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        if replaced_local_id == Some(copy.local_id.as_str()) {
+            sqlx::query("DELETE FROM book_progress WHERE book_id = ?")
+                .bind(&copy.local_id)
+                .execute(&mut *tx)
+                .await?;
+        } else {
+            sqlx::query("UPDATE book_mappings SET server_book_id = '' WHERE local_id = ?")
+                .bind(&copy.local_id)
+                .execute(&mut *tx)
+                .await?;
+        }
+    }
     sqlx::query(
         "DELETE FROM chapter_copy_chapters WHERE local_id IN (SELECT local_id FROM chapter_copies WHERE server_book_id = ?)",
     )
@@ -1779,8 +2259,10 @@ pub async fn get_chapter_id_at(
 /// Rewrites the spine step of every stored CFI of a copy after its chapters moved
 /// (`moved`: old spine position -> new spine position). Covers reading progress, the
 /// recent books list, bookmarks and annotations of that copy.
-pub async fn remap_book_cfis(
-    pool: &DbPool,
+///
+/// [`save_chapter_copy`] does this itself, in the transaction that stores the new layout.
+async fn remap_book_cfis_in(
+    tx: &mut sqlx::Transaction<'_, Sqlite>,
     local_id: &str,
     moved: &std::collections::HashMap<usize, usize>,
 ) -> Result<(), sqlx::Error> {
@@ -1792,12 +2274,11 @@ pub async fn remap_book_cfis(
 
     // Rows are rewritten one by one from values read up front: a set-based UPDATE per
     // moved position would remap the same row twice when positions chain (1 -> 2, 2 -> 3).
-    let mut tx = pool.begin().await?;
 
     let progress: Option<String> =
         sqlx::query_scalar("SELECT location FROM book_progress WHERE book_id = ?")
             .bind(local_id)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&mut **tx)
             .await?;
     if let Some(location) = progress
         && let Some(remapped) = remap_cfi_spine(&location, moved)
@@ -1805,7 +2286,7 @@ pub async fn remap_book_cfis(
         sqlx::query("UPDATE book_progress SET location = ? WHERE book_id = ?")
             .bind(remapped)
             .bind(local_id)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
     }
 
@@ -1813,7 +2294,7 @@ pub async fn remap_book_cfis(
         "SELECT last_location FROM recent_books WHERE id = ? AND last_location IS NOT NULL",
     )
     .bind(local_id)
-    .fetch_optional(&mut *tx)
+    .fetch_optional(&mut **tx)
     .await?;
     if let Some(location) = recent
         && let Some(remapped) = remap_cfi_spine(&location, moved)
@@ -1821,21 +2302,21 @@ pub async fn remap_book_cfis(
         sqlx::query("UPDATE recent_books SET last_location = ? WHERE id = ?")
             .bind(remapped)
             .bind(local_id)
-            .execute(&mut *tx)
+            .execute(&mut **tx)
             .await?;
     }
 
     let bookmarks: Vec<(String, String)> =
         sqlx::query_as("SELECT id, location FROM bookmarks WHERE book_id = ?")
             .bind(local_id)
-            .fetch_all(&mut *tx)
+            .fetch_all(&mut **tx)
             .await?;
     for (id, location) in bookmarks {
         if let Some(remapped) = remap_cfi_spine(&location, moved) {
             sqlx::query("UPDATE bookmarks SET location = ? WHERE id = ?")
                 .bind(remapped)
                 .bind(id)
-                .execute(&mut *tx)
+                .execute(&mut **tx)
                 .await?;
         }
     }
@@ -1844,7 +2325,7 @@ pub async fn remap_book_cfis(
         "SELECT id, location_start, location_end, value, section_index FROM annotations WHERE book_id = ?",
     )
     .bind(local_id)
-    .fetch_all(&mut *tx)
+    .fetch_all(&mut **tx)
     .await?;
     for (id, location_start, location_end, value, section_index) in annotations {
         let new_start = remap_cfi_spine(&location_start, moved);
@@ -1866,11 +2347,10 @@ pub async fn remap_book_cfis(
         .bind(new_value.unwrap_or(value))
         .bind(new_section.or(section_index))
         .bind(id)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
     }
 
-    tx.commit().await?;
     Ok(())
 }
 
@@ -1980,7 +2460,7 @@ mod tests {
             .expect("get annotations");
         assert_eq!(anns.len(), 1);
 
-        delete_annotation(&pool, ann_id)
+        delete_annotation(&pool, ann_id, Some(book_id))
             .await
             .expect("delete annotation");
         let anns_after = get_annotations(&pool, book_id)
@@ -2234,7 +2714,7 @@ mod tests {
         );
 
         // 4. Delete by ID of one of the duplicates - should clean up all duplicates for that CFI in the book (Bug 3.2 fix)
-        delete_annotation(&pool, "ann-1")
+        delete_annotation(&pool, "ann-1", None)
             .await
             .expect("delete annotation by id");
 
@@ -2294,7 +2774,7 @@ mod tests {
             .expect("get annotations");
         assert_eq!(anns_cfi2_before.len(), 2);
 
-        delete_annotation(&pool, cfi2)
+        delete_annotation(&pool, cfi2, Some(book_id))
             .await
             .expect("delete by cfi value");
         let anns_cfi2_after = get_annotations(&pool, book_id)
@@ -2506,10 +2986,7 @@ mod tests {
             Some("x")
         );
 
-        remap_book_cfis(&pool, local_id, &moved)
-            .await
-            .expect("remap");
-
+        // The stored positions moved in the same transaction as the layout
         let progress = get_progress(&pool, local_id)
             .await
             .expect("get progress")
@@ -2543,7 +3020,7 @@ mod tests {
             Some(1)
         );
 
-        delete_chapter_copies_of_book(&pool, server_id)
+        delete_chapter_copies_of_book(&pool, server_id, None)
             .await
             .expect("clear");
         assert!(!has_chapter_copies(&pool, server_id).await.expect("kind"));
@@ -2731,15 +3208,61 @@ mod tests {
         assert!(get_progress(&pool, volume2).await.expect("p").is_none());
         assert!(get_progress(&pool, whole).await.expect("p").is_some());
 
-        // The user deletes the volume file: that copy is forgotten, the other one stays
+        // A local id that is bound to a server book is never rebound to another one
+        let other_book = "018f3a2b-7c4d-7e8f-9a0b-1c2d3e4f5fff";
+        assert!(
+            !save_book_mapping(&pool, volume2, other_book, None)
+                .await
+                .expect("mapping")
+        );
+        assert_eq!(
+            get_server_book_id(&pool, volume2)
+                .await
+                .expect("id")
+                .as_deref(),
+            Some(server_id)
+        );
+
+        // The server book got a real file, downloaded over the copy of the whole book:
+        // the volume copy must not go on syncing its own percentages as a regular book
         save_book_mapping(&pool, whole, server_id, Some("/books/Book.epub"))
             .await
             .expect("mapping");
-        delete_chapter_copy_at(&pool, &downloaded_path)
+        save_reading_session(
+            &pool,
+            volume2,
+            None,
+            "2026-11-10T10:00:00Z",
+            "2026-11-10T10:30:00Z",
+            1800,
+            Some(0.0),
+            Some(50.0),
+            3,
+        )
+        .await
+        .expect("session");
+        delete_chapter_copies_of_book(&pool, server_id, Some(whole))
             .await
-            .expect("forget");
+            .expect("detach");
+        assert!(!has_chapter_copies(&pool, server_id).await.expect("kind"));
         assert_eq!(get_chapter_copy(&pool, volume2).await.expect("copy"), None);
-        assert!(has_chapter_copies(&pool, server_id).await.expect("kind"));
+        assert_eq!(get_server_book_id(&pool, volume2).await.expect("id"), None);
+        assert_eq!(
+            get_server_book_id(&pool, whole)
+                .await
+                .expect("id")
+                .as_deref(),
+            Some(server_id)
+        );
+        // The position of the replaced copy was a CFI of the old build
+        assert!(get_progress(&pool, whole).await.expect("p").is_none());
+        // Reading time of the volume reaches the book, in the scale of the book
+        let sessions = get_pending_reading_sessions(&pool, 10)
+            .await
+            .expect("sessions");
+        let moved: Vec<_> = sessions.iter().filter(|s| s.book_id == server_id).collect();
+        assert_eq!(moved.len(), 1);
+        assert!(moved[0].end_progress.is_some_and(|p| p > 50.0));
     }
 
     #[tokio::test]
@@ -2916,5 +3439,351 @@ mod tests {
         for suffix in ["", "-wal", "-shm"] {
             let _ = std::fs::remove_file(format!("{}{suffix}", db_path.display()));
         }
+    }
+
+    #[tokio::test]
+    async fn test_progress_change_time_and_sync_marks() {
+        let pool = init_db(Path::new(":memory:")).await.expect("init db");
+        let server_id = "018f3a2b-7c4d-7e8f-9a0b-1c2d3e4f5b01";
+        let local_id = "local-Ordered_epub";
+        save_book_mapping(&pool, local_id, server_id, Some("/books/Ordered.epub"))
+            .await
+            .expect("mapping");
+
+        // ---- A position the user read to is a pending change, dated now ----
+        let first = save_progress(&pool, local_id, "epubcfi(/6/4!/4)", 10.0, false, true)
+            .await
+            .expect("save");
+        assert_eq!(first.sync_status, "pending");
+        assert_eq!(
+            normalize_timestamp(&first.updated_at).as_deref(),
+            Some(first.updated_at.as_str())
+        );
+
+        // ---- Saving it again changes nothing, not even its time ----
+        let again = save_progress(&pool, local_id, "epubcfi(/6/4!/4)", 10.0, false, true)
+            .await
+            .expect("save");
+        assert_eq!(again.updated_at, first.updated_at);
+
+        // ---- The page is turned while the first position is being pushed ----
+        let second = save_progress(&pool, local_id, "epubcfi(/6/6!/4)", 20.0, false, true)
+            .await
+            .expect("save");
+        assert!(second.updated_at > first.updated_at);
+        // The answer to the push of the first position must not mark the second synced
+        assert!(
+            !mark_progress_synced(
+                &pool,
+                local_id,
+                server_id,
+                &first.updated_at,
+                Some("2026-11-10T10:00:00Z")
+            )
+            .await
+            .expect("mark")
+        );
+        let current = get_progress(&pool, local_id)
+            .await
+            .expect("p")
+            .expect("row");
+        assert_eq!(current.location, "epubcfi(/6/6!/4)");
+        assert_eq!(current.sync_status, "pending");
+        assert_eq!(current.updated_at, second.updated_at);
+        // ...and a server position that lost to the first one must not replace it either
+        assert!(
+            !adopt_remote_progress(
+                &pool,
+                local_id,
+                server_id,
+                Some(&first.updated_at),
+                "epubcfi(/6/40!/4)",
+                90.0,
+                false,
+                Some("2099-01-01T00:00:00Z"),
+            )
+            .await
+            .expect("adopt")
+        );
+        let current = get_progress(&pool, local_id)
+            .await
+            .expect("p")
+            .expect("row");
+        assert_eq!(current.location, "epubcfi(/6/6!/4)");
+        assert_eq!(current.sync_status, "pending");
+
+        // ---- The push of the current position: synced, dated as the server stored it,
+        // even when this device's clock runs ahead of the server's ----
+        // An older row of the same book under its server id comes along
+        save_progress_at(
+            &pool,
+            server_id,
+            "epubcfi(/6/2!/4)",
+            5.0,
+            false,
+            false,
+            Some("2020-01-01T00:00:00Z"),
+        )
+        .await
+        .expect("save");
+        assert!(
+            mark_progress_synced(
+                &pool,
+                local_id,
+                server_id,
+                &second.updated_at,
+                Some("2020-06-01T00:00:00.123Z")
+            )
+            .await
+            .expect("mark")
+        );
+        for id in [local_id, server_id] {
+            let row: (String, String, String) = sqlx::query_as(
+                "SELECT location, updated_at, sync_status FROM book_progress WHERE book_id = ?",
+            )
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .expect("row");
+            assert_eq!(
+                row,
+                (
+                    "epubcfi(/6/6!/4)".to_string(),
+                    "2020-06-01T00:00:00.123000Z".to_string(),
+                    "synced".to_string()
+                )
+            );
+        }
+
+        // ---- A newer server position replaces it under both ids ----
+        assert!(
+            adopt_remote_progress(
+                &pool,
+                local_id,
+                server_id,
+                Some("2020-06-01T00:00:00.123000Z"),
+                "epubcfi(/6/8!/4)",
+                30.0,
+                true,
+                Some("2020-07-01T00:00:00+00:00"),
+            )
+            .await
+            .expect("adopt")
+        );
+        let adopted = get_progress(&pool, local_id)
+            .await
+            .expect("p")
+            .expect("row");
+        assert_eq!(adopted.location, "epubcfi(/6/8!/4)");
+        assert!(adopted.is_read);
+        assert_eq!(adopted.updated_at, "2020-07-01T00:00:00.000000Z");
+        assert_eq!(adopted.sync_status, "synced");
+
+        // ---- The next local change is later than what it replaces, whatever the clock ----
+        save_progress_at(
+            &pool,
+            local_id,
+            "epubcfi(/6/8!/4)",
+            30.0,
+            true,
+            false,
+            Some("2099-01-01T00:00:00Z"),
+        )
+        .await
+        .expect("save");
+        let next = save_progress(&pool, local_id, "epubcfi(/6/10!/4)", 40.0, false, true)
+            .await
+            .expect("save");
+        assert!(next.updated_at.as_str() > "2099-01-01T00:00:00.000000Z");
+    }
+
+    #[tokio::test]
+    async fn test_annotation_deleted_by_range_stays_in_its_book() {
+        let pool = init_db(Path::new(":memory:")).await.expect("init db");
+        let range = "epubcfi(/6/4!/4/2,/1:0,/1:5)";
+        for (id, book) in [("ann-a", "local-A_epub"), ("ann-b", "local-B_epub")] {
+            save_annotation(
+                &pool,
+                id,
+                None,
+                book,
+                "epubcfi(/6/4!/4/2/1:0)",
+                "epubcfi(/6/4!/4/2/1:5)",
+                range,
+                "text",
+                None,
+                "yellow",
+                None,
+                None,
+                None,
+                None,
+                false,
+            )
+            .await
+            .expect("save");
+        }
+
+        // Two books have this range: without a book nothing can be chosen
+        delete_annotation(&pool, range, None).await.expect("delete");
+        assert_eq!(
+            get_annotations(&pool, "local-A_epub").await.unwrap().len(),
+            1
+        );
+        assert_eq!(
+            get_annotations(&pool, "local-B_epub").await.unwrap().len(),
+            1
+        );
+
+        // With the book, only that book's annotation goes
+        delete_annotation(&pool, range, Some("local-A_epub"))
+            .await
+            .expect("delete");
+        assert!(
+            get_annotations(&pool, "local-A_epub")
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            get_annotations(&pool, "local-B_epub").await.unwrap().len(),
+            1
+        );
+
+        // The only book that still has the range needs no hint
+        delete_annotation(&pool, range, None).await.expect("delete");
+        assert!(
+            get_annotations(&pool, "local-B_epub")
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_progress_migrations_of_an_existing_database() {
+        let db_path =
+            std::env::temp_dir().join(format!("folio-progress-{}.db", uuid::Uuid::now_v7()));
+
+        // First start creates the schema; then rows as earlier versions wrote them
+        let pool = init_db(&db_path).await.expect("first start");
+        sqlx::query(
+            r#"
+            DELETE FROM app_kv;
+            INSERT INTO book_progress VALUES ('local-Offset_epub', 'epubcfi(/6/4!/4)', 42.0, 0, '2026-11-10T12:00:00.5+02:00', 'pending');
+            INSERT INTO book_progress VALUES ('local-Garbage_epub', 'epubcfi(/6/4!/4)', 42.0, 0, 'yesterday', 'synced');
+            -- A fraction stored where a percentage belongs: the recent list has the same number
+            INSERT INTO book_progress VALUES ('local-Fraction_epub', 'epubcfi(/6/4!/4)', 0.37, 0, '2026-11-10T10:00:00+00:00', 'synced');
+            INSERT INTO recent_books (id, title, author, progress_fraction, last_opened_at) VALUES ('local-Fraction_epub', 'T', 'A', 0.37, '2026-11-10T10:00:00Z');
+            -- Genuine progress below 1% (chapter 20 of 4000) next to a stale recent entry
+            INSERT INTO book_progress VALUES ('local-Long_epub', 'epubcfi(/6/40!/4)', 0.5, 0, '2026-11-10T10:00:00+00:00', 'synced');
+            INSERT INTO recent_books (id, title, author, progress_fraction, last_opened_at) VALUES ('local-Long_epub', 'T', 'A', 0.02, '2026-11-10T10:00:00Z');
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("old rows");
+        pool.close().await;
+
+        let pool = init_db(&db_path).await.expect("second start");
+        let row = |id: &'static str| {
+            let pool = pool.clone();
+            async move {
+                sqlx::query_as::<_, (f32, String, String)>(
+                    "SELECT progress_percent, updated_at, sync_status FROM book_progress WHERE book_id = ?",
+                )
+                .bind(id)
+                .fetch_one(&pool)
+                .await
+                .expect("row")
+            }
+        };
+        // Timestamps: one format, in UTC; the status is untouched
+        assert_eq!(
+            row("local-Offset_epub").await,
+            (
+                42.0,
+                "2026-11-10T10:00:00.500000Z".to_string(),
+                "pending".to_string()
+            )
+        );
+        // What is not a timestamp loses against everything
+        assert_eq!(
+            row("local-Garbage_epub").await.1,
+            "1970-01-01T00:00:00.000000Z"
+        );
+        // The fraction became a percentage, the genuine half a percent stayed
+        assert_eq!(row("local-Fraction_epub").await.0, 37.0);
+        assert_eq!(row("local-Long_epub").await.0, 0.5);
+
+        // The repair of fractions runs once per database
+        sqlx::query(
+            r#"
+            INSERT INTO book_progress VALUES ('local-Later_epub', 'epubcfi(/6/4!/4)', 0.25, 0, '2026-11-11T10:00:00.000000Z', 'synced');
+            INSERT INTO recent_books (id, title, author, progress_fraction, last_opened_at) VALUES ('local-Later_epub', 'T', 'A', 0.25, '2026-11-11T10:00:00Z');
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("later rows");
+        pool.close().await;
+        let pool = init_db(&db_path).await.expect("third start");
+        let later: f32 = sqlx::query_scalar(
+            "SELECT progress_percent FROM book_progress WHERE book_id = 'local-Later_epub'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("row");
+        assert_eq!(later, 0.25);
+        pool.close().await;
+
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffix}", db_path.display()));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_damaged_database_is_set_aside() {
+        let dir = std::env::temp_dir().join(format!("folio-damaged-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        let db_path = dir.join("folio_local.db");
+        std::fs::write(&db_path, vec![0x5a; 8192]).expect("garbage");
+
+        assert!(init_db(&db_path).await.is_err());
+        let pool = init_db_or_recover(&db_path).await.expect("recovered");
+        // A new database on disk: what is stored survives a restart
+        assert_eq!(
+            get_app_kv(&pool, STORAGE_ERROR_KEY).await.expect("kv"),
+            None
+        );
+        set_app_kv(&pool, "probe", "kept").await.expect("kv");
+        pool.close().await;
+        let pool = init_db_or_recover(&db_path).await.expect("reopened");
+        assert_eq!(
+            get_app_kv(&pool, "probe").await.expect("kv").as_deref(),
+            Some("kept")
+        );
+        pool.close().await;
+        // The damaged file was kept, not deleted
+        let kept = std::fs::read_dir(&dir)
+            .expect("dir")
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().contains(".corrupt-"))
+            .count();
+        assert_eq!(kept, 1);
+
+        // A database that cannot be opened at all (its path is a directory): the
+        // application still starts, on a database in memory, and says so
+        let unusable = dir.join("subdir");
+        std::fs::create_dir_all(&unusable).expect("dir");
+        let pool = init_db_or_recover(&unusable).await.expect("in memory");
+        assert!(
+            get_app_kv(&pool, STORAGE_ERROR_KEY)
+                .await
+                .expect("kv")
+                .is_some()
+        );
+        pool.close().await;
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

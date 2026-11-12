@@ -43,7 +43,28 @@ pub async fn db_save_book_mapping(
     db: State<'_, DbPool>,
 ) -> Result<(), String> {
     validate_non_empty(&local_id, "local_id")?;
-    db::save_book_mapping(&db, &local_id, &server_book_id, file_path.as_deref())
+    let saved = db::save_book_mapping(&db, &local_id, &server_book_id, file_path.as_deref())
+        .await
+        .map_err(|e| e.to_string())?;
+    if saved {
+        Ok(())
+    } else {
+        // The frontend matches on this prefix
+        Err(format!(
+            "MAPPING_CONFLICT: '{local_id}' is already bound to another server book"
+        ))
+    }
+}
+
+/// Local id recorded for a file (`None`: the file was never seen). The id of a file must
+/// not be computed from its path once it is recorded: the path is relative to a download
+/// folder that may have been changed since.
+#[tauri::command]
+pub async fn db_get_local_id_for_file(
+    file_path: String,
+    db: State<'_, DbPool>,
+) -> Result<Option<String>, String> {
+    db::get_local_id_for_file(&db, &file_path)
         .await
         .map_err(|e| e.to_string())
 }
@@ -131,11 +152,57 @@ pub async fn db_save_progress(
 ) -> Result<DbBookProgress, String> {
     validate_non_empty(&book_id, "book_id")?;
     validate_non_empty(&location, "location")?;
+    // `ch:<chapterId>` is how the server names a position in a book it keeps as chapters.
+    // Locally every position is a CFI of the file being read: a server position stored
+    // as it came would be pushed back with its percentage converted a second time.
+    if location.trim_start().starts_with("ch:") {
+        return Err(format!(
+            "INVALID_LOCATION: '{location}' is a server position, not a position in a local file"
+        ));
+    }
     let progress_percent = sanitize_progress_percent(progress_percent)?;
 
     db::save_progress(&db, &book_id, &location, progress_percent, is_read, true)
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Marks a book read (100%) or unread (0%) without opening it. `location`: the position
+/// that goes with the mark (a volume copy passes the end or the start of its file).
+/// Without one a book marked read keeps the position it has, and a book marked unread
+/// has none — "no position" is what the sync then tells the server. `mark_pending: false`
+/// keeps the mark on this device (a volume whose server position is in another volume).
+#[tauri::command]
+pub async fn db_set_read_status(
+    book_id: String,
+    is_read: bool,
+    location: Option<String>,
+    mark_pending: Option<bool>,
+    db: State<'_, DbPool>,
+) -> Result<DbBookProgress, String> {
+    validate_non_empty(&book_id, "book_id")?;
+
+    let location = match location {
+        Some(location) => location,
+        None if is_read => db::get_progress(&db, &book_id)
+            .await
+            .map_err(|e| e.to_string())?
+            .map(|p| p.location)
+            .unwrap_or_default(),
+        None => String::new(),
+    };
+    let progress_percent = if is_read { 100.0 } else { 0.0 };
+
+    db::save_progress(
+        &db,
+        &book_id,
+        &location,
+        progress_percent,
+        is_read,
+        mark_pending.unwrap_or(true),
+    )
+    .await
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -264,10 +331,12 @@ pub async fn db_save_annotation(
 #[tauri::command]
 pub async fn db_delete_annotation(
     id_or_value: String,
+    book_id: Option<String>,
     db: State<'_, DbPool>,
 ) -> Result<(), String> {
     validate_non_empty(&id_or_value, "id_or_value")?;
-    db::delete_annotation(&db, &id_or_value)
+    let book_id = book_id.filter(|id| !id.trim().is_empty());
+    db::delete_annotation(&db, &id_or_value, book_id.as_deref())
         .await
         .map_err(|e| e.to_string())
 }
@@ -382,10 +451,19 @@ pub async fn sync_all_pending(
 
     let mut results = Vec::new();
     for book_id in all_book_ids {
-        if let Ok(res) =
-            sync_manager::sync_book(&db, &client, &server_url, token.as_deref(), &book_id).await
-        {
-            results.push(res);
+        match sync_manager::sync_book(&db, &client, &server_url, token.as_deref(), &book_id).await {
+            Ok(res) => results.push(res),
+            // The token was rejected: every other book would fail the same way, and the
+            // caller has to know that nothing was synced
+            Err(e) if sync_manager::is_unauthorized(&e) => return Err(e),
+            Err(e) => results.push(SyncResult {
+                success: false,
+                message: e,
+                progress_synced: false,
+                bookmarks_synced: 0,
+                annotations_synced: 0,
+                sessions_synced: 0,
+            }),
         }
     }
 
@@ -393,7 +471,13 @@ pub async fn sync_all_pending(
 }
 
 #[tauri::command]
-pub async fn db_clear_all_data(db: State<'_, DbPool>) -> Result<(), String> {
+pub async fn db_clear_all_data(
+    db: State<'_, DbPool>,
+    sync_lock: State<'_, sync_manager::SyncLock>,
+) -> Result<(), String> {
+    // The data is cleared for another account: a sync still running for the previous one
+    // must finish first, or it would write its rows into the emptied database
+    let _lock_guard = sync_lock.0.lock().await;
     db::clear_all_data(&db).await.map_err(|e| e.to_string())
 }
 

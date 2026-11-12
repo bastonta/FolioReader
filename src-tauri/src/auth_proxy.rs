@@ -275,16 +275,77 @@ pub async fn auth_email_confirm_proxy(
     })
 }
 
+/// Changes the password of the signed-in account. The server answers like a successful
+/// login and replaces the refresh token (every token issued before the change is
+/// revoked) with a cookie, so the request has to go through this client: the WebView
+/// never sees that cookie, and the session would end with the current access token.
+#[tauri::command]
+pub async fn auth_password_change_proxy(
+    app: AppHandle,
+    server_url: String,
+    token: String,
+    old_password: String,
+    new_password: String,
+    state: State<'_, AuthHttpClientState>,
+) -> Result<AuthProxyResponse, String> {
+    let mut state = state.lock().await;
+    let url = format!(
+        "{}/api/profile/password-change",
+        server_url.trim_end_matches('/')
+    );
+
+    let body = serde_json::json!({
+        "oldPassword": old_password,
+        "newPassword": new_password,
+    });
+
+    let res = state
+        .client
+        .post(&url)
+        .bearer_auth(token.trim())
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {e}"))?;
+
+    let status = res.status();
+
+    // A refused change keeps the session it was sent from
+    if status.is_success()
+        && let Some(Some(tok)) = extract_refresh_token(res.headers())
+    {
+        state.refresh_token = Some(tok.clone());
+        save_persisted_refresh_token(&app, &tok).await;
+    }
+
+    let body_text = res.text().await.map_err(|e| e.to_string())?;
+
+    Ok(AuthProxyResponse {
+        status: status.as_u16(),
+        body: body_text,
+    })
+}
+
 #[tauri::command]
 pub async fn refresh_access_token(
     app: AppHandle,
     server_url: String,
     state: State<'_, AuthHttpClientState>,
 ) -> Result<String, String> {
+    renew_access_token(&app, &server_url, &state).await
+}
+
+/// Exchanges the stored refresh token for a new access token. Also used by commands that
+/// run longer than an access token lives (the download of a large `Chapters` book).
+pub(crate) async fn renew_access_token(
+    app: &AppHandle,
+    server_url: &str,
+    state: &AuthHttpClientState,
+) -> Result<String, String> {
     let mut state = state.lock().await;
 
     if state.refresh_token.is_none() {
-        state.refresh_token = load_persisted_refresh_token(&app).await;
+        state.refresh_token = load_persisted_refresh_token(app).await;
     }
 
     let current_token = state
@@ -312,11 +373,11 @@ pub async fn refresh_access_token(
         match token_opt {
             Some(tok) => {
                 state.refresh_token = Some(tok.clone());
-                save_persisted_refresh_token(&app, &tok).await;
+                save_persisted_refresh_token(app, &tok).await;
             }
             None => {
                 state.refresh_token = None;
-                delete_persisted_refresh_token(&app).await;
+                delete_persisted_refresh_token(app).await;
             }
         }
     }
@@ -325,7 +386,7 @@ pub async fn refresh_access_token(
         let err_body = res.text().await.unwrap_or_default();
         if status == StatusCode::BAD_REQUEST || status == StatusCode::UNAUTHORIZED {
             state.refresh_token = None;
-            delete_persisted_refresh_token(&app).await;
+            delete_persisted_refresh_token(app).await;
         }
         return Err(format!(
             "Refresh failed with status {}: {}",

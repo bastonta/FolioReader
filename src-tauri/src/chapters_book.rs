@@ -12,10 +12,16 @@
 use crate::chapters_epub::{
     self, EpubMeta, EpubWriter, ExistingEpub, ManifestChapter, VolumeScope,
 };
-use crate::fs_manager::{DownloadProgressInput, get_covers_dir, sanitize_filename_part};
+use crate::fs_manager::{
+    DownloadProgressInput, get_covers_dir, sanitize_filename_part, unauthorized_error,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, RwLock};
 use tokio::fs;
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
@@ -31,8 +37,19 @@ pub const VOLUMES_NOT_SUPPORTED_ERROR: &str = "VOLUMES_NOT_SUPPORTED";
 const CHAPTERS_PAGE_SIZE: usize = 500;
 /// Chapters and illustrations downloaded at the same time.
 const MAX_PARALLEL_REQUESTS: usize = 6;
-/// Attempts per request (transport errors, 5xx and 429 are retried).
-const MAX_ATTEMPTS: u32 = 3;
+/// Pauses between the attempts of a request (transport errors, 5xx and 429 are retried)
+/// while the server has not answered anything yet: a wrong address fails quickly.
+#[cfg(not(test))]
+const FIRST_RETRY_DELAYS_MS: &[u64] = &[600, 1200];
+/// The same once the server has answered: a download that is under way waits out a
+/// connection that drops for a while (about a minute in all) instead of throwing away
+/// everything it has fetched.
+#[cfg(not(test))]
+const RETRY_DELAYS_MS: &[u64] = &[1_000, 2_000, 4_000, 8_000, 15_000, 30_000];
+#[cfg(test)]
+const FIRST_RETRY_DELAYS_MS: &[u64] = &[5, 10];
+#[cfg(test)]
+const RETRY_DELAYS_MS: &[u64] = &[5, 10, 20];
 /// Internal marker: the EPUB builder stopped, its own error is the one to report.
 const BUILDER_STOPPED: &str = "EPUB builder stopped";
 
@@ -143,56 +160,106 @@ struct ServerChapter {
 
 // ================= HTTP =================
 
+/// Obtains a new access token when the one a download started with has expired; `None`
+/// when the session cannot be renewed.
+pub(crate) type TokenRefresher =
+    dyn Fn() -> Pin<Box<dyn Future<Output = Option<String>> + Send>> + Send + Sync;
+
 #[derive(Clone)]
 struct Api {
     client: reqwest::Client,
     base: String,
-    token: Option<String>,
+    token: Arc<RwLock<Option<String>>>,
+    refresher: Option<Arc<TokenRefresher>>,
+    /// Held while the token is being renewed: parallel requests renew it once.
+    renewing: Arc<tokio::sync::Mutex<()>>,
+    /// Whether the server has answered a request of this download.
+    reached: Arc<AtomicBool>,
 }
 
 impl Api {
-    fn new(server_url: &str, token: Option<String>) -> Result<Self, String> {
+    fn new(
+        server_url: &str,
+        token: Option<String>,
+        refresher: Option<Arc<TokenRefresher>>,
+    ) -> Result<Self, String> {
         let base = server_url.trim_end_matches('/').to_string();
         if base.is_empty() {
             return Err("Server URL is empty".to_string());
         }
 
-        let root_certs = webpki_root_certs::TLS_SERVER_ROOT_CERTS
-            .iter()
-            .filter_map(|der| reqwest::Certificate::from_der(der.as_ref()).ok());
-
-        let client = reqwest::Client::builder()
-            .tls_certs_only(root_certs)
-            .timeout(std::time::Duration::from_secs(120))
-            .connect_timeout(std::time::Duration::from_secs(15))
-            .build()
-            .map_err(|e| format!("Failed to build HTTP client: {e}"))?;
-
         Ok(Self {
-            client,
+            // No limit on a whole transfer: only on connecting and on silence
+            client: crate::fs_manager::download_client()?,
             base,
-            token: token.filter(|t| !t.is_empty()),
+            token: Arc::new(RwLock::new(token.filter(|t| !t.is_empty()))),
+            refresher,
+            renewing: Arc::default(),
+            reached: Arc::default(),
         })
     }
 
+    fn current_token(&self) -> Option<String> {
+        self.token.read().ok().and_then(|token| token.clone())
+    }
+
+    /// Replaces the access token the server rejected (`rejected`). `false` when there is
+    /// no way to get another one.
+    async fn renew_token(&self, rejected: Option<&str>) -> bool {
+        let Some(refresher) = &self.refresher else {
+            return false;
+        };
+        let _renewing = self.renewing.lock().await;
+        // Another request got here first
+        if self.current_token().as_deref() != rejected {
+            return true;
+        }
+        let Some(renewed) = refresher().await.filter(|t| !t.is_empty()) else {
+            return false;
+        };
+        match self.token.write() {
+            Ok(mut token) => {
+                *token = Some(renewed);
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
     /// GET `path` (relative to the server root) and read the whole body.
-    /// Transport errors, 5xx and 429 answers are retried a few times.
+    /// Transport errors, 5xx and 429 answers are retried a few times. An access token
+    /// that expired on the way (a large book takes longer to download than a token
+    /// lives) is renewed once; a token the server still rejects is an error.
     async fn fetch(&self, path: &str) -> Result<(reqwest::StatusCode, Vec<u8>), String> {
         let url = format!("{}{path}", self.base);
-        let mut attempt = 0;
+        let mut retries = 0;
+        let mut renewed = false;
         loop {
-            attempt += 1;
+            let token = self.current_token();
             let mut request = self.client.get(&url);
-            if let Some(token) = &self.token {
+            if let Some(token) = &token {
                 request = request.header("Authorization", format!("Bearer {token}"));
             }
 
+            let delays = if self.reached.load(Ordering::Relaxed) {
+                RETRY_DELAYS_MS
+            } else {
+                FIRST_RETRY_DELAYS_MS
+            };
             let error = match request.send().await {
                 Ok(response) => {
+                    self.reached.store(true, Ordering::Relaxed);
                     let status = response.status();
+                    if status == reqwest::StatusCode::UNAUTHORIZED {
+                        if !renewed && self.renew_token(token.as_deref()).await {
+                            renewed = true;
+                            continue;
+                        }
+                        return Err(unauthorized_error(path));
+                    }
                     let retryable = status.is_server_error()
                         || status == reqwest::StatusCode::TOO_MANY_REQUESTS;
-                    if retryable && attempt < MAX_ATTEMPTS {
+                    if retryable && retries < delays.len() {
                         format!("server returned status {status}")
                     } else {
                         match response.bytes().await {
@@ -204,10 +271,11 @@ impl Api {
                 Err(e) => e.to_string(),
             };
 
-            if attempt >= MAX_ATTEMPTS {
+            let Some(delay) = delays.get(retries) else {
                 return Err(format!("Request to {path} failed: {error}"));
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(600 * u64::from(attempt))).await;
+            };
+            retries += 1;
+            tokio::time::sleep(std::time::Duration::from_millis(*delay)).await;
         }
     }
 
@@ -220,10 +288,24 @@ impl Api {
             .map_err(|e| format!("Unexpected server response for {path}: {e}"))
     }
 
-    /// Body of a binary resource, `None` when the server has none (any non-success status).
+    /// Body of a binary resource; `None` when the server does not have it. Only an
+    /// answer that says so counts: a request that failed for any other reason is an
+    /// error, or the book would be built with holes in place of its illustrations.
     async fn get_optional_bytes(&self, path: &str) -> Result<Option<Vec<u8>>, String> {
         let (status, body) = self.fetch(path).await?;
-        Ok((status.is_success() && !body.is_empty()).then_some(body))
+        let absent = matches!(
+            status,
+            reqwest::StatusCode::NOT_FOUND
+                | reqwest::StatusCode::GONE
+                | reqwest::StatusCode::BAD_REQUEST
+        );
+        if absent {
+            return Ok(None);
+        }
+        if !status.is_success() {
+            return Err(format!("Server returned status {status} for {path}"));
+        }
+        Ok((!body.is_empty()).then_some(body))
     }
 }
 
@@ -353,6 +435,8 @@ struct ChaptersBookRequest {
     progress: Option<DownloadProgressInput>,
     /// Download only this volume, as a file of its own (`None`: the whole book).
     volume: Option<f32>,
+    /// Renews the access token when it expires before the download ends.
+    token_refresher: Option<Arc<TokenRefresher>>,
 }
 
 struct BuildSummary {
@@ -603,7 +687,13 @@ async fn fetch_volume_scope(api: &Api, book_id: &str, volume: f32) -> Result<Vol
     let volumes: ServerVolumes = api
         .get_json(&format!("/api/books/{book_id}/volumes"))
         .await
-        .map_err(|_| VOLUMES_NOT_SUPPORTED_ERROR.to_string())?;
+        .map_err(|e| {
+            if crate::sync_manager::is_unauthorized(&e) {
+                e
+            } else {
+                VOLUMES_NOT_SUPPORTED_ERROR.to_string()
+            }
+        })?;
     let chapters_before = volumes
         .items
         .iter()
@@ -623,8 +713,8 @@ struct Target {
     path: PathBuf,
     /// Previous build of the same book at `path`, when there is one.
     existing: Option<ExistingEpub>,
-    /// Local id of the already mapped copy.
-    local_id: Option<String>,
+    /// Local id of the file.
+    local_id: String,
 }
 
 /// Whether `existing` is the copy of `book_id` that holds `volume` (`None`: the whole book).
@@ -664,7 +754,7 @@ async fn resolve_target(
             return Ok(Target {
                 path,
                 existing,
-                local_id: Some(mapping.local_id),
+                local_id: mapping.local_id,
             });
         }
     }
@@ -712,11 +802,21 @@ async fn resolve_target(
     ];
 
     for path in candidates {
+        // The local id comes with the path. It may still be bound to another book whose
+        // file used to be here: the reading state kept under it is not this book's.
+        let local_id = crate::fs_manager::local_id_of_file(db, &path, base_dir).await;
+        let bound = crate::db::get_bound_server_book_id(db, &local_id)
+            .await
+            .map_err(|e| format!("Failed to look up the local book: {e}"))?;
+        if bound.is_some_and(|bound| bound != book_id) {
+            continue;
+        }
+
         if !path.exists() {
             return Ok(Target {
                 path,
                 existing: None,
-                local_id: None,
+                local_id,
             });
         }
         let probe = path.clone();
@@ -728,7 +828,7 @@ async fn resolve_target(
             return Ok(Target {
                 path,
                 existing,
-                local_id: None,
+                local_id,
             });
         }
     }
@@ -760,7 +860,7 @@ pub async fn download_chapters_book(
     db: tauri::State<'_, crate::db::DbPool>,
 ) -> Result<ChaptersBookDownloadResult, String> {
     let request = ChaptersBookRequest {
-        server_url,
+        server_url: server_url.clone(),
         token,
         book_id,
         file_name,
@@ -771,6 +871,7 @@ pub async fn download_chapters_book(
         custom_target_dir,
         progress,
         volume,
+        token_refresher: Some(token_refresher(&app, &server_url)),
     };
     let covers_dir = get_covers_dir(&app).ok();
     download_book(&db, covers_dir, request, &move |event| {
@@ -778,6 +879,24 @@ pub async fn download_chapters_book(
         let _ = on_progress.send(event);
     })
     .await
+}
+
+/// The refresher of a download started from the interface: the session kept by the
+/// native auth client is renewed the way the interface itself renews it.
+fn token_refresher(app: &tauri::AppHandle, server_url: &str) -> Arc<TokenRefresher> {
+    let app = app.clone();
+    let server_url = server_url.to_string();
+    Arc::new(move || {
+        let app = app.clone();
+        let server_url = server_url.clone();
+        Box::pin(async move {
+            use tauri::Manager;
+            let state = app.state::<crate::auth_proxy::AuthHttpClientState>();
+            crate::auth_proxy::renew_access_token(&app, &server_url, &state)
+                .await
+                .ok()
+        })
+    })
 }
 
 async fn download_book(
@@ -798,6 +917,7 @@ async fn download_book(
         custom_target_dir,
         progress,
         volume,
+        token_refresher,
     } = request;
 
     // The id ends up in request paths and in the EPUB itself.
@@ -808,7 +928,7 @@ async fn download_book(
         return Err("Invalid volume number".to_string());
     }
 
-    let api = Api::new(&server_url, token)?;
+    let api = Api::new(&server_url, token, token_refresher)?;
 
     let scope = match volume {
         Some(v) => Some(fetch_volume_scope(&api, &book_id, v).await?),
@@ -930,16 +1050,17 @@ async fn download_book(
 
     // ---- Local bookkeeping (best effort, like a regular download) ----
     let final_path_str = final_path.to_string_lossy().to_string();
-    let local_id = target.local_id.unwrap_or_else(|| {
-        let rel_path = final_path
-            .strip_prefix(Path::new(&base_dir))
-            .unwrap_or(&final_path)
-            .to_string_lossy()
-            .replace('\\', "/");
-        format!("local-{}", rel_path.replace(['/', '\\', ' ', '.'], "_"))
-    });
+    let local_id = target.local_id;
 
-    let _ = crate::db::save_book_mapping(db, &local_id, &book_id, Some(&final_path_str)).await;
+    match crate::db::save_book_mapping(db, &local_id, &book_id, Some(&final_path_str)).await {
+        Ok(true) => {}
+        Ok(false) => {
+            return Err(format!(
+                "'{final_path_str}' is already bound to another server book"
+            ));
+        }
+        Err(e) => return Err(format!("Failed to record the downloaded book: {e}")),
+    }
 
     // Chapters that changed their place in the file take the stored positions with them.
     let (chapters_before, book_chapters) = match scope {
@@ -957,9 +1078,8 @@ async fn download_book(
     )
     .await
     {
-        Ok(moved) => {
-            let _ = crate::db::remap_book_cfis(db, &local_id, &moved).await;
-        }
+        // Stored positions of chapters that moved were rewritten in the same transaction
+        Ok(_moved) => {}
         Err(e) => return Err(format!("Failed to save the chapter layout: {e}")),
     }
 
@@ -1031,14 +1151,17 @@ async fn download_book(
 
         if let Some((progress_percent, is_read)) = seed {
             let stored_location = cfi.clone().unwrap_or_default();
-            // Stored under the local id only: other copies of the book have their own
-            let _ = crate::db::save_progress(
+            // Stored under the local id only: other copies of the book have their own.
+            // Dated as the server dates it: a position that changed on the server since
+            // the catalog was loaded is the newer one.
+            let _ = crate::db::save_progress_at(
                 db,
                 &local_id,
                 &stored_location,
                 progress_percent,
                 is_read,
                 false,
+                Some(&updated_at),
             )
             .await;
 
@@ -1119,6 +1242,10 @@ mod tests {
         no_volumes_route: bool,
         /// ...and a chapter list that ignores the `volume` parameter.
         ignores_volume_filter: bool,
+        /// The only access token the server accepts (`None`: any).
+        accepted_token: Option<String>,
+        /// Status every illustration request is answered with instead of the image.
+        image_failure: Option<u16>,
     }
 
     fn chapter(id: &'static str, number: f32, name: &'static str, text: &str) -> MockChapter {
@@ -1142,9 +1269,18 @@ mod tests {
         }
     }
 
-    fn respond(state: &Mutex<MockServer>, target: &str) -> (u16, &'static str, Vec<u8>) {
+    fn respond(
+        state: &Mutex<MockServer>,
+        target: &str,
+        authorization: Option<&str>,
+    ) -> (u16, &'static str, Vec<u8>) {
         let mut state = state.lock().unwrap();
         state.requests.push(target.to_string());
+        if let Some(accepted) = &state.accepted_token
+            && authorization != Some(format!("Bearer {accepted}").as_str())
+        {
+            return (401, "text/plain", Vec::new());
+        }
 
         let (path, query) = target.split_once('?').unwrap_or((target, ""));
         let Some(rest) = path.strip_prefix("/api/books/") else {
@@ -1260,9 +1396,10 @@ mod tests {
                     None => (404, "text/plain", Vec::new()),
                 }
             }
-            (Some("images"), Some(name)) => match state.images.get(name) {
-                Some(bytes) => (200, "image/png", bytes.clone()),
-                None => (404, "text/plain", Vec::new()),
+            (Some("images"), Some(name)) => match (state.image_failure, state.images.get(name)) {
+                (Some(status), _) => (status, "text/plain", Vec::new()),
+                (None, Some(bytes)) => (200, "image/png", bytes.clone()),
+                (None, None) => (404, "text/plain", Vec::new()),
             },
             (Some("cover"), None) => match &state.cover {
                 Some(bytes) => (200, "image/png", bytes.clone()),
@@ -1289,7 +1426,12 @@ mod tests {
                     }
                     let head = String::from_utf8_lossy(&head).to_string();
                     let target = head.split_whitespace().nth(1).unwrap_or("/");
-                    let (status, content_type, body) = respond(&state, target);
+                    let authorization = head.lines().find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case("authorization")
+                            .then(|| value.trim())
+                    });
+                    let (status, content_type, body) = respond(&state, target, authorization);
                     let header = format!(
                         "HTTP/1.1 {status} Mock\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                         body.len()
@@ -1316,6 +1458,7 @@ mod tests {
             custom_target_dir: None,
             progress: None,
             volume: None,
+            token_refresher: None,
         }
     }
 
@@ -1952,7 +2095,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!("folioreader-test-{}", uuid::Uuid::now_v7()));
         std::fs::create_dir_all(&root).unwrap();
 
-        let api = Api::new(&server_url, None).unwrap();
+        let api = Api::new(&server_url, None, None).unwrap();
         let list = fetch_chapter_list(&api, BOOK_ID, None).await.unwrap();
         state.lock().unwrap().chapters.clear();
 
@@ -1987,6 +2130,160 @@ mod tests {
         .await;
         assert!(result.is_err());
         assert_eq!(std::fs::read_dir(&root).unwrap().count(), 0);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn test_expired_token_and_failing_illustrations() {
+        let state = Arc::new(Mutex::new(MockServer {
+            chapters: vec![
+                chapter("ch-a", 1.0, "Start", "First chapter"),
+                chapter(
+                    "ch-b",
+                    2.0,
+                    "Picture",
+                    &format!("![pic](/api/books/{BOOK_ID}/images/pic.png)"),
+                ),
+            ],
+            images: HashMap::from([("pic.png".to_string(), PNG.to_vec())]),
+            accepted_token: Some("fresh".to_string()),
+            ..MockServer::default()
+        }));
+        let server_url = start_mock_server(state.clone()).await;
+        let pool = crate::db::init_db(Path::new(":memory:")).await.unwrap();
+        let root = std::env::temp_dir().join(format!("folioreader-test-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&root).unwrap();
+
+        // ---- The token is not accepted and cannot be renewed: an error that says so ----
+        let error = download_book(&pool, None, request(&server_url, BOOK_ID, &root), &|_| {})
+            .await
+            .unwrap_err();
+        assert!(crate::sync_manager::is_unauthorized(&error), "{error}");
+        // The same for a volume: not "this server cannot list volumes"
+        let error = download_book(
+            &pool,
+            None,
+            volume_request(&server_url, BOOK_ID, &root, 1.0),
+            &|_| {},
+        )
+        .await
+        .unwrap_err();
+        assert!(crate::sync_manager::is_unauthorized(&error), "{error}");
+        assert_eq!(std::fs::read_dir(&root).unwrap().count(), 0);
+
+        // ---- It can be renewed: the download goes on with the new one, renewed once
+        // however many requests were turned away ----
+        let renewals = Arc::new(Mutex::new(0));
+        let refresher: Arc<TokenRefresher> = {
+            let renewals = renewals.clone();
+            Arc::new(move || {
+                let renewals = renewals.clone();
+                Box::pin(async move {
+                    *renewals.lock().unwrap() += 1;
+                    Some("fresh".to_string())
+                })
+            })
+        };
+        let result = download_book(
+            &pool,
+            None,
+            ChaptersBookRequest {
+                token_refresher: Some(refresher),
+                ..request(&server_url, BOOK_ID, &root)
+            },
+            &|_| {},
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.chapters_total, 2);
+        assert_eq!(result.images_fetched, 1);
+        assert_eq!(result.images_missing, 0);
+        assert_eq!(*renewals.lock().unwrap(), 1);
+        std::fs::remove_file(&result.file_path).unwrap();
+
+        // ---- An illustration the server fails to deliver is not "no illustration" ----
+        state.lock().unwrap().accepted_token = None;
+        state.lock().unwrap().image_failure = Some(500);
+        let error = download_book(&pool, None, request(&server_url, BOOK_ID, &root), &|_| {})
+            .await
+            .unwrap_err();
+        assert!(error.contains("500"), "{error}");
+        assert_eq!(std::fs::read_dir(&root).unwrap().count(), 0);
+        // Only an answer that says the image does not exist leaves the chapter without it
+        state.lock().unwrap().image_failure = Some(404);
+        let result = download_book(&pool, None, request(&server_url, BOOK_ID, &root), &|_| {})
+            .await
+            .unwrap();
+        assert_eq!(result.images_missing, 1);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[tokio::test]
+    async fn test_file_name_of_another_book_is_not_reused() {
+        let state = Arc::new(Mutex::new(MockServer {
+            chapters: vec![chapter("ch-a", 1.0, "Start", "First chapter")],
+            ..MockServer::default()
+        }));
+        let server_url = start_mock_server(state.clone()).await;
+        let pool = crate::db::init_db(Path::new(":memory:")).await.unwrap();
+        let root = std::env::temp_dir().join(format!("folioreader-test-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&root).unwrap();
+
+        // Another book used to live in `My Book.epub`; its file was deleted, what the
+        // application knows about it — the binding, the reading position — was not
+        let taken = root.join("My Book.epub");
+        let other_local = "local-My_Book_epub";
+        crate::db::save_book_mapping(
+            &pool,
+            other_local,
+            OTHER_BOOK_ID,
+            Some(&taken.to_string_lossy()),
+        )
+        .await
+        .unwrap();
+        crate::db::save_progress(&pool, other_local, "epubcfi(/6/30!/4)", 70.0, false, true)
+            .await
+            .unwrap();
+
+        let result = download_book(&pool, None, request(&server_url, BOOK_ID, &root), &|_| {})
+            .await
+            .unwrap();
+        // A file — and a local id — of its own
+        assert_ne!(result.local_id, other_local);
+        assert_ne!(result.file_path, taken.to_string_lossy());
+        assert!(!taken.exists());
+        assert_eq!(
+            crate::db::get_server_book_id(&pool, other_local)
+                .await
+                .unwrap()
+                .as_deref(),
+            Some(OTHER_BOOK_ID)
+        );
+        // The other book's position was not handed to this one
+        assert!(
+            crate::db::get_progress(&pool, &result.local_id)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(
+            crate::db::get_progress(&pool, other_local)
+                .await
+                .unwrap()
+                .unwrap()
+                .location,
+            "epubcfi(/6/30!/4)"
+        );
+
+        // Updating finds the copy again
+        let again = download_book(&pool, None, request(&server_url, BOOK_ID, &root), &|_| {})
+            .await
+            .unwrap();
+        assert!(again.updated);
+        assert_eq!(again.file_path, result.file_path);
+        assert_eq!(again.local_id, result.local_id);
 
         let _ = std::fs::remove_dir_all(&root);
     }

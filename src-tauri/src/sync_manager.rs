@@ -1,9 +1,15 @@
 use crate::chapters_epub;
-use crate::db::{self, DbAnnotation, DbBookmark, DbChapterCopy, DbPool, DbReadingSession};
+use crate::db::{
+    self, DbAnnotation, DbBookProgress, DbBookmark, DbChapterCopy, DbPool, DbReadingSession,
+};
+use crate::fs_manager::{UNAUTHORIZED_ERROR, unauthorized_error};
 use reqwest::header::{AUTHORIZATION, HeaderMap, HeaderValue};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
+use std::time::SystemTime;
 use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -36,6 +42,10 @@ struct ServerProgressResponse {
     pub progress_percent: Option<f32>,
     pub is_read: Option<bool>,
     pub updated_at: Option<String>,
+    /// Answer to a push: `false` when the server holds a newer position and kept it.
+    /// Absent on a server that does not compare change times: it always applies.
+    #[serde(default)]
+    pub applied: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -47,6 +57,10 @@ struct ServerProgressPayload {
     pub progress_percent: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_read: Option<bool>,
+    /// When the position actually changed on this device. The server keeps a position
+    /// that is newer than this one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -58,11 +72,18 @@ struct ServerBookmarkResponse {
     pub location: String,
     pub title: Option<String>,
     pub created_at: String,
+    /// Only a list filtered by change time carries deleted items; absent means live.
+    #[serde(default)]
+    pub deleted: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ServerCreateBookmarkPayload {
+    /// Id chosen by this device: sending the same bookmark again (the answer to the
+    /// first request was lost) returns the existing one instead of creating a duplicate.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<Uuid>,
     pub location: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
@@ -81,11 +102,17 @@ struct ServerAnnotationResponse {
     pub color: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    /// See `ServerBookmarkResponse::deleted`.
+    #[serde(default)]
+    pub deleted: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ServerCreateAnnotationPayload {
+    /// See `ServerCreateBookmarkPayload::id`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<Uuid>,
     pub location_start: String,
     pub location_end: String,
     pub selected_text: String,
@@ -98,8 +125,8 @@ struct ServerCreateAnnotationPayload {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ServerUpdateAnnotationPayload {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub note: Option<String>,
+    /// Always sent: an empty string clears the note, an absent field would keep the old one.
+    pub note: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
 }
@@ -148,9 +175,44 @@ impl SyncLock {
     }
 }
 
-async fn calculate_file_hash(file_path: &Path) -> Option<String> {
+/// Error for a response the sync cannot use. A rejected access token is reported with
+/// the `UNAUTHORIZED` prefix so that the caller refreshes the token instead of taking an
+/// unfinished sync for a finished one.
+fn status_error(status: reqwest::StatusCode, what: &str) -> String {
+    if status == reqwest::StatusCode::UNAUTHORIZED {
+        unauthorized_error(what)
+    } else {
+        format!("Server returned status {status} ({what})")
+    }
+}
+
+pub fn is_unauthorized(error: &str) -> bool {
+    error.starts_with(UNAUTHORIZED_ERROR)
+}
+
+type FileHashCache = Mutex<HashMap<PathBuf, (u64, Option<SystemTime>, String)>>;
+
+/// SHA-256 of files that were hashed already, by size and modification time: a book that
+/// is not on the server is looked up by its hash on every sync, and hashing a few hundred
+/// megabytes each time is not free.
+static FILE_HASHES: OnceLock<FileHashCache> = OnceLock::new();
+
+pub(crate) async fn file_sha256(file_path: &Path) -> Option<String> {
+    let metadata = tokio::fs::metadata(file_path).await.ok()?;
+    if !metadata.is_file() {
+        return None;
+    }
+    let stamp = (metadata.len(), metadata.modified().ok());
+    let cache = FILE_HASHES.get_or_init(Default::default);
+    if let Ok(known) = cache.lock()
+        && let Some((len, modified, hash)) = known.get(file_path)
+        && (*len, *modified) == stamp
+    {
+        return Some(hash.clone());
+    }
+
     let path = file_path.to_path_buf();
-    tokio::task::spawn_blocking(move || {
+    let hash = tokio::task::spawn_blocking(move || {
         use std::fs::File;
         use std::io::Read;
         let mut file = File::open(&path).ok()?;
@@ -168,50 +230,67 @@ async fn calculate_file_hash(file_path: &Path) -> Option<String> {
     })
     .await
     .ok()
-    .flatten()
+    .flatten()?;
+
+    if let Ok(mut known) = cache.lock() {
+        known.insert(file_path.to_path_buf(), (stamp.0, stamp.1, hash.clone()));
+    }
+    Some(hash)
 }
 
+/// The server book a local book is. `Ok(None)`: the server does not have it (or there is
+/// no file to recognise it by). A request that failed is an error, not "no such book".
 pub async fn resolve_server_book_id(
     pool: &DbPool,
     client: &reqwest::Client,
     base_url: &str,
     headers: &HeaderMap,
     book_id: &str,
-) -> Option<String> {
+) -> Result<Option<String>, String> {
     // 1. If it's already a valid UUID
     if Uuid::parse_str(book_id).is_ok() {
-        return Some(book_id.to_string());
+        return Ok(Some(book_id.to_string()));
     }
 
     // 2. Check local database mappings
     if let Ok(Some(server_id)) = db::get_server_book_id(pool, book_id).await {
-        return Some(server_id);
+        return Ok(Some(server_id));
     }
 
-    // 3. Check if file path is stored or can be found
+    // 3. Check if file path is stored or can be found: the server knows a file it has by
+    // its content hash, never by its name
     let file_path_opt = db::get_file_path_for_book(pool, book_id)
         .await
         .ok()
         .flatten();
     if let Some(fp) = file_path_opt {
         let p = Path::new(&fp);
-        if p.exists()
-            && p.is_file()
-            && let Some(hash) = calculate_file_hash(p).await
-        {
+        if let Some(hash) = file_sha256(p).await {
             let url = format!("{base_url}/api/books/by-hash/{hash}");
-            if let Ok(res) = client.get(&url).headers(headers.clone()).send().await
-                && res.status().is_success()
-                && let Ok(val) = res.json::<serde_json::Value>().await
+            let res = client
+                .get(&url)
+                .headers(headers.clone())
+                .send()
+                .await
+                .map_err(|e| format!("Failed to look up the book on the server: {e}"))?;
+            if res.status() == reqwest::StatusCode::NOT_FOUND {
+                return Ok(None);
+            }
+            if !res.status().is_success() {
+                return Err(status_error(res.status(), "book lookup"));
+            }
+            if let Ok(val) = res.json::<serde_json::Value>().await
                 && let Some(id_str) = val.get("id").and_then(|v| v.as_str())
+                && db::save_book_mapping(pool, book_id, id_str, Some(&fp))
+                    .await
+                    .unwrap_or(false)
             {
-                let _ = db::save_book_mapping(pool, book_id, id_str, Some(&fp)).await;
-                return Some(id_str.to_string());
+                return Ok(Some(id_str.to_string()));
             }
         }
     }
 
-    None
+    Ok(None)
 }
 
 pub async fn sync_book(
@@ -229,7 +308,7 @@ pub async fn sync_book(
     let headers = build_headers(token);
 
     // Resolve real server Folio UUID
-    let server_id = match resolve_server_book_id(pool, client, base, &headers, book_id).await {
+    let server_id = match resolve_server_book_id(pool, client, base, &headers, book_id).await? {
         Some(id) => id,
         None => {
             // Mark pending records as 'local_only' to prevent infinite sync loop for books not on server
@@ -284,20 +363,46 @@ pub async fn sync_book(
             sessions_synced: 0,
         });
     }
-    let copy = chapter_copy(pool, book_id).await;
+    // Everything a volume copy sends is translated with its place in the book, and that
+    // place changes when volumes are added or chapters move between them
+    let copy = match chapter_copy(pool, book_id).await {
+        Some(copy) => Some(refresh_copy_scope(pool, client, base, &headers, copy).await?),
+        None => None,
+    };
     let copy = copy.as_ref();
 
-    let progress_synced = sync_progress(pool, client, base, &headers, book_id, &server_id, copy)
-        .await
-        .unwrap_or(false);
-    let bookmarks_synced = sync_bookmarks(pool, client, base, &headers, book_id, &server_id, copy)
-        .await
-        .unwrap_or(0);
+    // A step that failed is reported: a sync that could not reach the server, or was
+    // turned away by it, is not a successful one
+    let mut errors: Vec<String> = Vec::new();
+
+    let progress_synced = match exchange_progress(
+        pool, client, base, &headers, book_id, &server_id, copy, false,
+    )
+    .await
+    {
+        Ok(exchange) => exchange.was_pushed(),
+        Err(e) => {
+            errors.push(e);
+            false
+        }
+    };
+    let bookmarks_synced =
+        match sync_bookmarks(pool, client, base, &headers, book_id, &server_id, copy).await {
+            Ok(count) => count,
+            Err(e) => {
+                errors.push(e);
+                0
+            }
+        };
     let annotations_synced =
-        sync_annotations(pool, client, base, &headers, book_id, &server_id, copy)
-            .await
-            .unwrap_or(0);
-    let sessions_synced = sync_reading_sessions(
+        match sync_annotations(pool, client, base, &headers, book_id, &server_id, copy).await {
+            Ok(count) => count,
+            Err(e) => {
+                errors.push(e);
+                0
+            }
+        };
+    let sessions_synced = match sync_reading_sessions(
         pool,
         client,
         base,
@@ -306,11 +411,25 @@ pub async fn sync_book(
         Some(&server_id),
     )
     .await
-    .unwrap_or(0);
+    {
+        Ok(count) => count,
+        Err(e) => {
+            errors.push(e);
+            0
+        }
+    };
+
+    if let Some(unauthorized) = errors.iter().find(|e| is_unauthorized(e)) {
+        return Err(unauthorized.clone());
+    }
 
     Ok(SyncResult {
-        success: true,
-        message: "Book sync completed successfully".to_string(),
+        success: errors.is_empty(),
+        message: if errors.is_empty() {
+            "Book sync completed successfully".to_string()
+        } else {
+            errors.join("; ")
+        },
         progress_synced,
         bookmarks_synced,
         annotations_synced,
@@ -344,6 +463,84 @@ async fn is_book_read_from_copies(pool: &DbPool, book_id: &str) -> bool {
 
 fn volume_copy(copy: Option<&DbChapterCopy>) -> Option<&DbChapterCopy> {
     copy.filter(|c| c.volume.is_some())
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ServerVolume {
+    volume: f32,
+    #[serde(default)]
+    chapters_count: usize,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ServerVolumes {
+    #[serde(default)]
+    items: Vec<ServerVolume>,
+    #[serde(default)]
+    chapters_total: Option<usize>,
+}
+
+/// A volume copy remembers where it sat in the book when it was built. The book goes on
+/// changing: a new volume makes the "last" one no longer the end of the book, chapters
+/// added to earlier volumes move everything after them. What the copy sends — the read
+/// flag, the percentage of the whole book, the spine index of bookmarks and annotations —
+/// is only right with the current numbers, so they are taken from the server before
+/// every exchange. A copy of the whole book has nothing to refresh.
+async fn refresh_copy_scope(
+    pool: &DbPool,
+    client: &reqwest::Client,
+    base_url: &str,
+    headers: &HeaderMap,
+    copy: DbChapterCopy,
+) -> Result<DbChapterCopy, String> {
+    let Some(volume) = copy.volume else {
+        return Ok(copy);
+    };
+
+    let url = format!("{base_url}/api/books/{}/volumes", copy.server_book_id);
+    let res = client
+        .get(&url)
+        .headers(headers.clone())
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch the volumes of the book: {e}"))?;
+    if !res.status().is_success() {
+        return Err(status_error(res.status(), "volumes of the book"));
+    }
+    let volumes: ServerVolumes = res
+        .json()
+        .await
+        .map_err(|e| format!("Unexpected list of volumes: {e}"))?;
+
+    let chapters_before: usize = volumes
+        .items
+        .iter()
+        .filter(|v| v.volume < volume)
+        .map(|v| v.chapters_count)
+        .sum();
+    let listed: usize = volumes.items.iter().map(|v| v.chapters_count).sum();
+    let in_copy = usize::try_from(copy.chapters_count).unwrap_or(0);
+    // The copy's own chapters always count, as when it was built
+    let book_chapters = volumes
+        .chapters_total
+        .unwrap_or(0)
+        .max(listed)
+        .max(chapters_before + in_copy);
+
+    if copy.chapters_before == chapters_before as i64 && copy.book_chapters == book_chapters as i64
+    {
+        return Ok(copy);
+    }
+    db::update_chapter_copy_scope(pool, &copy.local_id, chapters_before, book_chapters)
+        .await
+        .map_err(|e| format!("Failed to store the place of the volume in its book: {e}"))?;
+    Ok(DbChapterCopy {
+        chapters_before: chapters_before as i64,
+        book_chapters: book_chapters as i64,
+        ..copy
+    })
 }
 
 /// The second id rows of the book may be stored under: the server id for a book downloaded
@@ -388,6 +585,9 @@ enum RemoteLocation {
     /// A chapter the local copy does not have (yet, or it belongs to another volume), or
     /// a position of another edition.
     Unknown,
+    /// The server has no position (an empty location): the book was marked read, or its
+    /// percentage was set, without ever being opened.
+    NoPosition,
 }
 
 async fn incoming_location(
@@ -469,6 +669,337 @@ fn incoming_item_location(copy: Option<&DbChapterCopy>, location: &str) -> Optio
 }
 
 // ---------------- PROGRESS SYNC ----------------
+//
+// The book has one reading position on the server and one here; each carries the time it
+// actually changed. The newer change wins in both directions:
+//
+// * a local change goes to the server with its change time, and the server keeps what it
+//   has when that is newer (`applied: false`);
+// * the server position replaces the local one only when it is newer than the local
+//   change time.
+//
+// A local position is marked synced only if it is still the one the request was built
+// from: a page turned while the request was in flight stays pending.
+
+/// What an exchange of the reading position came to.
+#[derive(Debug)]
+enum ProgressExchange {
+    /// The server position is the newer one and is the local one now. `location`: where
+    /// the reader has to go (`None` when it is already there).
+    Adopted {
+        location: Option<String>,
+        progress_percent: f32,
+        is_read: bool,
+        updated_at: Option<String>,
+    },
+    /// The local position is the current one; `pushed` when the server did not have it.
+    Local {
+        pushed: bool,
+        progress: Option<DbBookProgress>,
+    },
+    /// The server position is the newer one, but this copy cannot open it.
+    Elsewhere,
+    /// The server has no position for the book, and there is nothing to send.
+    NoRemote,
+}
+
+impl ProgressExchange {
+    fn was_pushed(&self) -> bool {
+        matches!(self, ProgressExchange::Local { pushed: true, .. })
+    }
+}
+
+/// A local position that says "nothing was read": no location, 0%, not read. It is what
+/// "mark as unread" stores; the server is told 0% and "not read" (it keeps its location:
+/// an empty one is never sent).
+fn is_cleared(progress: &DbBookProgress) -> bool {
+    progress.location.trim().is_empty() && progress.progress_percent <= 0.0 && !progress.is_read
+}
+
+/// Exchanges the reading position with the server. With `adopt` a newer server position
+/// becomes the local one (the caller moves the reader there); without it the local
+/// position is only pushed, and a newer server position waits for the next pull — the
+/// background sync must not move the position under a reader that shows another page.
+#[allow(clippy::too_many_arguments)]
+async fn exchange_progress(
+    pool: &DbPool,
+    client: &reqwest::Client,
+    base_url: &str,
+    headers: &HeaderMap,
+    local_book_id: &str,
+    server_book_id: &str,
+    copy: Option<&DbChapterCopy>,
+    adopt: bool,
+) -> Result<ProgressExchange, String> {
+    let alias = row_alias(copy, local_book_id, server_book_id);
+    let url = format!("{base_url}/api/books/{server_book_id}/progress?format=cfi");
+
+    let local = db::get_progress(pool, local_book_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let local_changed = local.as_ref().is_some_and(|p| p.sync_status != "synced");
+    if !adopt && !local_changed {
+        return Ok(ProgressExchange::Local {
+            pushed: false,
+            progress: local,
+        });
+    }
+
+    let res = client
+        .get(&url)
+        .headers(headers.clone())
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch server progress: {e}"))?;
+    let remote = if res.status().is_success() {
+        Some(
+            res.json::<ServerProgressResponse>()
+                .await
+                .map_err(|e| format!("Unexpected server progress: {e}"))?,
+        )
+    } else if res.status() == reqwest::StatusCode::NOT_FOUND {
+        None
+    } else {
+        return Err(status_error(res.status(), "reading progress"));
+    };
+
+    let local_time = local
+        .as_ref()
+        .and_then(|p| db::parse_timestamp(&p.updated_at));
+    let remote_time = remote
+        .as_ref()
+        .and_then(|r| r.updated_at.as_deref())
+        .and_then(db::parse_timestamp);
+    let remote_is_newer = match (&remote, remote_time, local_time) {
+        (None, _, _) => false,
+        (Some(_), Some(remote_time), Some(local_time)) => remote_time > local_time,
+        // Nothing to compare: a local change that was never pushed wins, a local
+        // position that only mirrors the server does not
+        (Some(_), _, _) => !local_changed,
+    };
+
+    if let Some(remote) = remote.as_ref()
+        && remote_is_newer
+    {
+        return settle_newer_remote(
+            pool,
+            copy,
+            local_book_id,
+            alias,
+            local.as_ref(),
+            remote,
+            adopt,
+        )
+        .await;
+    }
+
+    let Some(local) = local else {
+        return Ok(ProgressExchange::NoRemote);
+    };
+    if !local_changed {
+        return Ok(if remote.is_some() {
+            ProgressExchange::Local {
+                pushed: false,
+                progress: Some(local),
+            }
+        } else {
+            ProgressExchange::NoRemote
+        });
+    }
+
+    // ---- The local position is the newer one: push it ----
+    let payload = if is_cleared(&local) {
+        // The server keeps one position per book: clearing a single volume must not
+        // touch a position that may be in another one. A book the server has no
+        // position for is "nothing was read" already.
+        if remote.is_none() || volume_copy(copy).is_some() {
+            db::mark_progress_synced(pool, local_book_id, alias, &local.updated_at, None)
+                .await
+                .map_err(|e| e.to_string())?;
+            return Ok(ProgressExchange::Local {
+                pushed: true,
+                progress: Some(local),
+            });
+        }
+        // The change goes out dated like any other, so that devices which still show
+        // the book as read learn about it and an older position cannot come back
+        ServerProgressPayload {
+            location: None,
+            progress_percent: Some(0.0),
+            is_read: Some(false),
+            updated_at: Some(local.updated_at.clone()),
+        }
+    } else {
+        ServerProgressPayload {
+            // An empty location means "no position" and is never sent
+            location: outgoing_location(pool, copy, &local.location)
+                .await
+                .filter(|location| !location.trim().is_empty()),
+            progress_percent: Some(outgoing_percent(copy, local.progress_percent)),
+            is_read: outgoing_is_read(copy, local.is_read),
+            updated_at: Some(local.updated_at.clone()),
+        }
+    };
+    let res = client
+        .put(&url)
+        .headers(headers.clone())
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to push progress: {e}"))?;
+    if !res.status().is_success() {
+        return Err(status_error(res.status(), "reading progress update"));
+    }
+    let answer = res.json::<ServerProgressResponse>().await.ok();
+
+    if let Some(answer) = answer.as_ref()
+        && answer.applied == Some(false)
+    {
+        // The server got a newer position between our two requests
+        return settle_newer_remote(
+            pool,
+            copy,
+            local_book_id,
+            alias,
+            Some(&local),
+            answer,
+            adopt,
+        )
+        .await;
+    }
+
+    db::mark_progress_synced(
+        pool,
+        local_book_id,
+        alias,
+        &local.updated_at,
+        answer.as_ref().and_then(|a| a.updated_at.as_deref()),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(ProgressExchange::Local {
+        pushed: true,
+        progress: Some(local),
+    })
+}
+
+/// The server holds a position that is newer than the local one (`local`: the local
+/// position the comparison was made with). With `adopt` it becomes the local position;
+/// without, the local change is only retired — it lost and must not be pushed again.
+async fn settle_newer_remote(
+    pool: &DbPool,
+    copy: Option<&DbChapterCopy>,
+    local_book_id: &str,
+    alias: &str,
+    local: Option<&DbBookProgress>,
+    remote: &ServerProgressResponse,
+    adopt: bool,
+) -> Result<ProgressExchange, String> {
+    let retire_local = || async {
+        if let Some(local) = local
+            && local.sync_status != "synced"
+        {
+            db::mark_progress_synced(pool, local_book_id, alias, &local.updated_at, None)
+                .await
+                .map_err(|e| e.to_string())?;
+        }
+        Ok::<(), String>(())
+    };
+
+    if !adopt {
+        retire_local().await?;
+        return Ok(ProgressExchange::Local {
+            pushed: false,
+            progress: local.cloned(),
+        });
+    }
+
+    // The server percentage is in the scale of the whole book, local ones in the scale
+    // of the file
+    let remote_book_percent = remote.progress_percent.unwrap_or(0.0);
+    let local_is_read = local.is_some_and(|p| p.is_read);
+    let local_percent = local.map_or(0.0, |p| p.progress_percent);
+    let local_location = local.map(|p| p.location.as_str());
+    let is_read = incoming_is_read(copy, remote.is_read.unwrap_or(false), local_is_read);
+
+    let incoming = match remote.location.as_deref().map(str::trim) {
+        Some(location) if !location.is_empty() => {
+            incoming_location(pool, copy, location.to_string(), local_location).await
+        }
+        _ => RemoteLocation::NoPosition,
+    };
+    let (location, progress_percent, go_to) = match incoming {
+        RemoteLocation::At(location) => {
+            let go_to = (local_location != Some(location.as_str())).then(|| location.clone());
+            (location, incoming_percent(copy, remote_book_percent), go_to)
+        }
+        // The reader is in that chapter already: its own position is the precise one.
+        // The read flag still comes from the server.
+        RemoteLocation::SameChapter => {
+            let percent = if is_read != local_is_read {
+                incoming_percent(copy, remote_book_percent)
+            } else {
+                local_percent
+            };
+            (
+                local_location.unwrap_or_default().to_string(),
+                percent,
+                None,
+            )
+        }
+        // Nothing to go to; the flag and the percentage are the server's. A volume copy
+        // keeps its own percentage: the server one says where the whole book is.
+        RemoteLocation::NoPosition => {
+            let percent = match volume_copy(copy) {
+                Some(_) if is_read && !local_is_read => 100.0,
+                Some(_) => local_percent,
+                None => remote_book_percent,
+            };
+            (
+                local_location.unwrap_or_default().to_string(),
+                percent,
+                None,
+            )
+        }
+        // A position this copy cannot open leaves its own alone
+        RemoteLocation::Unknown => {
+            retire_local().await?;
+            return Ok(ProgressExchange::Elsewhere);
+        }
+    };
+
+    let stored = db::adopt_remote_progress(
+        pool,
+        local_book_id,
+        alias,
+        local.map(|p| p.updated_at.as_str()),
+        &location,
+        progress_percent,
+        is_read,
+        remote.updated_at.as_deref(),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    if !stored {
+        // The position changed here while the server was being asked: that change is the
+        // newest one and goes out with the next exchange
+        let current = db::get_progress(pool, local_book_id)
+            .await
+            .map_err(|e| e.to_string())?;
+        return Ok(ProgressExchange::Local {
+            pushed: false,
+            progress: current,
+        });
+    }
+
+    Ok(ProgressExchange::Adopted {
+        location: go_to,
+        progress_percent,
+        is_read,
+        updated_at: remote.updated_at.clone(),
+    })
+}
+
 pub async fn pull_book_progress(
     pool: &DbPool,
     client: &reqwest::Client,
@@ -482,281 +1013,126 @@ pub async fn pull_book_progress(
     }
 
     let headers = build_headers(token);
+    let without_position = |success: bool, message: &str| PullProgressResult {
+        success,
+        message: message.to_string(),
+        location: None,
+        progress_percent: None,
+        is_read: None,
+        updated_at: None,
+    };
 
     // Resolve real server Folio UUID
-    let server_id = match resolve_server_book_id(pool, client, base, &headers, book_id).await {
+    let server_id = match resolve_server_book_id(pool, client, base, &headers, book_id).await? {
         Some(id) => id,
         None => {
-            return Ok(PullProgressResult {
-                success: false,
-                message: format!("Book '{book_id}' is not linked to any server Folio ID."),
-                location: None,
-                progress_percent: None,
-                is_read: None,
-                updated_at: None,
-            });
+            return Ok(without_position(
+                false,
+                &format!("Book '{book_id}' is not linked to any server Folio ID."),
+            ));
         }
     };
 
     if is_book_read_from_copies(pool, book_id).await {
-        return Ok(PullProgressResult {
-            success: false,
-            message: "This book is read from local copies built from its chapters; open one of them to sync.".to_string(),
-            location: None,
-            progress_percent: None,
-            is_read: None,
-            updated_at: None,
-        });
+        return Ok(without_position(
+            false,
+            "This book is read from local copies built from its chapters; open one of them to sync.",
+        ));
     }
-    let copy = chapter_copy(pool, book_id).await;
+    let copy = match chapter_copy(pool, book_id).await {
+        Some(copy) => Some(refresh_copy_scope(pool, client, base, &headers, copy).await?),
+        None => None,
+    };
     let copy = copy.as_ref();
 
-    let url = format!("{base}/api/books/{server_id}/progress?format=cfi");
-    let res = client
-        .get(&url)
-        .headers(headers.clone())
-        .send()
-        .await
-        .map_err(|e| format!("Failed to fetch server progress: {e}"))?;
-
-    if res.status().is_success() {
-        if let Ok(remote) = res.json::<ServerProgressResponse>().await
-            && let Some(loc) = remote.location
-        {
-            // The server percentage is in the scale of the whole book, local ones in the
-            // scale of the file
-            let remote_book_percent = remote.progress_percent.unwrap_or(0.0);
-            let remote_percent = incoming_percent(copy, remote_book_percent);
-
-            let current_local = db::get_progress(pool, book_id).await.ok().flatten();
-            let local_is_pending = current_local
-                .as_ref()
-                .map(|p| p.sync_status == "pending")
-                .unwrap_or(false);
-            let local_percent = current_local
-                .as_ref()
-                .map(|p| p.progress_percent)
-                .unwrap_or(0.0);
-            let is_read = incoming_is_read(
-                copy,
-                remote.is_read.unwrap_or(false),
-                current_local.as_ref().is_some_and(|p| p.is_read),
-            );
-            let incoming = incoming_location(
-                pool,
-                copy,
-                loc,
-                current_local.as_ref().map(|p| p.location.as_str()),
-            )
-            .await;
-            // "Further ahead" only means something inside one file: a volume that was read
-            // earlier must not take the server position away from the volume being read now
-            let local_is_ahead = outgoing_percent(copy, local_percent) > remote_book_percent
-                && local_percent > 0.0
-                && !(volume_copy(copy).is_some() && incoming == RemoteLocation::Unknown);
-
-            // If local progress is pending or further ahead, preserve local and push it to the server
-            if (local_is_pending || local_is_ahead)
-                && let Some(local_p) = current_local
-            {
-                // Push local to server
-                let put_url = format!("{base}/api/books/{server_id}/progress?format=cfi");
-                let payload = ServerProgressPayload {
-                    location: outgoing_location(pool, copy, &local_p.location).await,
-                    progress_percent: Some(outgoing_percent(copy, local_p.progress_percent)),
-                    is_read: outgoing_is_read(copy, local_p.is_read),
-                };
-                let put_res = client
-                    .put(&put_url)
-                    .headers(headers.clone())
-                    .json(&payload)
-                    .send()
-                    .await;
-
-                if let Ok(r) = put_res
-                    && r.status().is_success()
-                {
-                    let _ = sqlx::query("UPDATE book_progress SET sync_status = 'synced' WHERE book_id = ? OR book_id = ?")
-                                    .bind(book_id)
-                                    .bind(row_alias(copy, book_id, &server_id))
-                                    .execute(pool)
-                                    .await;
-                }
-
-                return Ok(PullProgressResult {
-                    success: true,
-                    message: "Local progress preserved and synced with server".to_string(),
-                    location: Some(local_p.location),
-                    progress_percent: Some(local_p.progress_percent),
-                    is_read: Some(local_p.is_read),
-                    updated_at: Some(local_p.updated_at),
-                });
-            }
-
-            let loc = match incoming {
-                RemoteLocation::At(loc) => loc,
-                RemoteLocation::SameChapter => {
-                    return Ok(PullProgressResult {
-                        success: true,
-                        message: "Reading position is up to date".to_string(),
-                        location: None,
-                        progress_percent: None,
-                        is_read: None,
-                        updated_at: None,
-                    });
-                }
-                RemoteLocation::Unknown => {
-                    let message = if volume_copy(copy).is_some() {
-                        "Server progress is in another volume of this book (or in a chapter this copy does not have yet)."
-                    } else {
-                        "Server progress is in a chapter this copy does not have yet. Update the book from the catalog."
-                    };
-                    return Ok(PullProgressResult {
-                        success: false,
-                        message: message.to_string(),
-                        location: None,
-                        progress_percent: None,
-                        is_read: None,
-                        updated_at: None,
-                    });
-                }
-            };
-
-            // Force save to local SQLite database with sync_status = 'synced'
-            let _ = db::save_progress(pool, book_id, &loc, remote_percent, is_read, false).await;
-            // A copy built from chapters keeps its state under its own id only
-            if copy.is_none() && server_id != book_id {
-                let _ =
-                    db::save_progress(pool, &server_id, &loc, remote_percent, is_read, false).await;
-            }
-
-            return Ok(PullProgressResult {
-                success: true,
-                message: "Progress successfully fetched from server".to_string(),
-                location: Some(loc),
-                progress_percent: Some(remote_percent),
-                is_read: Some(is_read),
-                updated_at: remote.updated_at,
-            });
-        }
-        Ok(PullProgressResult {
-            success: false,
-            message: "No reading progress recorded on server for this book".to_string(),
+    let exchange = exchange_progress(
+        pool, client, base, &headers, book_id, &server_id, copy, true,
+    )
+    .await?;
+    Ok(match exchange {
+        // `location` is set only when the reader has to move
+        ProgressExchange::Adopted {
+            location,
+            progress_percent,
+            is_read,
+            updated_at,
+        } => PullProgressResult {
+            success: true,
+            message: "Progress successfully fetched from server".to_string(),
+            location,
+            progress_percent: Some(progress_percent),
+            is_read: Some(is_read),
+            updated_at,
+        },
+        ProgressExchange::Local { pushed, progress } => PullProgressResult {
+            success: true,
+            message: if pushed {
+                "Local progress preserved and synced with server".to_string()
+            } else {
+                "Reading position is up to date".to_string()
+            },
             location: None,
-            progress_percent: None,
-            is_read: None,
-            updated_at: None,
-        })
-    } else if res.status().as_u16() == 404 {
-        Ok(PullProgressResult {
-            success: false,
-            message: "No progress found on server".to_string(),
-            location: None,
-            progress_percent: None,
-            is_read: None,
-            updated_at: None,
-        })
-    } else {
-        Err(format!("Server returned error status {}", res.status()))
-    }
-}
-
-async fn sync_progress(
-    pool: &DbPool,
-    client: &reqwest::Client,
-    base_url: &str,
-    headers: &HeaderMap,
-    local_book_id: &str,
-    server_book_id: &str,
-    copy: Option<&DbChapterCopy>,
-) -> Result<bool, String> {
-    let local = db::get_progress(pool, local_book_id)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    // 1. Push if pending and not just unread 0%
-    if let Some(p) = &local
-        && p.sync_status == "pending"
-    {
-        let url = format!("{base_url}/api/books/{server_book_id}/progress?format=cfi");
-        let payload = ServerProgressPayload {
-            location: outgoing_location(pool, copy, &p.location).await,
-            progress_percent: Some(outgoing_percent(copy, p.progress_percent)),
-            is_read: outgoing_is_read(copy, p.is_read),
-        };
-
-        let res = client
-            .put(&url)
-            .headers(headers.clone())
-            .json(&payload)
-            .send()
-            .await
-            .map_err(|e| format!("Failed to push progress: {e}"))?;
-
-        if res.status().is_success() {
-            let _ = sqlx::query(
-                "UPDATE book_progress SET sync_status = 'synced' WHERE book_id = ? OR book_id = ?",
-            )
-            .bind(local_book_id)
-            .bind(row_alias(copy, local_book_id, server_book_id))
-            .execute(pool)
-            .await;
-        }
-    }
-
-    // 2. Pull remote
-    let url = format!("{base_url}/api/books/{server_book_id}/progress?format=cfi");
-    let res = client.get(&url).headers(headers.clone()).send().await;
-
-    if let Ok(r) = res
-        && r.status().is_success()
-        && let Ok(remote) = r.json::<ServerProgressResponse>().await
-        && let Some(loc) = remote.location
-    {
-        let current_local = db::get_progress(pool, local_book_id).await.ok().flatten();
-        let is_pending = current_local
-            .as_ref()
-            .map(|p| p.sync_status == "pending")
-            .unwrap_or(false);
-        // If not pending, or if local is at 0% while remote is further ahead, update local
-        let local_percent = current_local
-            .as_ref()
-            .map(|p| p.progress_percent)
-            .unwrap_or(0.0);
-        // In the scale of the local file
-        let remote_percent = incoming_percent(copy, remote.progress_percent.unwrap_or(0.0));
-        let is_read = incoming_is_read(
-            copy,
-            remote.is_read.unwrap_or(false),
-            current_local.as_ref().is_some_and(|p| p.is_read),
-        );
-        let incoming = incoming_location(
-            pool,
-            copy,
-            loc,
-            current_local.as_ref().map(|p| p.location.as_str()),
-        )
-        .await;
-        // A position the local copy cannot open (or is already at) leaves local progress alone
-        if let RemoteLocation::At(loc) = incoming
-            && (!is_pending || (local_percent <= 0.01 && remote_percent > 0.0))
-        {
-            let _ =
-                db::save_progress(pool, local_book_id, &loc, remote_percent, is_read, false).await;
-            // A copy built from chapters keeps its state under its own id only
-            if copy.is_none() && server_book_id != local_book_id {
-                let _ =
-                    db::save_progress(pool, server_book_id, &loc, remote_percent, is_read, false)
-                        .await;
-            }
-        }
-        return Ok(true);
-    }
-
-    Ok(false)
+            progress_percent: progress.as_ref().map(|p| p.progress_percent),
+            is_read: progress.as_ref().map(|p| p.is_read),
+            updated_at: progress.map(|p| p.updated_at),
+        },
+        ProgressExchange::Elsewhere => without_position(
+            false,
+            if volume_copy(copy).is_some() {
+                "Server progress is in another volume of this book (or in a chapter this copy does not have yet)."
+            } else {
+                "Server progress is in a chapter this copy does not have yet. Update the book from the catalog."
+            },
+        ),
+        ProgressExchange::NoRemote => without_position(false, "No progress found on server"),
+    })
 }
 
 // ---------------- BOOKMARKS SYNC ----------------
+
+/// Id under which a bookmark or annotation made on this device is created on the server.
+/// It is derived from the local row, so a retry of a request whose answer was lost names
+/// the same item and the server returns it instead of creating a second one.
+fn client_item_id(server_book_id: &str, local_book_id: &str, local_item_id: &str) -> Uuid {
+    let mut hasher = Sha256::new();
+    for part in [server_book_id, local_book_id, local_item_id] {
+        hasher.update(part.as_bytes());
+        hasher.update([0u8]);
+    }
+    let digest = hasher.finalize();
+    let mut bytes = [0u8; 16];
+    bytes.copy_from_slice(&digest[..16]);
+    bytes[6] = (bytes[6] & 0x0f) | 0x80; // version 8: custom
+    bytes[8] = (bytes[8] & 0x3f) | 0x80; // RFC 4122 variant
+    Uuid::from_bytes(bytes)
+}
+
+/// Sends a "create" request. The id this device proposes may be refused (`409`: it is
+/// taken by an item of another book or user); the item is then created under an id of
+/// the server's choice, as on a server that does not take ids at all.
+async fn post_new_item<T: Serialize>(
+    client: &reqwest::Client,
+    url: &str,
+    headers: &HeaderMap,
+    with_id: &T,
+    without_id: &T,
+) -> Result<reqwest::Response, reqwest::Error> {
+    let res = client
+        .post(url)
+        .headers(headers.clone())
+        .json(with_id)
+        .send()
+        .await?;
+    if res.status() != reqwest::StatusCode::CONFLICT {
+        return Ok(res);
+    }
+    client
+        .post(url)
+        .headers(headers.clone())
+        .json(without_id)
+        .send()
+        .await
+}
 async fn sync_bookmarks(
     pool: &DbPool,
     client: &reqwest::Client,
@@ -785,6 +1161,11 @@ async fn sync_bookmarks(
         if let Some(server_id) = &bm.server_id {
             let url = format!("{base_url}/api/books/{server_book_id}/bookmarks/{server_id}");
             let res = client.delete(&url).headers(headers.clone()).send().await;
+            if let Ok(r) = &res
+                && r.status() == reqwest::StatusCode::UNAUTHORIZED
+            {
+                return Err(unauthorized_error("bookmarks"));
+            }
             if let Ok(r) = res
                 && (r.status().is_success() || r.status().as_u16() == 404)
             {
@@ -816,16 +1197,22 @@ async fn sync_bookmarks(
         };
         let url = format!("{base_url}/api/books/{server_book_id}/bookmarks?format=cfi");
         let payload = ServerCreateBookmarkPayload {
+            id: Some(client_item_id(server_book_id, local_book_id, &bm.id)),
             location,
             title: bm.chapter_title.clone().or(bm.location_label.clone()),
         };
+        let without_id = ServerCreateBookmarkPayload {
+            id: None,
+            location: payload.location.clone(),
+            title: payload.title.clone(),
+        };
 
-        let res = client
-            .post(&url)
-            .headers(headers.clone())
-            .json(&payload)
-            .send()
-            .await;
+        let res = post_new_item(client, &url, headers, &payload, &without_id).await;
+        if let Ok(r) = &res
+            && r.status() == reqwest::StatusCode::UNAUTHORIZED
+        {
+            return Err(unauthorized_error("bookmarks"));
+        }
         if let Ok(r) = res
             && r.status().is_success()
             && let Ok(created) = r.json::<ServerBookmarkResponse>().await
@@ -845,12 +1232,19 @@ async fn sync_bookmarks(
 
     // 3. Pull remote
     let url = format!("{base_url}/api/books/{server_book_id}/bookmarks?format=cfi");
-    let res = client.get(&url).headers(headers.clone()).send().await;
+    let res = client
+        .get(&url)
+        .headers(headers.clone())
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch bookmarks: {e}"))?;
+    if !res.status().is_success() {
+        return Err(status_error(res.status(), "bookmarks"));
+    }
 
-    if let Ok(r) = res
-        && r.status().is_success()
-        && let Ok(remote_bookmarks) = r.json::<Vec<ServerBookmarkResponse>>().await
-    {
+    if let Ok(mut remote_bookmarks) = res.json::<Vec<ServerBookmarkResponse>>().await {
+        // A deleted item (only a list filtered by change time has them) is an absent one
+        remote_bookmarks.retain(|b| !b.deleted);
         let mut remote_ids: std::collections::HashSet<String> =
             remote_bookmarks.iter().map(|b| b.id.to_string()).collect();
         remote_ids.extend(pushed_server_ids);
@@ -862,39 +1256,41 @@ async fn sync_bookmarks(
             let Some(location) = incoming_item_location(copy, &rbm.location) else {
                 continue;
             };
-            let existing = if copy.is_some() {
-                sqlx::query_as::<_, DbBookmark>(
-                    "SELECT id, server_id, book_id, location, fraction, location_label, chapter_title, created_at, is_deleted != 0 AS is_deleted, sync_status FROM bookmarks WHERE book_id = ? AND (server_id = ? OR location = ?)",
-                )
-                .bind(local_book_id)
-                .bind(&server_id_str)
-                .bind(&location)
-                .fetch_optional(pool)
-                .await
-                .unwrap_or(None)
-            } else {
-                sqlx::query_as::<_, DbBookmark>(
-                    "SELECT id, server_id, book_id, location, fraction, location_label, chapter_title, created_at, is_deleted != 0 AS is_deleted, sync_status FROM bookmarks WHERE server_id = ? OR (location = ? AND (book_id = ? OR book_id = ?))",
-                )
-                .bind(&server_id_str)
-                .bind(&location)
-                .bind(local_book_id)
-                .bind(server_book_id)
-                .fetch_optional(pool)
-                .await
-                .unwrap_or(None)
-            };
+            // The row of this very server item, or else a local row at the same place
+            // that is no server item yet. A row that already is another server item is
+            // never taken for this one, wherever it sits.
+            let existing = sqlx::query_as::<_, DbBookmark>(
+                "SELECT id, server_id, book_id, location, fraction, location_label, chapter_title, created_at, is_deleted != 0 AS is_deleted, sync_status FROM bookmarks WHERE (book_id = ? OR book_id = ?) AND (server_id = ? OR (server_id IS NULL AND location = ?)) ORDER BY server_id IS NULL LIMIT 1",
+            )
+            .bind(local_book_id)
+            .bind(row_alias)
+            .bind(&server_id_str)
+            .bind(&location)
+            .fetch_optional(pool)
+            .await
+            .unwrap_or(None);
 
             match existing {
                 Some(loc_bm) => {
                     if loc_bm.sync_status != "pending_create"
                         && loc_bm.sync_status != "pending_delete"
                     {
+                        // The server addresses a book built from chapters by spine index,
+                        // and its index is the one of the day the item was created. The
+                        // local location of an item this copy already holds follows the
+                        // chapter through rebuilds of the file and is the right one.
+                        let location = if copy.is_some()
+                            && loc_bm.server_id.as_deref() == Some(server_id_str.as_str())
+                        {
+                            &loc_bm.location
+                        } else {
+                            &location
+                        };
                         let _ = sqlx::query(
                                     "UPDATE bookmarks SET server_id = ?, location = ?, chapter_title = ?, is_deleted = 0, sync_status = 'synced' WHERE id = ?",
                                 )
                                 .bind(&server_id_str)
-                                .bind(&location)
+                                .bind(location)
                                 .bind(&rbm.title)
                                 .bind(&loc_bm.id)
                                 .execute(pool)
@@ -996,6 +1392,11 @@ async fn sync_annotations(
         if let Some(server_id) = &ann.server_id {
             let url = format!("{base_url}/api/books/{server_book_id}/annotations/{server_id}");
             let res = client.delete(&url).headers(headers.clone()).send().await;
+            if let Ok(r) = &res
+                && r.status() == reqwest::StatusCode::UNAUTHORIZED
+            {
+                return Err(unauthorized_error("annotations"));
+            }
             if let Ok(r) = res
                 && (r.status().is_success() || r.status().as_u16() == 404)
             {
@@ -1040,19 +1441,28 @@ async fn sync_annotations(
             continue;
         };
         let payload = ServerCreateAnnotationPayload {
+            id: Some(client_item_id(server_book_id, local_book_id, &ann.id)),
             location_start,
             location_end,
             selected_text: ann.selected_text.clone(),
-            note: ann.note.clone(),
+            note: ann.note.clone().filter(|note| !note.is_empty()),
             color: normalize_annotation_color(Some(&ann.color)),
         };
+        let without_id = ServerCreateAnnotationPayload {
+            id: None,
+            location_start: payload.location_start.clone(),
+            location_end: payload.location_end.clone(),
+            selected_text: payload.selected_text.clone(),
+            note: payload.note.clone(),
+            color: payload.color.clone(),
+        };
 
-        let res = client
-            .post(&url)
-            .headers(headers.clone())
-            .json(&payload)
-            .send()
-            .await;
+        let res = post_new_item(client, &url, headers, &payload, &without_id).await;
+        if let Ok(r) = &res
+            && r.status() == reqwest::StatusCode::UNAUTHORIZED
+        {
+            return Err(unauthorized_error("annotations"));
+        }
         if let Ok(r) = res
             && r.status().is_success()
             && let Ok(created) = r.json::<ServerAnnotationResponse>().await
@@ -1085,7 +1495,9 @@ async fn sync_annotations(
             let url =
                 format!("{base_url}/api/books/{server_book_id}/annotations/{server_id}?format=cfi");
             let payload = ServerUpdateAnnotationPayload {
-                note: ann.note.clone(),
+                // A note the user removed is sent as an empty string: the server leaves
+                // the note alone when the field is absent
+                note: ann.note.clone().unwrap_or_default(),
                 color: normalize_annotation_color(Some(&ann.color)),
             };
 
@@ -1095,13 +1507,31 @@ async fn sync_annotations(
                 .json(&payload)
                 .send()
                 .await;
-            if let Ok(r) = res
-                && r.status().is_success()
-            {
-                let _ = sqlx::query("UPDATE annotations SET sync_status = 'synced' WHERE id = ?")
-                    .bind(&ann.id)
-                    .execute(pool)
-                    .await;
+            let Ok(r) = res else {
+                continue;
+            };
+            if r.status() == reqwest::StatusCode::UNAUTHORIZED {
+                return Err(unauthorized_error("annotations"));
+            }
+            if r.status().is_success() {
+                // Only if it was not edited again while the request was in flight
+                let _ = sqlx::query(
+                    "UPDATE annotations SET sync_status = 'synced' WHERE id = ? AND updated_at = ? AND sync_status = 'pending_update'",
+                )
+                .bind(&ann.id)
+                .bind(&ann.updated_at)
+                .execute(pool)
+                .await;
+                count += 1;
+            } else if r.status() == reqwest::StatusCode::NOT_FOUND {
+                // The annotation was deleted on the server (from another device): an
+                // update that can never succeed must not be retried forever
+                let _ = sqlx::query(
+                    "DELETE FROM annotations WHERE id = ? AND sync_status = 'pending_update'",
+                )
+                .bind(&ann.id)
+                .execute(pool)
+                .await;
                 count += 1;
             }
         }
@@ -1109,12 +1539,19 @@ async fn sync_annotations(
 
     // 4. Pull remote
     let url = format!("{base_url}/api/books/{server_book_id}/annotations?format=cfi");
-    let res = client.get(&url).headers(headers.clone()).send().await;
+    let res = client
+        .get(&url)
+        .headers(headers.clone())
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch annotations: {e}"))?;
+    if !res.status().is_success() {
+        return Err(status_error(res.status(), "annotations"));
+    }
 
-    if let Ok(r) = res
-        && r.status().is_success()
-        && let Ok(remote_annotations) = r.json::<Vec<ServerAnnotationResponse>>().await
-    {
+    if let Ok(mut remote_annotations) = res.json::<Vec<ServerAnnotationResponse>>().await {
+        // See `sync_bookmarks`
+        remote_annotations.retain(|a| !a.deleted);
         let mut remote_ids: std::collections::HashSet<String> = remote_annotations
             .iter()
             .map(|a| a.id.to_string())
@@ -1130,28 +1567,17 @@ async fn sync_annotations(
             };
             let location_end = incoming_item_location(copy, &rann.location_end)
                 .unwrap_or_else(|| location_start.clone());
-            let existing = if copy.is_some() {
-                sqlx::query_as::<_, DbAnnotation>(
-                    "SELECT id, server_id, book_id, location_start, location_end, value, selected_text, note, color, style, chapter_title, section_index, created_at, updated_at, is_deleted != 0 AS is_deleted, sync_status FROM annotations WHERE book_id = ? AND (server_id = ? OR location_start = ?)",
-                )
-                .bind(local_book_id)
-                .bind(&server_id_str)
-                .bind(&location_start)
-                .fetch_optional(pool)
-                .await
-                .unwrap_or(None)
-            } else {
-                sqlx::query_as::<_, DbAnnotation>(
-                    "SELECT id, server_id, book_id, location_start, location_end, value, selected_text, note, color, style, chapter_title, section_index, created_at, updated_at, is_deleted != 0 AS is_deleted, sync_status FROM annotations WHERE server_id = ? OR (location_start = ? AND (book_id = ? OR book_id = ?))",
-                )
-                .bind(&server_id_str)
-                .bind(&location_start)
-                .bind(local_book_id)
-                .bind(server_book_id)
-                .fetch_optional(pool)
-                .await
-                .unwrap_or(None)
-            };
+            // See `sync_bookmarks`
+            let existing = sqlx::query_as::<_, DbAnnotation>(
+                "SELECT id, server_id, book_id, location_start, location_end, value, selected_text, note, color, style, chapter_title, section_index, created_at, updated_at, is_deleted != 0 AS is_deleted, sync_status FROM annotations WHERE (book_id = ? OR book_id = ?) AND (server_id = ? OR (server_id IS NULL AND location_start = ?)) ORDER BY server_id IS NULL LIMIT 1",
+            )
+            .bind(local_book_id)
+            .bind(row_alias)
+            .bind(&server_id_str)
+            .bind(&location_start)
+            .fetch_optional(pool)
+            .await
+            .unwrap_or(None);
 
             match existing {
                 Some(loc_ann) => {
@@ -1160,6 +1586,15 @@ async fn sync_annotations(
                         && loc_ann.sync_status != "pending_update"
                     {
                         let normalized_color = normalize_annotation_color(rann.color.as_deref());
+                        // See `sync_bookmarks`: the local location of an item this copy
+                        // already holds is the one that followed the chapter
+                        let keeps_location = copy.is_some()
+                            && loc_ann.server_id.as_deref() == Some(server_id_str.as_str());
+                        let (location_start, location_end) = if keeps_location {
+                            (&loc_ann.location_start, &loc_ann.location_end)
+                        } else {
+                            (&location_start, &location_end)
+                        };
                         let _ = sqlx::query(
                             r#"
                                     UPDATE annotations SET
@@ -1176,10 +1611,10 @@ async fn sync_annotations(
                                     "#,
                         )
                         .bind(&server_id_str)
-                        .bind(&location_start)
-                        .bind(&location_end)
+                        .bind(location_start)
+                        .bind(location_end)
                         .bind(&rann.selected_text)
-                        .bind(&rann.note)
+                        .bind(rann.note.as_deref().filter(|note| !note.is_empty()))
                         .bind(&normalized_color)
                         .bind(&rann.updated_at)
                         .bind(&loc_ann.id)
@@ -1206,7 +1641,7 @@ async fn sync_annotations(
                         &location_end,
                         &val,
                         &rann.selected_text,
-                        rann.note.as_deref(),
+                        rann.note.as_deref().filter(|note| !note.is_empty()),
                         &color,
                         Some("highlight"),
                         None,
@@ -1350,7 +1785,7 @@ pub async fn sync_reading_sessions(
         let _ = db::mark_reading_sessions_synced(pool, &session_ids).await;
         Ok(session_ids.len())
     } else {
-        Err(format!("Server returned HTTP {}", res.status()))
+        Err(status_error(res.status(), "reading sessions"))
     }
 }
 
@@ -1568,11 +2003,66 @@ mod tests {
         bookmarks: Vec<serde_json::Value>,
         annotations: Vec<serde_json::Value>,
         sessions: Vec<serde_json::Value>,
+        /// Answer of `GET /volumes` (`None`: the server has no such book).
+        volumes: Option<serde_json::Value>,
         /// (method, path without query, body)
         requests: Vec<(String, String, serde_json::Value)>,
+        /// The access token is not accepted: every request is answered `401`.
+        unauthorized: bool,
+        /// Bookmarks and annotations are created, but the answer never arrives (`500`).
+        lose_create_answers: bool,
+        /// Another device stores this position between the `GET` and the `PUT` of an exchange.
+        progress_from_elsewhere: Option<serde_json::Value>,
     }
 
     const USER_ID: &str = "0198c0de-ffff-7000-8000-000000000001";
+
+    fn time_of(value: &serde_json::Value) -> Option<chrono::DateTime<chrono::Utc>> {
+        value
+            .get("updatedAt")
+            .and_then(|t| t.as_str())
+            .and_then(db::parse_timestamp)
+    }
+
+    /// `PUT /progress` as the server does it: fields that are not sent keep their value,
+    /// an empty location is "no position" and replaces nothing, and a request dated
+    /// before the stored position changes nothing (`applied: false`).
+    fn put_progress(state: &mut MockFolio, body: &serde_json::Value) -> serde_json::Value {
+        if let Some(newer) = state.progress_from_elsewhere.take() {
+            state.progress = Some(newer);
+        }
+        let stale = match (state.progress.as_ref().and_then(time_of), time_of(body)) {
+            (Some(stored), Some(sent)) => stored > sent,
+            _ => false,
+        };
+        if stale {
+            let mut answer = state.progress.clone().unwrap_or_default();
+            answer["applied"] = serde_json::json!(false);
+            return answer;
+        }
+
+        let mut progress = state.progress.clone().unwrap_or_else(
+            || serde_json::json!({ "location": "", "progressPercent": 0.0, "isRead": false }),
+        );
+        for key in ["progressPercent", "isRead"] {
+            if let Some(value) = body.get(key) {
+                progress[key] = value.clone();
+            }
+        }
+        if let Some(location) = body.get("location").and_then(|l| l.as_str())
+            && !location.trim().is_empty()
+        {
+            progress["location"] = serde_json::json!(location);
+        }
+        // Stored with millisecond precision, like the server
+        let stored_at = time_of(body)
+            .unwrap_or_else(chrono::Utc::now)
+            .to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+        progress["updatedAt"] = serde_json::json!(stored_at);
+        state.progress = Some(progress.clone());
+        progress["applied"] = serde_json::json!(true);
+        progress
+    }
 
     fn respond(state: &Mutex<MockFolio>, method: &str, target: &str, body: &[u8]) -> (u16, String) {
         let mut state = state.lock().unwrap();
@@ -1581,6 +2071,9 @@ mod tests {
         state
             .requests
             .push((method.to_string(), path.clone(), body.clone()));
+        if state.unauthorized {
+            return (401, String::new());
+        }
 
         if path == "/api/statistics/sessions" {
             if let Some(items) = body.get("sessions").and_then(|s| s.as_array()) {
@@ -1593,39 +2086,50 @@ mod tests {
         };
         let mut parts = rest.split('/');
         let book_id = parts.next().unwrap_or_default().to_string();
+        // A new item; the id proposed by the client is kept
         let item = |mut value: serde_json::Value| {
-            value["id"] = serde_json::json!(Uuid::now_v7().to_string());
+            if value.get("id").is_none_or(|id| id.is_null()) {
+                value["id"] = serde_json::json!(Uuid::now_v7().to_string());
+            }
             value["userId"] = serde_json::json!(USER_ID);
             value["bookId"] = serde_json::json!(book_id);
             value["createdAt"] = serde_json::json!("2026-11-10T00:00:00Z");
             value["updatedAt"] = serde_json::json!("2026-11-10T00:00:00Z");
+            value["deleted"] = serde_json::json!(false);
             value
+        };
+        // An item with the proposed id exists already: it is returned, nothing is created
+        let known = |items: &[serde_json::Value]| {
+            let id = body.get("id").filter(|id| !id.is_null())?;
+            items.iter().find(|i| &i["id"] == id).cloned()
         };
         match (method, parts.next(), parts.next()) {
             ("GET", Some("progress"), None) => match &state.progress {
                 Some(progress) => (200, progress.to_string()),
                 None => (404, String::new()),
             },
-            ("PUT", Some("progress"), None) => {
-                // Like the server: fields that are not sent keep their value
-                let mut progress = state.progress.clone().unwrap_or_else(
-                    || serde_json::json!({ "location": "", "progressPercent": 0.0, "isRead": false }),
-                );
-                for key in ["location", "progressPercent", "isRead"] {
-                    if let Some(value) = body.get(key) {
-                        progress[key] = value.clone();
-                    }
-                }
-                state.progress = Some(progress.clone());
-                (200, progress.to_string())
+            ("PUT", Some("progress"), None) => (200, put_progress(&mut state, &body).to_string()),
+            ("DELETE", Some("progress"), None) => {
+                state.progress = None;
+                (204, String::new())
             }
+            ("GET", Some("volumes"), None) => match &state.volumes {
+                Some(volumes) => (200, volumes.to_string()),
+                None => (404, String::new()),
+            },
             ("GET", Some("bookmarks"), None) => (
                 200,
                 serde_json::Value::Array(state.bookmarks.clone()).to_string(),
             ),
             ("POST", Some("bookmarks"), None) => {
+                if let Some(existing) = known(&state.bookmarks) {
+                    return (200, existing.to_string());
+                }
                 let created = item(body);
                 state.bookmarks.push(created.clone());
+                if state.lose_create_answers {
+                    return (500, String::new());
+                }
                 (201, created.to_string())
             }
             ("DELETE", Some("bookmarks"), Some(id)) => {
@@ -1637,9 +2141,30 @@ mod tests {
                 serde_json::Value::Array(state.annotations.clone()).to_string(),
             ),
             ("POST", Some("annotations"), None) => {
+                if let Some(existing) = known(&state.annotations) {
+                    return (200, existing.to_string());
+                }
                 let created = item(body);
                 state.annotations.push(created.clone());
+                if state.lose_create_answers {
+                    return (500, String::new());
+                }
                 (201, created.to_string())
+            }
+            ("PUT", Some("annotations"), Some(id)) => {
+                let Some(annotation) = state.annotations.iter_mut().find(|a| a["id"] == id) else {
+                    return (404, String::new());
+                };
+                // Like the server: an absent note is kept, an empty one is removed
+                match body.get("note").and_then(|n| n.as_str()) {
+                    Some("") => annotation["note"] = serde_json::Value::Null,
+                    Some(note) => annotation["note"] = serde_json::json!(note),
+                    None => {}
+                }
+                if let Some(color) = body.get("color").filter(|c| !c.is_null()) {
+                    annotation["color"] = color.clone();
+                }
+                (200, annotation.to_string())
             }
             ("DELETE", Some("annotations"), Some(id)) => {
                 state.annotations.retain(|a| a["id"] != id);
@@ -1647,6 +2172,27 @@ mod tests {
             }
             _ => (404, String::new()),
         }
+    }
+
+    /// Volumes of a book as `GET /volumes` lists them, from chapters per volume.
+    fn server_volumes(chapters_per_volume: &[usize]) -> serde_json::Value {
+        let items: Vec<serde_json::Value> = chapters_per_volume
+            .iter()
+            .enumerate()
+            .map(|(index, count)| {
+                serde_json::json!({
+                    "volume": (index + 1) as f32,
+                    "chaptersCount": count,
+                    "firstChapter": 1.0,
+                    "lastChapter": *count as f32,
+                    "updated": "2026-11-01T00:00:00Z",
+                })
+            })
+            .collect();
+        serde_json::json!({
+            "items": items,
+            "chaptersTotal": chapters_per_volume.iter().sum::<usize>(),
+        })
     }
 
     async fn start_mock_server(state: Arc<Mutex<MockFolio>>) -> String {
@@ -1756,6 +2302,7 @@ mod tests {
                     "in volume 3",
                 ),
             ],
+            volumes: Some(server_volumes(&[2, 2, 1])),
             ..MockFolio::default()
         }));
         let server_url = start_mock_server(state.clone()).await;
@@ -2070,5 +2617,637 @@ mod tests {
             .await
             .unwrap();
         assert!(!result.success);
+    }
+
+    const FILE_BOOK: &str = "0198c0de-0000-7000-8000-0000000000f1";
+    const FILE_LOCAL: &str = "local-File_epub";
+
+    /// A book downloaded as a file, bound to its server book.
+    async fn file_book_device() -> DbPool {
+        let pool = db::init_db(Path::new(":memory:")).await.unwrap();
+        db::save_book_mapping(&pool, FILE_LOCAL, FILE_BOOK, Some("/books/File.epub"))
+            .await
+            .unwrap();
+        pool
+    }
+
+    fn progress_puts(state: &Mutex<MockFolio>) -> Vec<serde_json::Value> {
+        state
+            .lock()
+            .unwrap()
+            .requests
+            .iter()
+            .filter(|(m, p, _)| m == "PUT" && p.ends_with("/progress"))
+            .map(|(_, _, body)| body.clone())
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn test_progress_is_ordered_by_change_time() {
+        let server_cfi = "epubcfi(/6/10!/4/2/1:0)";
+        let state = Arc::new(Mutex::new(MockFolio {
+            progress: Some(serde_json::json!({
+                "location": server_cfi,
+                "progressPercent": 40.0,
+                "isRead": false,
+                "updatedAt": "2026-11-09T12:00:00.000Z",
+            })),
+            ..MockFolio::default()
+        }));
+        let server_url = start_mock_server(state.clone()).await;
+        let client = reqwest::Client::new();
+        let pool = file_book_device().await;
+
+        // ---- A device that was offline for a week comes back with its old position ----
+        let stale_cfi = "epubcfi(/6/4!/4/2/1:0)";
+        db::save_progress_at(
+            &pool,
+            FILE_LOCAL,
+            stale_cfi,
+            10.0,
+            false,
+            true,
+            Some("2026-11-02T08:00:00Z"),
+        )
+        .await
+        .unwrap();
+        let result = sync_book(&pool, &client, &server_url, None, FILE_LOCAL)
+            .await
+            .unwrap();
+        assert!(result.success, "{}", result.message);
+        assert!(!result.progress_synced);
+        // Nothing was written over the newer server position...
+        assert!(progress_puts(&state).is_empty());
+        assert_eq!(
+            state.lock().unwrap().progress.as_ref().unwrap()["location"],
+            server_cfi
+        );
+        // ...the old change will not be offered again, and the background sync did not
+        // move the position under the reader either
+        let local = db::get_progress(&pool, FILE_LOCAL).await.unwrap().unwrap();
+        assert_eq!(local.sync_status, "synced");
+        assert_eq!(local.location, stale_cfi);
+
+        // ---- Opening the book takes the newer server position ----
+        let pulled = pull_book_progress(&pool, &client, &server_url, None, FILE_LOCAL)
+            .await
+            .unwrap();
+        assert!(pulled.success, "{}", pulled.message);
+        assert_eq!(pulled.location.as_deref(), Some(server_cfi));
+        assert_eq!(pulled.progress_percent, Some(40.0));
+        for id in [FILE_LOCAL, FILE_BOOK] {
+            let local = db::get_progress(&pool, id).await.unwrap().unwrap();
+            assert_eq!(local.location, server_cfi);
+            assert_eq!(local.sync_status, "synced");
+            // Dated like the server dates it
+            assert_eq!(local.updated_at, "2026-11-09T12:00:00.000000Z");
+        }
+        assert!(progress_puts(&state).is_empty());
+
+        // ---- Pulling again: nothing new, nowhere to go ----
+        let pulled = pull_book_progress(&pool, &client, &server_url, None, FILE_LOCAL)
+            .await
+            .unwrap();
+        assert!(pulled.success);
+        assert_eq!(pulled.location, None);
+        assert!(progress_puts(&state).is_empty());
+
+        // ---- The user reads on: the change goes out with its time and is accepted ----
+        let read_cfi = "epubcfi(/6/12!/4/2/1:0)";
+        let saved = db::save_progress(&pool, FILE_LOCAL, read_cfi, 55.0, false, true)
+            .await
+            .unwrap();
+        assert_eq!(saved.sync_status, "pending");
+        let result = sync_book(&pool, &client, &server_url, None, FILE_LOCAL)
+            .await
+            .unwrap();
+        assert!(result.progress_synced);
+        let puts = progress_puts(&state);
+        assert_eq!(puts.len(), 1);
+        assert_eq!(puts[0]["location"], read_cfi);
+        assert_eq!(puts[0]["updatedAt"], saved.updated_at);
+        let server_time = time_of(state.lock().unwrap().progress.as_ref().unwrap()).unwrap();
+        let local = db::get_progress(&pool, FILE_LOCAL).await.unwrap().unwrap();
+        assert_eq!(local.sync_status, "synced");
+        assert_eq!(local.location, read_cfi);
+        // The local position carries the time the server stored
+        assert_eq!(db::parse_timestamp(&local.updated_at), Some(server_time));
+
+        // ---- Saving the same position again (the reader is closed) is not a change ----
+        let again = db::save_progress(&pool, FILE_LOCAL, read_cfi, 55.0, false, true)
+            .await
+            .unwrap();
+        assert_eq!(again.sync_status, "synced");
+        assert_eq!(again.updated_at, local.updated_at);
+
+        // ---- Another device gets in between the GET and the PUT of an exchange ----
+        let other_cfi = "epubcfi(/6/20!/4/2/1:0)";
+        db::save_progress(&pool, FILE_LOCAL, "epubcfi(/6/14!/4)", 60.0, false, true)
+            .await
+            .unwrap();
+        state.lock().unwrap().progress_from_elsewhere = Some(serde_json::json!({
+            "location": other_cfi,
+            "progressPercent": 90.0,
+            "isRead": false,
+            "updatedAt": "2099-01-01T00:00:00.000Z",
+        }));
+        let pulled = pull_book_progress(&pool, &client, &server_url, None, FILE_LOCAL)
+            .await
+            .unwrap();
+        // The server kept its own position (`applied: false`) and it became the local one
+        assert_eq!(pulled.location.as_deref(), Some(other_cfi));
+        assert_eq!(
+            state.lock().unwrap().progress.as_ref().unwrap()["location"],
+            other_cfi
+        );
+        let local = db::get_progress(&pool, FILE_LOCAL).await.unwrap().unwrap();
+        assert_eq!(local.location, other_cfi);
+        assert_eq!(local.sync_status, "synced");
+
+        // ---- A local change is never dated before the position it replaces ----
+        let next = db::save_progress(&pool, FILE_LOCAL, "epubcfi(/6/22!/4)", 95.0, false, true)
+            .await
+            .unwrap();
+        assert!(next.updated_at.as_str() > "2099-01-01T00:00:00.000000Z");
+        let result = sync_book(&pool, &client, &server_url, None, FILE_LOCAL)
+            .await
+            .unwrap();
+        assert!(result.progress_synced);
+        assert_eq!(
+            state.lock().unwrap().progress.as_ref().unwrap()["location"],
+            "epubcfi(/6/22!/4)"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_read_flag_without_a_position() {
+        let state = Arc::new(Mutex::new(MockFolio::default()));
+        let server_url = start_mock_server(state.clone()).await;
+        let client = reqwest::Client::new();
+        let pool = file_book_device().await;
+        let cfi = "epubcfi(/6/8!/4/2/1:0)";
+
+        // ---- The book was marked read elsewhere, without ever being opened there ----
+        db::save_progress_at(
+            &pool,
+            FILE_LOCAL,
+            cfi,
+            30.0,
+            false,
+            false,
+            Some("2026-11-01T00:00:00Z"),
+        )
+        .await
+        .unwrap();
+        state.lock().unwrap().progress = Some(serde_json::json!({
+            "location": "",
+            "progressPercent": 100.0,
+            "isRead": true,
+            "updatedAt": "2026-11-05T00:00:00.000Z",
+        }));
+        let pulled = pull_book_progress(&pool, &client, &server_url, None, FILE_LOCAL)
+            .await
+            .unwrap();
+        assert!(pulled.success);
+        // An empty location is no position: nowhere to go, the local one stays
+        assert_eq!(pulled.location, None);
+        assert_eq!(pulled.is_read, Some(true));
+        let local = db::get_progress(&pool, FILE_LOCAL).await.unwrap().unwrap();
+        assert_eq!(local.location, cfi);
+        assert!(local.is_read);
+        assert_eq!(local.progress_percent, 100.0);
+
+        // ---- "Mark as unread" here: 0%, not read, and it stays that way ----
+        db::save_progress(&pool, FILE_LOCAL, "", 0.0, false, true)
+            .await
+            .unwrap();
+        state.lock().unwrap().requests.clear();
+        let result = sync_book(&pool, &client, &server_url, None, FILE_LOCAL)
+            .await
+            .unwrap();
+        assert!(result.success, "{}", result.message);
+        let puts = progress_puts(&state);
+        assert_eq!(puts.len(), 1);
+        // No location is sent, least of all an empty one
+        assert!(puts[0].get("location").is_none());
+        assert_eq!(puts[0]["progressPercent"], 0.0);
+        assert_eq!(puts[0]["isRead"], false);
+        {
+            let state = state.lock().unwrap();
+            let server = state.progress.as_ref().unwrap();
+            assert_eq!(server["isRead"], false);
+            assert_eq!(server["progressPercent"], 0.0);
+        }
+        let pulled = pull_book_progress(&pool, &client, &server_url, None, FILE_LOCAL)
+            .await
+            .unwrap();
+        assert_eq!(pulled.location, None);
+        let local = db::get_progress(&pool, FILE_LOCAL).await.unwrap().unwrap();
+        assert!(!local.is_read);
+        assert_eq!(local.progress_percent, 0.0);
+        assert_eq!(local.sync_status, "synced");
+
+        // ---- Marked read here without a position: the flag goes out, no location ----
+        db::save_progress(&pool, FILE_LOCAL, "", 100.0, true, true)
+            .await
+            .unwrap();
+        state.lock().unwrap().requests.clear();
+        sync_book(&pool, &client, &server_url, None, FILE_LOCAL)
+            .await
+            .unwrap();
+        let puts = progress_puts(&state);
+        assert_eq!(puts.len(), 1);
+        assert!(puts[0].get("location").is_none());
+        assert_eq!(puts[0]["isRead"], true);
+    }
+
+    #[tokio::test]
+    async fn test_whole_chapters_copy_takes_the_read_flag_in_the_same_chapter() {
+        let book = "0198c0de-0000-7000-8000-000000000001";
+        let whole = "local-Book_epub";
+        let state = Arc::new(Mutex::new(MockFolio::default()));
+        let server_url = start_mock_server(state.clone()).await;
+        let client = reqwest::Client::new();
+        let pool = db::init_db(Path::new(":memory:")).await.unwrap();
+        db::save_book_mapping(&pool, whole, book, Some("/books/Book.epub"))
+            .await
+            .unwrap();
+        db::save_chapter_copy(&pool, whole, book, None, 0, 2, &ids(&["ch-a", "ch-b"]))
+            .await
+            .unwrap();
+
+        let cfi = "epubcfi(/6/4!/4/6/1:20)";
+        db::save_progress_at(
+            &pool,
+            whole,
+            cfi,
+            80.0,
+            false,
+            false,
+            Some("2026-11-01T00:00:00Z"),
+        )
+        .await
+        .unwrap();
+        // Marked read on another device while the reader here is in that very chapter
+        state.lock().unwrap().progress = Some(serde_json::json!({
+            "location": "ch:ch-b",
+            "progressPercent": 100.0,
+            "isRead": true,
+            "updatedAt": "2026-11-05T00:00:00.000Z",
+        }));
+        let pulled = pull_book_progress(&pool, &client, &server_url, None, whole)
+            .await
+            .unwrap();
+        assert!(pulled.success);
+        assert_eq!(pulled.location, None);
+        assert_eq!(pulled.is_read, Some(true));
+        let local = db::get_progress(&pool, whole).await.unwrap().unwrap();
+        // The precise local position stays; the flag is the server's
+        assert_eq!(local.location, cfi);
+        assert!(local.is_read);
+        assert_eq!(local.progress_percent, 100.0);
+        assert_eq!(local.book_id, whole);
+        assert!(db::get_progress(&pool, book).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_rejected_token_is_an_error() {
+        let state = Arc::new(Mutex::new(MockFolio {
+            unauthorized: true,
+            ..MockFolio::default()
+        }));
+        let server_url = start_mock_server(state.clone()).await;
+        let client = reqwest::Client::new();
+        let pool = file_book_device().await;
+        db::save_progress(&pool, FILE_LOCAL, "epubcfi(/6/4!/4)", 10.0, false, true)
+            .await
+            .unwrap();
+
+        let error = sync_book(&pool, &client, &server_url, Some("expired"), FILE_LOCAL)
+            .await
+            .unwrap_err();
+        assert!(is_unauthorized(&error), "{error}");
+        let error = pull_book_progress(&pool, &client, &server_url, Some("expired"), FILE_LOCAL)
+            .await
+            .unwrap_err();
+        assert!(is_unauthorized(&error), "{error}");
+        // Nothing was taken for synced
+        let local = db::get_progress(&pool, FILE_LOCAL).await.unwrap().unwrap();
+        assert_eq!(local.sync_status, "pending");
+
+        // A book that is not bound yet is looked up by its content: that request is
+        // rejected as well, and the book must not be written off as "not on the server"
+        let unbound = "local-Unbound_epub";
+        let file = std::env::temp_dir().join(format!("folioreader-test-{}.epub", Uuid::now_v7()));
+        std::fs::write(&file, b"not really an epub").unwrap();
+        db::save_book_mapping(&pool, unbound, "", Some(&file.to_string_lossy()))
+            .await
+            .unwrap();
+        db::save_progress(&pool, unbound, "epubcfi(/6/4!/4)", 10.0, false, true)
+            .await
+            .unwrap();
+        let error = sync_book(&pool, &client, &server_url, Some("expired"), unbound)
+            .await
+            .unwrap_err();
+        assert!(is_unauthorized(&error), "{error}");
+        let local = db::get_progress(&pool, unbound).await.unwrap().unwrap();
+        assert_eq!(local.sync_status, "pending");
+        let _ = std::fs::remove_file(&file);
+    }
+
+    #[tokio::test]
+    async fn test_annotation_note_removal_and_retried_creation() {
+        let state = Arc::new(Mutex::new(MockFolio {
+            lose_create_answers: true,
+            ..MockFolio::default()
+        }));
+        let server_url = start_mock_server(state.clone()).await;
+        let client = reqwest::Client::new();
+        let pool = file_book_device().await;
+
+        let save = |note: Option<&'static str>| {
+            let pool = pool.clone();
+            async move {
+                db::save_annotation(
+                    &pool,
+                    "ann-1",
+                    None,
+                    FILE_LOCAL,
+                    "epubcfi(/6/4!/4/2/1:0)",
+                    "epubcfi(/6/4!/4/2/1:5)",
+                    "epubcfi(/6/4!/4/2,/1:0,/1:5)",
+                    "text",
+                    note,
+                    "yellow",
+                    None,
+                    None,
+                    None,
+                    None,
+                    true,
+                )
+                .await
+                .unwrap()
+            }
+        };
+        save(Some("a note")).await;
+        db::save_bookmark(
+            &pool,
+            "bm-1",
+            None,
+            FILE_LOCAL,
+            "epubcfi(/6/6!/4)",
+            0.2,
+            None,
+            None,
+            None,
+            true,
+        )
+        .await
+        .unwrap();
+
+        // ---- The server creates both, but the answers are lost ----
+        sync_book(&pool, &client, &server_url, None, FILE_LOCAL)
+            .await
+            .unwrap();
+        assert_eq!(state.lock().unwrap().annotations.len(), 1);
+        assert_eq!(state.lock().unwrap().bookmarks.len(), 1);
+        let local = db::get_annotations(&pool, FILE_LOCAL).await.unwrap();
+        assert_eq!(local.len(), 1);
+        assert_eq!(local[0].sync_status, "pending_create");
+
+        // ---- The retry names the same items: nothing is created twice ----
+        state.lock().unwrap().lose_create_answers = false;
+        sync_book(&pool, &client, &server_url, None, FILE_LOCAL)
+            .await
+            .unwrap();
+        {
+            let state = state.lock().unwrap();
+            assert_eq!(state.annotations.len(), 1);
+            assert_eq!(state.bookmarks.len(), 1);
+            let posted: Vec<&serde_json::Value> = state
+                .requests
+                .iter()
+                .filter(|(m, p, _)| m == "POST" && p.ends_with("/annotations"))
+                .map(|(_, _, body)| &body["id"])
+                .collect();
+            assert_eq!(posted.len(), 2);
+            assert!(posted[0].is_string());
+            assert_eq!(posted[0], posted[1]);
+        }
+        let local = db::get_annotations(&pool, FILE_LOCAL).await.unwrap();
+        assert_eq!(local.len(), 1);
+        assert_eq!(local[0].sync_status, "synced");
+        assert_eq!(
+            local[0].server_id.as_deref(),
+            state.lock().unwrap().annotations[0]["id"].as_str()
+        );
+        let bookmarks = db::get_bookmarks(&pool, FILE_LOCAL).await.unwrap();
+        assert_eq!(bookmarks.len(), 1);
+        assert_eq!(bookmarks[0].sync_status, "synced");
+
+        // ---- The note is removed: the server is told so with an empty string ----
+        let edited = save(None).await;
+        assert_eq!(edited.note, None);
+        state.lock().unwrap().requests.clear();
+        sync_book(&pool, &client, &server_url, None, FILE_LOCAL)
+            .await
+            .unwrap();
+        {
+            let state = state.lock().unwrap();
+            let update = state
+                .requests
+                .iter()
+                .find(|(m, p, _)| m == "PUT" && p.contains("/annotations/"))
+                .expect("annotation updated");
+            assert_eq!(update.2["note"], "");
+            assert!(state.annotations[0]["note"].is_null());
+        }
+        let local = db::get_annotations(&pool, FILE_LOCAL).await.unwrap();
+        assert_eq!(local[0].note, None);
+        assert_eq!(local[0].sync_status, "synced");
+
+        // ---- An edit of an annotation that was deleted elsewhere is not retried forever ----
+        save(Some("too late")).await;
+        state.lock().unwrap().annotations.clear();
+        sync_book(&pool, &client, &server_url, None, FILE_LOCAL)
+            .await
+            .unwrap();
+        assert!(
+            db::get_annotations(&pool, FILE_LOCAL)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        let pending: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM annotations WHERE sync_status LIKE 'pending%'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(pending, 0);
+    }
+
+    #[tokio::test]
+    async fn test_volume_copy_follows_changes_of_the_book() {
+        let book = "0198c0de-0000-7000-8000-000000000001";
+        let volume3 = "local-Book_-_Vol_03_epub";
+        // When the copy was built the book was a, b | c, d | e: volume 3 ended it
+        let state = Arc::new(Mutex::new(MockFolio {
+            volumes: Some(server_volumes(&[2, 2, 1])),
+            ..MockFolio::default()
+        }));
+        let server_url = start_mock_server(state.clone()).await;
+        let client = reqwest::Client::new();
+        let pool = db::init_db(Path::new(":memory:")).await.unwrap();
+        db::save_book_mapping(&pool, volume3, book, Some("/books/Book - Vol 03.epub"))
+            .await
+            .unwrap();
+        db::save_chapter_copy(&pool, volume3, book, Some(3.0), 4, 5, &ids(&["ch-e"]))
+            .await
+            .unwrap();
+
+        // ---- Since then: a chapter was added to volume 1, and a volume 4 appeared ----
+        state.lock().unwrap().volumes = Some(server_volumes(&[3, 2, 1, 2]));
+        db::save_progress(&pool, volume3, "epubcfi(/6/2!/4/8/1:0)", 100.0, true, true)
+            .await
+            .unwrap();
+        db::save_bookmark(
+            &pool,
+            "bm-1",
+            None,
+            volume3,
+            "epubcfi(/6/2!/4/2/1:0)",
+            0.0,
+            None,
+            None,
+            None,
+            true,
+        )
+        .await
+        .unwrap();
+        let result = sync_book(&pool, &client, &server_url, None, volume3)
+            .await
+            .unwrap();
+        assert!(result.success, "{}", result.message);
+
+        let puts = progress_puts(&state);
+        assert_eq!(puts.len(), 1);
+        // The end of volume 3 is 6 chapters of 8 now, and no longer the end of the book
+        assert_eq!(puts[0]["location"], "ch:ch-e");
+        assert_eq!(puts[0]["progressPercent"], 75.0);
+        assert!(puts[0].get("isRead").is_none());
+        {
+            let state = state.lock().unwrap();
+            // Five chapters come before the volume now: the sixth spine item of the book
+            assert_eq!(state.bookmarks.len(), 1);
+            assert_eq!(state.bookmarks[0]["location"], "epubcfi(/6/12!/4/2/1:0)");
+        }
+        let copy = db::get_chapter_copy(&pool, volume3).await.unwrap().unwrap();
+        assert_eq!((copy.chapters_before, copy.book_chapters), (5, 8));
+        assert!(!copy.ends_book());
+
+        // ---- Without the list of volumes nothing is sent with numbers that may be old ----
+        state.lock().unwrap().volumes = None;
+        db::save_progress(&pool, volume3, "epubcfi(/6/2!/4/2/1:0)", 10.0, false, true)
+            .await
+            .unwrap();
+        state.lock().unwrap().requests.clear();
+        assert!(
+            sync_book(&pool, &client, &server_url, None, volume3)
+                .await
+                .is_err()
+        );
+        assert!(progress_puts(&state).is_empty());
+        let local = db::get_progress(&pool, volume3).await.unwrap().unwrap();
+        assert_eq!(local.sync_status, "pending");
+    }
+
+    #[tokio::test]
+    async fn test_items_of_a_rebuilt_copy_keep_their_local_place() {
+        let book = "0198c0de-0000-7000-8000-000000000001";
+        let whole = "local-Book_epub";
+        // The server keeps both bookmarks by the spine index of the day they were made
+        let first = server_bookmark(book, "epubcfi(/6/4!/4/2/1:0)", "In ch-b");
+        let second = server_bookmark(book, "epubcfi(/6/6!/4/2/1:0)", "In ch-c");
+        let state = Arc::new(Mutex::new(MockFolio {
+            bookmarks: vec![first.clone(), second.clone()],
+            annotations: vec![server_annotation(
+                book,
+                "epubcfi(/6/4!/4/2/1:0)",
+                "epubcfi(/6/4!/4/2/1:9)",
+                "in ch-b",
+            )],
+            ..MockFolio::default()
+        }));
+        let server_url = start_mock_server(state.clone()).await;
+        let client = reqwest::Client::new();
+        let pool = db::init_db(Path::new(":memory:")).await.unwrap();
+        db::save_book_mapping(&pool, whole, book, Some("/books/Book.epub"))
+            .await
+            .unwrap();
+        db::save_chapter_copy(
+            &pool,
+            whole,
+            book,
+            None,
+            0,
+            3,
+            &ids(&["ch-a", "ch-b", "ch-c"]),
+        )
+        .await
+        .unwrap();
+        sync_book(&pool, &client, &server_url, None, whole)
+            .await
+            .unwrap();
+        assert_eq!(db::get_bookmarks(&pool, whole).await.unwrap().len(), 2);
+
+        // ---- A chapter is inserted after the first one; the copy is rebuilt ----
+        db::save_chapter_copy(
+            &pool,
+            whole,
+            book,
+            None,
+            0,
+            4,
+            &ids(&["ch-a", "ch-new", "ch-b", "ch-c"]),
+        )
+        .await
+        .unwrap();
+        let places = |pool: DbPool| async move {
+            let mut places: Vec<(String, String)> = db::get_bookmarks(&pool, whole)
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|b| (b.server_id.unwrap_or_default(), b.location))
+                .collect();
+            places.sort_by(|a, b| a.1.cmp(&b.1));
+            places
+        };
+        let moved = [
+            (
+                first["id"].as_str().unwrap().to_string(),
+                "epubcfi(/6/6!/4/2/1:0)".to_string(),
+            ),
+            (
+                second["id"].as_str().unwrap().to_string(),
+                "epubcfi(/6/8!/4/2/1:0)".to_string(),
+            ),
+        ];
+        assert_eq!(places(pool.clone()).await, moved);
+
+        // ---- The next sync does not put them back on the indexes the server has ----
+        for _ in 0..2 {
+            sync_book(&pool, &client, &server_url, None, whole)
+                .await
+                .unwrap();
+            assert_eq!(places(pool.clone()).await, moved);
+            let annotations = db::get_annotations(&pool, whole).await.unwrap();
+            assert_eq!(annotations.len(), 1);
+            assert_eq!(annotations[0].location_start, "epubcfi(/6/6!/4/2/1:0)");
+            assert_eq!(annotations[0].location_end, "epubcfi(/6/6!/4/2/1:9)");
+        }
+        // Nothing was deleted or created on the server along the way
+        assert_eq!(state.lock().unwrap().bookmarks.len(), 2);
+        assert_eq!(state.lock().unwrap().annotations.len(), 1);
     }
 }
