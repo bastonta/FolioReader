@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-13
+
 ### Added
 - `BookKind` (`File` | `Chapters`) in library API types (`BookResponseItem`, `BrowseItem`, `BookDetail` with `originBookId` / `chaptersCount`) following the Folio server update that merges BookBot books assembled from chapters.
 - Reading books that have no EPUB file on the server yet (`Chapters` kind): the new `download_chapters_book` command downloads the chapters, illustrations and cover and builds a local EPUB that opens, works offline and syncs like any other book. The catalog marks such books with a "Chapters" badge and shows chapter / illustration progress while they are downloaded.
