@@ -41,6 +41,10 @@ import { useTranslation } from "../../i18n";
 import { useBackHandler } from "../../services/backHandler";
 import { fileManager } from "../../services/fileManager";
 import {
+  ChaptersBuildNoSessionError,
+  buildChaptersBook,
+} from "../../services/chaptersBuild";
+import {
   saveDbBookMapping,
   fetchServerBookStatistics,
   deleteBookStatistics,
@@ -72,16 +76,6 @@ import { ChapterVolumesModal } from "./ChapterVolumesModal";
  */
 const downloadKey = (bookId: string, volume?: number | null): string =>
   volume === undefined || volume === null ? bookId : `${bookId}#${volume}`;
-
-/** How many times the access token may be renewed while one book is built from chapters. */
-const CHAPTERS_BUILD_TOKEN_RENEWALS = 12;
-
-/** How far a build from chapters has got, as a number that grows with every step of it. */
-const chaptersBuildStage = (progress: ChaptersDownloadProgress): number => {
-  const phase =
-    progress.phase === "chapters" ? 0 : progress.phase === "images" ? 1 : 2;
-  return phase * 1_000_000_000 + progress.done;
-};
 
 interface BrowseViewProps {
   settings: ReaderSettings;
@@ -723,29 +717,10 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
 
       let chaptersResult: ChaptersBookDownloadResult | null = null;
       if (isChaptersBook) {
-        // Building a large book from chapters can outlive several access tokens. The
-        // build is repeated with a new token as long as every run gets further than
-        // the runs before it (the core continues an interrupted build); a run that
-        // only gets as far as an earlier one would never finish, and ends the download.
-        let furthestRun = -1;
-        chaptersResult = await withFreshAccessToken(async (token) => {
-          let reached = 0;
-          try {
-            return await fileManager.downloadChaptersBook(
-              { ...downloadOptions, token, volume },
-              (event) => {
-                reached = Math.max(reached, chaptersBuildStage(event));
-                setChaptersProgress((prev) => ({ ...prev, [key]: event }));
-              },
-            );
-          } catch (err) {
-            if (isUnauthorizedError(err) && reached <= furthestRun) {
-              throw new Error(t("browse.downloadNoSession"));
-            }
-            furthestRun = Math.max(furthestRun, reached);
-            throw err;
-          }
-        }, CHAPTERS_BUILD_TOKEN_RENEWALS);
+        chaptersResult = await buildChaptersBook(
+          { ...downloadOptions, volume },
+          (event) => setChaptersProgress((prev) => ({ ...prev, [key]: event })),
+        );
         savedPath = chaptersResult.filePath;
       }
       // A volume copy is titled and named after its volume
@@ -873,7 +848,8 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
             ? t("browse.downloadNoChaptersError")
             : err instanceof VolumesNotSupportedError
               ? t("browse.downloadVolumesNotSupported")
-              : isUnauthorizedError(err)
+              : err instanceof ChaptersBuildNoSessionError ||
+                  isUnauthorizedError(err)
                 ? t("browse.downloadNoSession")
                 : err?.message || err;
       await alert({

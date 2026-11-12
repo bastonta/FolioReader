@@ -1,4 +1,12 @@
-import { ArrowLeft, ArrowRight, Library, PanelLeft, Sliders } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  CloudDownload,
+  Library,
+  Loader2,
+  PanelLeft,
+  Sliders,
+} from "lucide-react";
 import React from "react";
 import { useTranslation } from "../../i18n";
 
@@ -14,6 +22,9 @@ interface HeaderBarProps {
   isSettingsOpen?: boolean;
   settingsBtnRef?: React.RefObject<HTMLButtonElement | null>;
   chapterTitle?: string;
+  /** Fetches new chapters; only given for a book built from chapters, not for a ready EPUB */
+  onUpdateChapters?: () => void;
+  isUpdatingChapters?: boolean;
   onMouseEnter?: () => void;
   onMouseLeave?: () => void;
 }
@@ -30,6 +41,8 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   isSettingsOpen = false,
   settingsBtnRef,
   chapterTitle,
+  onUpdateChapters,
+  isUpdatingChapters = false,
   onMouseEnter,
   onMouseLeave,
 }) => {
@@ -112,6 +125,26 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
 
       {/* Right Header Actions */}
       <div className="header-right-actions">
+        {onUpdateChapters && (
+          <button
+            type="button"
+            className="header-icon-btn header-chapters-btn"
+            onClick={onUpdateChapters}
+            disabled={isUpdatingChapters}
+            title={
+              isUpdatingChapters
+                ? t('reader.updatingChapters')
+                : t('reader.updateChapters')
+            }
+            aria-label={t('reader.updateChapters')}
+          >
+            {isUpdatingChapters ? (
+              <Loader2 size={16} className="spinner" />
+            ) : (
+              <CloudDownload size={16} />
+            )}
+          </button>
+        )}
         {onToggleSettings && (
           <button
             type="button"

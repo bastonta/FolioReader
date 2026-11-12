@@ -179,18 +179,26 @@ export async function getChapterCopies(
 }
 
 /**
- * The volume copy a local book id stands for: a file that holds a single volume of a
- * `Chapters` book. `null` for the whole book and for books downloaded as files.
+ * What a local book id holds of a `Chapters` book: the whole book or a single volume,
+ * built on this device from the chapters. `null` for books downloaded as files.
  */
-async function getVolumeCopy(bookId: string): Promise<ChapterCopy | null> {
+export async function getChapterCopy(bookId: string): Promise<ChapterCopy | null> {
   if (!isTauri()) return null;
   try {
-    const copy = await invoke<ChapterCopy | null>('db_get_chapter_copy', { bookId });
-    return copy && copy.volume !== null && copy.volume !== undefined ? copy : null;
+    return (await invoke<ChapterCopy | null>('db_get_chapter_copy', { bookId })) ?? null;
   } catch (err) {
     console.warn('Failed to look up the chapter copy:', err);
     return null;
   }
+}
+
+/**
+ * The volume copy a local book id stands for: a file that holds a single volume of a
+ * `Chapters` book. `null` for the whole book and for books downloaded as files.
+ */
+async function getVolumeCopy(bookId: string): Promise<ChapterCopy | null> {
+  const copy = await getChapterCopy(bookId);
+  return copy && copy.volume !== null && copy.volume !== undefined ? copy : null;
 }
 
 /**

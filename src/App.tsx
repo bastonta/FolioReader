@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
-import { FoliateReader } from './components/reader/FoliateReader';
+import { FoliateReader, ReaderNotice } from './components/reader/FoliateReader';
 import { LibraryView } from './components/library/LibraryView';
 import { BrowseView } from './components/library/BrowseView';
 import { SettingsModal } from './components/common/SettingsModal';
@@ -50,6 +50,8 @@ interface ActiveBookState {
   source: File | Blob | string;
   title?: string;
   author?: string;
+  /** Shown by the reader once the book is open */
+  notice?: ReaderNotice;
 }
 
 // ─── Route guard: requires authentication ────────────────────────────────
@@ -100,6 +102,8 @@ function AppRoutes() {
   const { alert } = useDialog();
   const [settings, setSettings] = useState<ReaderSettings>(() => loadSettings());
   const [activeBook, setActiveBook] = useState<ActiveBookState | null>(null);
+  const activeBookRef = useRef<ActiveBookState | null>(null);
+  activeBookRef.current = activeBook;
   // Opening a book is asynchronous (the file is read first). Only the most
   // recent request may show its book: a slow, older one must not replace the
   // book that was opened after it, nor reopen a book that was already closed.
@@ -359,6 +363,32 @@ function AppRoutes() {
     }
   };
 
+  // Opens the book being read again from its (rebuilt) file, keeping its place: a book
+  // built from chapters after new chapters were fetched. Ignored when that book has
+  // been closed or replaced in the meantime.
+  const handleReloadActiveBook = async (
+    openSeq: number,
+    filePath: string,
+    notice: ReaderNotice
+  ) => {
+    const current = activeBookRef.current;
+    if (!current || current.openSeq !== openSeq || openRequestRef.current !== openSeq) return;
+    try {
+      const requestId = ++openRequestRef.current;
+      const file = await fileManager.readBookFile(filePath);
+      const bookId = await getLocalBookIdForFile(filePath, settings.downloadPath);
+      if (requestId !== openRequestRef.current) return;
+      setActiveBook({ ...current, openSeq: requestId, id: bookId, source: file, notice });
+    } catch (err) {
+      console.error('Failed to reopen the updated book:', err);
+      alert({
+        title: t('common.error'),
+        message: t('common.failedToOpenDownloadedBook'),
+        type: 'error',
+      });
+    }
+  };
+
   // Back to Library
   const handleBackToLibrary = () => {
     setStatusBarVisible(true);
@@ -399,6 +429,10 @@ function AppRoutes() {
             settings={settings}
             onUpdateSettings={handleUpdateSettings}
             onBackToLibrary={handleBackToLibrary}
+            onReloadBook={(filePath, notice) =>
+              handleReloadActiveBook(activeBook.openSeq, filePath, notice)
+            }
+            initialNotice={activeBook.notice}
           />
         </ErrorBoundary>
       </div>

@@ -47,8 +47,12 @@ import {
   deleteDbAnnotation,
   syncBookData,
   pullBookProgress,
+  getChapterCopy,
 } from '../../services/readerDb';
-import { isUnauthorizedError } from '../../api/tokenManager';
+import { getServerUrl, isUnauthorizedError } from '../../api/tokenManager';
+import { ChaptersBuildNoSessionError, buildChaptersBook } from '../../services/chaptersBuild';
+import { BookHasNoChaptersError, VolumesNotSupportedError } from '../../api/libraryApi';
+import type { ChapterCopy } from '../../types/browse';
 import { fontManager } from '../../services/fontManager';
 import { LoadedCustomFont } from '../../types/font';
 import { useTranslation } from '../../i18n';
@@ -61,6 +65,18 @@ interface FoliateReaderProps {
   settings: ReaderSettings;
   onUpdateSettings: (newSettings: Partial<ReaderSettings>) => void;
   onBackToLibrary: () => void;
+  /**
+   * Opens the book again from the given file (a book built from chapters after new
+   * chapters were added to it), showing `notice` once it is open.
+   */
+  onReloadBook?: (filePath: string, notice: ReaderNotice) => void;
+  /** Message shown right after the book opens */
+  initialNotice?: ReaderNotice;
+}
+
+export interface ReaderNotice {
+  message: string;
+  type?: 'info' | 'success' | 'error';
 }
 
 
@@ -301,6 +317,8 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   settings,
   onUpdateSettings,
   onBackToLibrary,
+  onReloadBook,
+  initialNotice,
 }) => {
   const { t } = useTranslation();
   const viewerContainerRef = useRef<HTMLDivElement>(null);
@@ -668,6 +686,109 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
     },
     []
   );
+
+  // Message handed over by the previous opening of the book (e.g. after new chapters)
+  useEffect(() => {
+    if (initialNotice) showSyncToast(initialNotice.message, initialNotice.type);
+    // Only once per opening
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // A book built on this device from the chapters of a `Chapters` book can fetch the
+  // chapters added on the server since. A ready EPUB has no such copy: no button.
+  const [chapterCopy, setChapterCopy] = useState<ChapterCopy | null>(null);
+  const [isUpdatingChapters, setIsUpdatingChapters] = useState(false);
+  const isUpdatingChaptersRef = useRef(false);
+  useEffect(() => {
+    let cancelled = false;
+    setChapterCopy(null);
+    getChapterCopy(bookId).then((copy) => {
+      if (!cancelled) setChapterCopy(copy);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [bookId]);
+
+  const handleUpdateChapters = useCallback(async () => {
+    if (!chapterCopy || isUpdatingChaptersRef.current) return;
+    const serverUrl = getServerUrl();
+    if (!serverUrl || !settings.downloadPath) {
+      showSyncToast(
+        t('reader.chaptersUpdateFailed', { error: t('browse.serverNotConfiguredAlert') }),
+        'error'
+      );
+      return;
+    }
+    isUpdatingChaptersRef.current = true;
+    setIsUpdatingChapters(true);
+    setSyncToast({ message: t('reader.updatingChapters'), type: 'info' });
+    try {
+      // The core moves the stored positions of chapters that change their place in
+      // the file: the current one has to be in the database before it does.
+      await flushPendingLocationSave();
+      const title = metadata?.title || chapterCopy.title || 'book';
+      const result = await buildChaptersBook(
+        {
+          serverUrl,
+          bookId: chapterCopy.serverBookId,
+          // Only used if the copy is no longer where it was recorded
+          fileName: `${title}.epub`,
+          title,
+          author: metadata?.author,
+          baseDir: settings.downloadPath,
+          volume: chapterCopy.volume ?? undefined,
+        },
+        (event) => {
+          const message =
+            event.phase === 'building'
+              ? t('browse.buildingBook')
+              : t(event.phase === 'images' ? 'browse.imagesProgress' : 'browse.chaptersProgress', {
+                  done: event.done,
+                  total: event.total,
+                });
+          setSyncToast({ message, type: 'info' });
+        }
+      );
+      const isVolume = chapterCopy.volume !== null && chapterCopy.volume !== undefined;
+      const isUpToDate = result.chaptersFetched === 0 && result.imagesFetched === 0;
+      if (isUpToDate) {
+        showSyncToast(
+          t(isVolume ? 'browse.volumeChaptersUpToDate' : 'browse.chaptersUpToDate', {
+            total: result.chaptersTotal,
+          }),
+          'info'
+        );
+        return;
+      }
+      const message = t(isVolume ? 'browse.volumeChaptersUpdated' : 'browse.chaptersUpdated', {
+        count: result.chaptersFetched,
+        total: result.chaptersTotal,
+      });
+      if (onReloadBook) {
+        // Positions are already rewritten for the new layout: one still waiting from
+        // the old file must not overwrite them.
+        cancelPendingLocationSave();
+        onReloadBook(result.filePath, { message, type: 'success' });
+      } else {
+        showSyncToast(message, 'success');
+      }
+    } catch (err: any) {
+      console.error('Failed to get new chapters:', err);
+      const error =
+        err instanceof BookHasNoChaptersError
+          ? t('browse.downloadNoChaptersError')
+          : err instanceof VolumesNotSupportedError
+            ? t('browse.downloadVolumesNotSupported')
+            : err instanceof ChaptersBuildNoSessionError || isUnauthorizedError(err)
+              ? t('browse.downloadNoSession')
+              : err?.message || String(err);
+      showSyncToast(t('reader.chaptersUpdateFailed', { error }), 'error');
+    } finally {
+      isUpdatingChaptersRef.current = false;
+      setIsUpdatingChapters(false);
+    }
+  }, [chapterCopy, settings.downloadPath, metadata, showSyncToast, t, flushPendingLocationSave, cancelPendingLocationSave, onReloadBook]);
 
   const handleSyncProgress = useCallback(async () => {
     if (isSyncing) return;
@@ -2479,6 +2600,8 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         isSettingsOpen={isSettingsOpen}
         settingsBtnRef={settingsBtnRef}
         chapterTitle={chapterTitle}
+        onUpdateChapters={chapterCopy ? handleUpdateChapters : undefined}
+        isUpdatingChapters={isUpdatingChapters}
         onMouseEnter={() => {
           isHoveringControlsRef.current = true;
           cancelAutoHide();
@@ -2714,7 +2837,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
       {/* Sync Toast Notification */}
       {syncToast && (
         <div className={`reader-toast-notification toast-${syncToast.type || 'info'}`}>
-          <RefreshCw size={15} className={isSyncing ? 'animate-spin' : ''} />
+          <RefreshCw size={15} className={isSyncing || isUpdatingChapters ? 'spinner' : ''} />
           <span>{syncToast.message}</span>
         </div>
       )}
