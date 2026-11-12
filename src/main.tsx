@@ -4,6 +4,10 @@ import { HashRouter } from "react-router-dom";
 import App from "./App";
 
 import { ErrorBoundary } from "./components/common/ErrorBoundary";
+import { installExternalLinkGuard } from "./services/appOpener";
+
+// Links must never navigate the application window itself
+installExternalLinkGuard();
 
 // Disable default browser context menu to ensure a native application experience
 document.addEventListener("contextmenu", (e) => {

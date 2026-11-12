@@ -7,6 +7,26 @@ class FontManager {
   private cachedFonts: LoadedCustomFont[] = [];
   private listeners: Set<FontChangeListener> = new Set();
   private isInitialized = false;
+  /** FontFace registered in `document.fonts` for each font file path. */
+  private fontFaces: Map<string, FontFace> = new Map();
+  private loadPromise: Promise<LoadedCustomFont[]> | null = null;
+
+  /** Identity of a font file on disk: a replaced file is loaded again. */
+  private static fileKey(font: CustomFontInfo): string {
+    return `${font.filePath}\n${font.fileSize}`;
+  }
+
+  private registerFontFace(filePath: string, face: FontFace | null) {
+    const previous = this.fontFaces.get(filePath);
+    if (previous) {
+      document.fonts.delete(previous);
+      this.fontFaces.delete(filePath);
+    }
+    if (face) {
+      document.fonts.add(face);
+      this.fontFaces.set(filePath, face);
+    }
+  }
 
   public subscribe(listener: FontChangeListener): () => void {
     this.listeners.add(listener);
@@ -68,7 +88,7 @@ class FontManager {
       try {
         const fontFace = new FontFace(font.fontFamily, uint8.buffer, { weight: '100 900' });
         await fontFace.load();
-        document.fonts.add(fontFace);
+        this.registerFontFace(font.filePath, fontFace);
       } catch (fontFaceErr) {
         console.warn(`Failed to register FontFace '${font.fontFamily}':`, fontFaceErr);
       }
@@ -88,15 +108,50 @@ class FontManager {
   }
 
   /**
-   * Initializes and loads all custom fonts from disk.
+   * Brings the loaded fonts in line with the fonts folder.
+   *
+   * Font files are read once: a font that is already loaded is reused, only
+   * new or replaced files are read, and fonts whose file is gone are dropped.
+   * Listeners are notified (and the returned array changes identity) only
+   * when the set of fonts actually changed, so calling this on every reader
+   * or settings open is cheap. Concurrent calls share one run.
    */
-  public async loadAllFonts(): Promise<LoadedCustomFont[]> {
+  public loadAllFonts(): Promise<LoadedCustomFont[]> {
+    if (!this.loadPromise) {
+      this.loadPromise = this.refreshFonts().finally(() => {
+        this.loadPromise = null;
+      });
+    }
+    return this.loadPromise;
+  }
+
+  private async refreshFonts(): Promise<LoadedCustomFont[]> {
     const list = await this.listFonts();
-    const loaded = await Promise.all(list.map((f) => this.loadFont(f)));
-    this.cachedFonts = loaded;
-    this.isInitialized = true;
-    this.notify();
-    return loaded;
+    const known = new Map(
+      this.cachedFonts.filter((f) => f.isLoaded).map((f) => [FontManager.fileKey(f), f] as const)
+    );
+
+    let changed = !this.isInitialized || list.length !== this.cachedFonts.length;
+    const loaded = await Promise.all(
+      list.map((f) => {
+        const existing = known.get(FontManager.fileKey(f));
+        if (existing) return existing;
+        changed = true;
+        return this.loadFont(f);
+      })
+    );
+
+    const present = new Set(list.map((f) => f.filePath));
+    for (const filePath of Array.from(this.fontFaces.keys())) {
+      if (!present.has(filePath)) this.registerFontFace(filePath, null);
+    }
+
+    if (changed) {
+      this.cachedFonts = loaded;
+      this.isInitialized = true;
+      this.notify();
+    }
+    return this.cachedFonts;
   }
 
   /**
@@ -149,6 +204,11 @@ class FontManager {
     try {
       const success = await invoke<boolean>('delete_custom_font', { fileName });
       if (success) {
+        for (const f of this.cachedFonts) {
+          if (f.fileName === fileName || f.filePath === fileName) {
+            this.registerFontFace(f.filePath, null);
+          }
+        }
         this.cachedFonts = this.cachedFonts.filter(
           (f) => f.fileName !== fileName && f.filePath !== fileName
         );

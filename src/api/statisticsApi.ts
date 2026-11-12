@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPost } from './client';
+import { apiDelete, apiGet, apiPost, type ApiError } from './client';
 import type {
   DailyActivityResponse,
   ReadingSummaryResponse,
@@ -13,12 +13,51 @@ export interface ActivityParams {
   to?: string | null;
 }
 
+/**
+ * IANA name of the device time zone (e.g. `Europe/Berlin`). The server groups
+ * reading time into days and counts streaks in this zone; without it days
+ * would be cut at UTC midnight. Servers that do not know the parameter
+ * ignore it.
+ */
+function deviceTimeZone(): string | null {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * GET a day-based statistics endpoint in the device time zone. A server that
+ * does not recognise the zone name answers 400; the request is then repeated
+ * without it (UTC days) rather than failing.
+ */
+async function getInDeviceTimeZone<T>(path: string, query: URLSearchParams): Promise<T> {
+  const build = (q: URLSearchParams) => {
+    const qs = q.toString();
+    return qs ? `${path}?${qs}` : path;
+  };
+  const tz = deviceTimeZone();
+  if (!tz) return apiGet<T>(build(query));
+
+  const withTz = new URLSearchParams(query);
+  withTz.set('tz', tz);
+  try {
+    return await apiGet<T>(build(withTz));
+  } catch (err) {
+    if ((err as ApiError | null)?.status === 400) {
+      return apiGet<T>(build(query));
+    }
+    throw err;
+  }
+}
+
 export const statisticsApi = {
   /**
    * Get user overall reading summary metrics and device breakdown
    */
   getSummary: async (): Promise<ReadingSummaryResponse> => {
-    return apiGet<ReadingSummaryResponse>('/statistics/summary');
+    return getInDeviceTimeZone<ReadingSummaryResponse>('/statistics/summary', new URLSearchParams());
   },
 
   /**
@@ -28,9 +67,7 @@ export const statisticsApi = {
     const query = new URLSearchParams();
     if (params?.from) query.set('from', params.from);
     if (params?.to) query.set('to', params.to);
-    const qs = query.toString();
-    const path = qs ? `/statistics/activity?${qs}` : '/statistics/activity';
-    return apiGet<DailyActivityResponse[]>(path);
+    return getInDeviceTimeZone<DailyActivityResponse[]>('/statistics/activity', query);
   },
 
   /**

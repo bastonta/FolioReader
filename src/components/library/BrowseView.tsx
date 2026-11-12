@@ -30,9 +30,10 @@ import {
 } from "../../api/libraryApi";
 import { Select } from "../common/Select";
 import {
-  getAccessToken,
   getServerUrl,
   isNetworkError,
+  isUnauthorizedError,
+  withFreshAccessToken,
 } from "../../api/tokenManager";
 import { useAuth } from "../../context/AuthContext";
 import { useDialog } from "../../context/DialogContext";
@@ -45,6 +46,7 @@ import {
   deleteBookStatistics,
   checkDownloadedServerBooks,
   getChapterCopies,
+  getLocalBookIdForFile,
 } from "../../services/readerDb";
 import {
   saveRecentBook,
@@ -70,6 +72,16 @@ import { ChapterVolumesModal } from "./ChapterVolumesModal";
  */
 const downloadKey = (bookId: string, volume?: number | null): string =>
   volume === undefined || volume === null ? bookId : `${bookId}#${volume}`;
+
+/** How many times the access token may be renewed while one book is built from chapters. */
+const CHAPTERS_BUILD_TOKEN_RENEWALS = 12;
+
+/** How far a build from chapters has got, as a number that grows with every step of it. */
+const chaptersBuildStage = (progress: ChaptersDownloadProgress): number => {
+  const phase =
+    progress.phase === "chapters" ? 0 : progress.phase === "images" ? 1 : 2;
+  return phase * 1_000_000_000 + progress.done;
+};
 
 interface BrowseViewProps {
   settings: ReaderSettings;
@@ -405,8 +417,15 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
       ? currentSeriesPath[currentSeriesPath.length - 1].id
       : undefined;
 
+  // Catalog requests are answered in any order. Only the answer to the latest request
+  // is shown: an older one belongs to another folder, page or search, and showing it
+  // under the current breadcrumb would also send downloads to the wrong folder.
+  const browseRequestRef = React.useRef(0);
+
   // Fetch browse items
   const fetchBrowseItems = useCallback(async () => {
+    const requestId = ++browseRequestRef.current;
+    const isLatest = () => requestId === browseRequestRef.current;
     setIsLoading(true);
     setError(null);
     try {
@@ -420,6 +439,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
       };
 
       const res = await libraryApi.browse(params);
+      if (!isLatest()) return;
       setItems(res.items || []);
       setTotalItems(res.total || 0);
 
@@ -437,6 +457,7 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
           const downloadedMap = await checkDownloadedServerBooks(
             bookItems.map((b) => b.id)
           );
+          if (!isLatest()) return;
 
           for (const [serverId, filePath] of Object.entries(downloadedMap)) {
             newPaths[serverId] = filePath;
@@ -445,35 +466,44 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
 
           // 2. Fallback check for any books not yet found in SQLite mappings (e.g. legacy downloads)
           // A local copy of a `Chapters` book is always recorded in book_mappings when it is
-          // built, and a file that merely has the same name belongs to another book.
+          // built. For the rest a file with the name of the book is not enough: "Volume 1"
+          // of another series has the same name, and binding it would send the reading
+          // progress and annotations of that book into this one. The core accepts a file
+          // only when the server recognises its content as this very book, and records
+          // the binding itself.
           const unmappedBooks = bookItems.filter(
             (b) => !newPaths[b.id] && b.kind !== "Chapters",
           );
-          if (unmappedBooks.length > 0) {
+          const serverUrl = getServerUrl();
+          if (unmappedBooks.length > 0 && serverUrl) {
+            const seriesPath =
+              currentSeriesPath.map((s) => s.name).join("/") || undefined;
             await Promise.all(
               unmappedBooks.map(async (book) => {
-                const seriesPath =
-                  currentSeriesPath.map((s) => s.name).join("/") || undefined;
-                const fileName = `${book.name}.epub`;
-                const existingPath = await fileManager.checkBookDownloaded({
-                  baseDir: settings.downloadPath!,
-                  fileName,
-                  seriesName:
-                    settings.createSeriesFolder !== false ? seriesPath : undefined,
-                });
-                if (existingPath) {
-                  newPaths[book.id] = existingPath;
-                  newStates[book.id] = "downloaded";
-                  const localId = fileManager.getLocalBookId(
-                    existingPath,
-                    settings.downloadPath!
+                try {
+                  const existingPath = await withFreshAccessToken((token) =>
+                    fileManager.findDownloadedBook({
+                      serverUrl,
+                      token,
+                      bookId: book.id,
+                      fileName: `${book.name}.epub`,
+                      seriesName:
+                        settings.createSeriesFolder !== false
+                          ? seriesPath
+                          : undefined,
+                      baseDir: settings.downloadPath!,
+                    }),
                   );
-                  saveDbBookMapping(localId, book.id, existingPath).catch(
-                    console.warn
-                  );
+                  if (existingPath) {
+                    newPaths[book.id] = existingPath;
+                    newStates[book.id] = "downloaded";
+                  }
+                } catch (err) {
+                  console.warn("Failed to look for a downloaded book:", err);
                 }
               })
             );
+            if (!isLatest()) return;
           }
 
           if (Object.keys(newPaths).length > 0) {
@@ -509,10 +539,11 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
           .catch(console.warn);
       }
     } catch (err: any) {
+      if (!isLatest()) return;
       console.error("Failed to browse library:", err);
       setError(err?.message || "Failed to load catalog from server");
     } finally {
-      setIsLoading(false);
+      if (isLatest()) setIsLoading(false);
     }
   }, [
     currentSeriesId,
@@ -636,7 +667,6 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
       if (!serverUrl) {
         throw new Error(t("browse.serverNotConfiguredAlert"));
       }
-      const token = getAccessToken() || undefined;
       // Single request to get full book details including CFI progress and series metadata
       const bookDetail = await libraryApi.getBook(book.id, "cfi").catch((err) => {
         console.warn("Failed to fetch book detail:", err);
@@ -657,7 +687,6 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
 
       const downloadOptions = {
         serverUrl,
-        token,
         bookId: book.id,
         fileName,
         title,
@@ -678,9 +707,13 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
         volume !== undefined ||
         (bookDetail?.kind ?? book.kind) === "Chapters";
       let savedPath = "";
+      // The core cannot refresh the access token: it gets one that is known to be
+      // valid, and a fresh one if the server still turns it down.
       if (!isChaptersBook) {
         try {
-          savedPath = await fileManager.downloadBookFile(downloadOptions);
+          savedPath = await withFreshAccessToken((token) =>
+            fileManager.downloadBookFile({ ...downloadOptions, token }),
+          );
         } catch (err) {
           // The catalog item did not say so, but the server has no file for this book
           if (!(err instanceof BookHasNoFileError)) throw err;
@@ -690,11 +723,29 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
 
       let chaptersResult: ChaptersBookDownloadResult | null = null;
       if (isChaptersBook) {
-        chaptersResult = await fileManager.downloadChaptersBook(
-          { ...downloadOptions, volume },
-          (event) =>
-            setChaptersProgress((prev) => ({ ...prev, [key]: event })),
-        );
+        // Building a large book from chapters can outlive several access tokens. The
+        // build is repeated with a new token as long as every run gets further than
+        // the runs before it (the core continues an interrupted build); a run that
+        // only gets as far as an earlier one would never finish, and ends the download.
+        let furthestRun = -1;
+        chaptersResult = await withFreshAccessToken(async (token) => {
+          let reached = 0;
+          try {
+            return await fileManager.downloadChaptersBook(
+              { ...downloadOptions, token, volume },
+              (event) => {
+                reached = Math.max(reached, chaptersBuildStage(event));
+                setChaptersProgress((prev) => ({ ...prev, [key]: event }));
+              },
+            );
+          } catch (err) {
+            if (isUnauthorizedError(err) && reached <= furthestRun) {
+              throw new Error(t("browse.downloadNoSession"));
+            }
+            furthestRun = Math.max(furthestRun, reached);
+            throw err;
+          }
+        }, CHAPTERS_BUILD_TOKEN_RENEWALS);
         savedPath = chaptersResult.filePath;
       }
       // A volume copy is titled and named after its volume
@@ -703,9 +754,11 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
         ? savedPath.split(/[\\/]/).pop() || fileName
         : fileName;
 
+      // The id the core recorded the file under (it is not always the one that follows
+      // from the path: a file downloaded again keeps the id it had)
       const localId =
         chaptersResult?.localId ??
-        fileManager.getLocalBookId(savedPath, settings.downloadPath);
+        (await getLocalBookIdForFile(savedPath, settings.downloadPath));
       await saveDbBookMapping(localId, book.id, savedPath);
 
       let coverUrl: string | undefined;
@@ -820,7 +873,9 @@ export const BrowseView: React.FC<BrowseViewProps> = ({
             ? t("browse.downloadNoChaptersError")
             : err instanceof VolumesNotSupportedError
               ? t("browse.downloadVolumesNotSupported")
-              : err?.message || err;
+              : isUnauthorizedError(err)
+                ? t("browse.downloadNoSession")
+                : err?.message || err;
       await alert({
         title: t("common.error"),
         message: t("browse.downloadFailedAlert", { error: message }),

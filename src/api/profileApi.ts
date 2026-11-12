@@ -1,4 +1,5 @@
 import { apiGet, apiPost, apiPut } from './client';
+import { authApi } from './authApi';
 import type {
   User,
   EmailChangeResponse,
@@ -20,7 +21,9 @@ export const profileApi = {
     oldPassword: string,
     newPassword: string,
   ): Promise<void> => {
-    await apiPost('/profile/password-change', { oldPassword, newPassword });
+    // Sent through the auth proxy, which has to receive the refresh token
+    // that replaces the one revoked by the change.
+    await authApi.changePassword(oldPassword, newPassword);
   },
 
   emailChange: async (

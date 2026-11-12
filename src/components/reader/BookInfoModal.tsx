@@ -29,6 +29,7 @@ import {
   formatDateOnly,
 } from "../../services/timeFormat";
 import { deleteBookStatistics } from "../../services/readerDb";
+import { isExternalLinkUrl, openExternalUrl } from "../../services/appOpener";
 import { BookMetadata, BookReadingStats } from "../../types/reader";
 import { Modal } from "../common/Modal";
 
@@ -591,6 +592,17 @@ export const BookInfoModal: React.FC<BookInfoModalProps> = ({
           <div
             className="book-info-desc-body"
             dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(metadata.description) }}
+            onClick={(e) => {
+              // Links in the description must never navigate the app window:
+              // web/mail links go to the system browser, the rest do nothing.
+              const a = (e.target as Element | null)?.closest?.("a[href]");
+              if (!a) return;
+              e.preventDefault();
+              const href = a.getAttribute("href") || "";
+              if (isExternalLinkUrl(href)) {
+                openExternalUrl(href);
+              }
+            }}
           />
         </div>
       )}

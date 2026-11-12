@@ -208,6 +208,7 @@ export const ru: Partial<Record<TranslationKey, string>> = {
   "browse.downloadFailedAlert": "Не удалось скачать книгу: {error}",
   "browse.downloadNoFileError": "Эта книга собрана из глав, у неё нет EPUB-файла для скачивания",
   "browse.downloadNoChaptersError": "В этой книге пока нет ни одной главы",
+  "browse.downloadNoSession": "не удалось продлить сессию. Проверьте соединение или войдите заново",
   "browse.chaptersBadge": "Главы",
   "browse.chaptersBadgeHint":
     "Книга хранится на сервере в виде отдельных глав. Она скачивается по главам, и её можно обновлять, когда появляются новые.",
@@ -334,6 +335,7 @@ export const ru: Partial<Record<TranslationKey, string>> = {
   "reader.syncSuccess": "Прогресс загружен с сервера: {percent}%",
   "reader.syncUpToDate": "Прогресс книги актуален",
   "reader.syncFailed": "Ошибка синхронизации: {error}",
+  "reader.syncNoSession": "не удалось продлить сессию. Проверьте соединение или войдите заново",
   "reader.theme": "Тема оформления",
   "reader.themeLight": "Светлая",
   "reader.themeSepia": "Сепия",

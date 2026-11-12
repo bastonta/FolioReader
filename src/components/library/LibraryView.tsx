@@ -23,6 +23,7 @@ import {
 import { fileManager } from '../../services/fileManager';
 import { isMobileDevice } from '../../services/systemUi';
 import { useAuth } from '../../context/AuthContext';
+import { isUnauthorizedError } from '../../api/tokenManager';
 import {
   loadLocalBooksCache,
   loadLocalBooksCacheAsync,
@@ -169,8 +170,10 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
       if (book.id) {
         pullBookProgress(book.id)
           .then((res) => {
-            if (res?.success && res.location) {
-              const frac = (res.progressPercent || 0) / 100;
+            // `location` is set only when a reader would have to move; the
+            // percentage is the one the exchange with the server settled on
+            if (res?.success && typeof res.progressPercent === 'number') {
+              const frac = res.progressPercent / 100;
               setRecentBooks((prev) =>
                 prev.map((b) =>
                   b.id === book.id && Math.abs((b.progressFraction || 0) - frac) > 0.005
@@ -446,21 +449,28 @@ export const LibraryView: React.FC<LibraryViewProps> = ({
     setBookInfoState((prev) => ({ ...prev, isSyncing: true, syncMessage: t('reader.syncing') }));
     try {
       const res = await pullBookProgress(currentBook.id);
-      if (res?.success && res.location) {
-        const percent = res.progressPercent || 0;
+      if (res?.success && typeof res.progressPercent === 'number') {
+        const percent = res.progressPercent;
         setDbProgressMap((prev) => ({
           ...prev,
           [currentBook.id]: { fraction: percent / 100, isRead: res.isRead },
         }));
         setBookInfoState((prev) => ({
           ...prev,
-          progressPercent: percent,
-          syncMessage: t('reader.syncSuccess', { percent }),
+          progressPercent: Math.round(percent),
+          // Only a position taken from the server is "downloaded"
+          syncMessage: res.location
+            ? t('reader.syncSuccess', { percent: Math.round(percent) })
+            : t('reader.syncUpToDate'),
         }));
       } else {
+        const failure =
+          res && !res.success && isUnauthorizedError(res.message)
+            ? t('reader.syncFailed', { error: t('reader.syncNoSession') })
+            : res?.message;
         setBookInfoState((prev) => ({
           ...prev,
-          syncMessage: res?.message || t('reader.syncUpToDate'),
+          syncMessage: failure || t('reader.syncUpToDate'),
         }));
       }
 

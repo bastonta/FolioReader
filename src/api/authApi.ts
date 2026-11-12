@@ -4,8 +4,15 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { apiPost, type ApiError } from './client';
-import { getServerUrl, setAccessToken } from './tokenManager';
-import { clearAllUserData } from '../services/storage';
+import {
+  getServerUrl,
+  clearTokens,
+  whenAuthCookiesCleared,
+  getFreshAccessToken,
+  refreshAccessToken,
+  setAccessToken,
+  SessionRejectedError,
+} from './tokenManager';
 import type {
   LoginResponse,
   Login2faResponse,
@@ -59,16 +66,17 @@ export const authApi = {
     const serverUrl = getServerUrl();
     if (!serverUrl) throw new Error('Server URL not configured');
 
+    // A pending `clear_auth_cookies` must not wipe the refresh token this
+    // login is about to receive.
+    await whenAuthCookiesCleared();
     const res = await invoke<AuthProxyResponse>('auth_login_proxy', {
       serverUrl,
       email,
       password,
     });
-    const data = handleProxyResponse<LoginResponse>(res);
-    if (!data.need2fa && data.token) {
-      setAccessToken(data.token);
-    }
-    return data;
+    // The access token is stored by the caller (AuthContext) once the local
+    // database is known to belong to this account.
+    return handleProxyResponse<LoginResponse>(res);
   },
 
   login2fa: async (
@@ -80,6 +88,7 @@ export const authApi = {
     const serverUrl = getServerUrl();
     if (!serverUrl) throw new Error('Server URL not configured');
 
+    await whenAuthCookiesCleared();
     const res = await invoke<AuthProxyResponse>('auth_login_2fa_proxy', {
       serverUrl,
       userId,
@@ -87,11 +96,7 @@ export const authApi = {
       code,
       loginType: type,
     });
-    const data = handleProxyResponse<Login2faResponse>(res);
-    if (data.token) {
-      setAccessToken(data.token);
-    }
-    return data;
+    return handleProxyResponse<Login2faResponse>(res);
   },
 
   register: async (
@@ -113,16 +118,13 @@ export const authApi = {
     const serverUrl = getServerUrl();
     if (!serverUrl) throw new Error('Server URL not configured');
 
+    await whenAuthCookiesCleared();
     const res = await invoke<AuthProxyResponse>('auth_email_confirm_proxy', {
       serverUrl,
       userId,
       code,
     });
-    const data = handleProxyResponse<EmailConfirmResponse>(res);
-    if (data.token) {
-      setAccessToken(data.token);
-    }
-    return data;
+    return handleProxyResponse<EmailConfirmResponse>(res);
   },
 
   emailConfirmResend: async (
@@ -167,6 +169,58 @@ export const authApi = {
     await apiPost('/identity/password-reset', { email, token, password });
   },
 
+  /**
+   * Changes the password of the signed-in account.
+   *
+   * The server revokes every token issued before the change and answers like
+   * a successful login: a new access token in the body and a new refresh
+   * token in a cookie. Only the Rust auth proxy can keep that cookie, so the
+   * request goes through it and the session survives the change (older
+   * servers return no body; the session then stays as it was).
+   */
+  changePassword: async (
+    oldPassword: string,
+    newPassword: string,
+  ): Promise<void> => {
+    const serverUrl = getServerUrl();
+    if (!serverUrl) throw new Error('Server URL not configured');
+
+    const send = (token: string) =>
+      invoke<AuthProxyResponse>('auth_password_change_proxy', {
+        serverUrl,
+        token,
+        oldPassword,
+        newPassword,
+      });
+
+    let token = await getFreshAccessToken();
+    if (!token) {
+      throw { status: 401, message: 'Session expired' } as ApiError;
+    }
+    let res = await send(token);
+    if (res.status === 401) {
+      // The access token was rejected before its own expiry time
+      try {
+        token = await refreshAccessToken();
+      } catch (err) {
+        throw {
+          status: err instanceof SessionRejectedError ? 401 : 0,
+          message:
+            err instanceof SessionRejectedError
+              ? 'Session expired'
+              : 'Network error: session refresh failed',
+          data: err,
+        } as ApiError;
+      }
+      res = await send(token);
+    }
+
+    const data = handleProxyResponse<{ token?: unknown } | null>(res);
+    if (data && typeof data.token === 'string' && data.token) {
+      setAccessToken(data.token);
+    }
+  },
+
   logout: async (): Promise<void> => {
     const serverUrl = getServerUrl();
     if (serverUrl) {
@@ -176,7 +230,9 @@ export const authApi = {
         // Ignore revoke errors — we clear locally regardless
       }
     }
-    await clearAllUserData({ preserveServerUrl: true });
+    // Only the credentials go away. Local reading data stays for the next
+    // sign-in of the same account (see `claimLocalDataForUser`).
+    clearTokens();
   },
 };
 

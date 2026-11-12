@@ -48,6 +48,7 @@ import {
   syncBookData,
   pullBookProgress,
 } from '../../services/readerDb';
+import { isUnauthorizedError } from '../../api/tokenManager';
 import { fontManager } from '../../services/fontManager';
 import { LoadedCustomFont } from '../../types/font';
 import { useTranslation } from '../../i18n';
@@ -367,12 +368,14 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   const [currentCFI, setCurrentCFI] = useState<string>('');
   const paginatorRef = useRef<DevicePaginator | null>(null);
 
-  const { stats: readingStats, recordPageTurn, refreshStats, flushSession } = useReadingTracker({
+  const { stats: readingStats, recordPageTurn, recordActivity, refreshStats, flushSession } = useReadingTracker({
     bookId,
     currentFraction: progressFraction,
   });
   const readingStatsRef = useRef(readingStats);
   readingStatsRef.current = readingStats;
+  const recordActivityRef = useRef(recordActivity);
+  recordActivityRef.current = recordActivity;
 
   const [annotations, setAnnotations] = useState<Annotation[]>([]);
   const annotationsRef = useRef<Annotation[]>(annotations);
@@ -409,39 +412,105 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   const isScrubberSeekingRef = useRef<boolean>(false);
   const saveProgressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingProgressRef = useRef<{ cfi: string; fraction: number } | null>(null);
-  const sectionAbortControllerRef = useRef<AbortController | null>(null);
+  // Listeners attached to the documents of the book, one controller per iframe
+  // (a fixed-layout spread shows two iframes at once)
+  const sectionControllersRef = useRef<Map<Element | Document, AbortController>>(new Map());
+  // Position the local database is known to hold (as displayed), so that the
+  // same position is never written — and re-marked as changed — twice
+  const lastPersistedCfiRef = useRef<string | null>(null);
+  // Bumped every time the reader itself moves to another position
+  const positionChangeSeqRef = useRef<number>(0);
+  // Settles when every position write issued so far has reached the database
+  const locationWritesRef = useRef<Promise<void>>(Promise.resolve());
 
-  const flushPendingLocationSave = useCallback(() => {
+  // Writes the position that is waiting to be saved, if there is one. A
+  // position is written exactly once: writing it again would stamp it with a
+  // new change time and let it overwrite a newer position from another device.
+  const persistPendingLocation = useCallback((): boolean => {
+    const pending = pendingProgressRef.current;
+    pendingProgressRef.current = null;
+    if (!pending || !bookId) return false;
+    const write = saveDbLastLocation(bookId, pending.cfi, pending.fraction);
+    locationWritesRef.current = Promise.all([locationWritesRef.current, write]).then(
+      () => undefined,
+      () => undefined
+    );
+    lastPersistedCfiRef.current = pending.cfi;
+    hasUnsyncedProgressRef.current = true;
+    return true;
+  }, [bookId]);
+
+  const cancelPendingLocationSave = useCallback(() => {
     if (saveProgressTimerRef.current) {
       clearTimeout(saveProgressTimerRef.current);
       saveProgressTimerRef.current = null;
     }
-    if (pendingProgressRef.current && bookId) {
-      const { cfi, fraction } = pendingProgressRef.current;
-      saveDbLastLocation(bookId, cfi, fraction);
-      flushPendingRecentBook(bookId);
-      hasUnsyncedProgressRef.current = true;
+    pendingProgressRef.current = null;
+  }, []);
+
+  // Writes the pending position now. The returned promise settles once the
+  // database holds it (and every position written before it): a sync that
+  // starts earlier would compare the server with an outdated local position.
+  const flushPendingLocationSave = useCallback((): Promise<void> => {
+    if (saveProgressTimerRef.current) {
+      clearTimeout(saveProgressTimerRef.current);
+      saveProgressTimerRef.current = null;
     }
-  }, [bookId]);
+    persistPendingLocation();
+    if (bookId) {
+      flushPendingRecentBook(bookId);
+    }
+    return locationWritesRef.current;
+  }, [bookId, persistPendingLocation]);
 
   const scheduleSaveDbProgress = useCallback((cfi: string, fraction: number) => {
+    if (cfi === lastPersistedCfiRef.current) {
+      // Back at the position that is already stored: nothing to write
+      cancelPendingLocationSave();
+      return;
+    }
     pendingProgressRef.current = { cfi, fraction };
     if (saveProgressTimerRef.current) {
       clearTimeout(saveProgressTimerRef.current);
     }
     saveProgressTimerRef.current = setTimeout(() => {
       saveProgressTimerRef.current = null;
-      if (pendingProgressRef.current && bookId) {
-        saveDbLastLocation(bookId, pendingProgressRef.current.cfi, pendingProgressRef.current.fraction);
-        hasUnsyncedProgressRef.current = true;
-      }
+      persistPendingLocation();
     }, 800);
-  }, [bookId]);
+  }, [cancelPendingLocationSave, persistPendingLocation]);
+
+  // Shows a position that the sync has just stored in the local database
+  // (the server's, or the local one it kept). It is not a change made by the
+  // reader, so it is neither saved again nor marked as pending.
+  const jumpToSyncedLocation = useCallback(async (location: string) => {
+    const view = viewRef.current;
+    if (!view) return;
+    isSyncNavigatingRef.current = true;
+    cancelPendingLocationSave();
+    try {
+      await view.goTo(location);
+      lastPersistedCfiRef.current = view.lastLocation?.cfi ?? location;
+    } finally {
+      setTimeout(() => {
+        isSyncNavigatingRef.current = false;
+      }, 100);
+    }
+  }, [cancelPendingLocationSave]);
+
+  // The reader moved while a progress request was in flight: its position is
+  // newer than anything that request could return. Make sure the database
+  // holds it (the sync may have stored the server position meanwhile).
+  const keepLocalPositionAfterSync = useCallback((syncedLocation: string) => {
+    const current = viewRef.current?.lastLocation;
+    if (!current?.cfi || current.cfi === syncedLocation) return;
+    pendingProgressRef.current = { cfi: current.cfi, fraction: current.fraction ?? 0 };
+    void flushPendingLocationSave();
+  }, [flushPendingLocationSave]);
 
   // Flush pending location save on unmount
   useEffect(() => {
     return () => {
-      flushPendingLocationSave();
+      void flushPendingLocationSave();
     };
   }, [flushPendingLocationSave]);
 
@@ -455,9 +524,9 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   const handleClose = useCallback(() => {
     if (isClosingRef.current) return;
     isClosingRef.current = true;
-    flushPendingLocationSave();
+    const positionSaved = flushPendingLocationSave();
     onBackToLibrary();
-    flushSession()
+    Promise.all([positionSaved, flushSession()])
       .then(() => syncBookData(bookId))
       .catch((e) => console.warn('Failed to flush or sync book data on close:', e));
   }, [flushPendingLocationSave, flushSession, bookId, onBackToLibrary]);
@@ -604,22 +673,24 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
     if (isSyncing) return;
     setIsSyncing(true);
     try {
-      // 1. Pull progress first to position reader without race conditions
+      // 1. Pull progress first to position reader without race conditions.
+      // The position that is still waiting for its debounced save goes to the
+      // database first, so the comparison with the server sees it.
+      await flushPendingLocationSave();
+      const movesBeforePull = positionChangeSeqRef.current;
       const progressResult = await pullBookProgress(bookId);
 
       if (progressResult?.success && progressResult.location) {
         const pct = Math.round(progressResult.progressPercent || 0);
-        if (viewRef.current) {
-          isSyncNavigatingRef.current = true;
-          try {
-            await viewRef.current.goTo(progressResult.location);
-          } finally {
-            setTimeout(() => {
-              isSyncNavigatingRef.current = false;
-            }, 100);
-          }
+        if (positionChangeSeqRef.current !== movesBeforePull) {
+          // Pages were turned while the request was in flight: stay there
+          keepLocalPositionAfterSync(progressResult.location);
+        } else {
+          await jumpToSyncedLocation(progressResult.location);
         }
         showSyncToast(t('reader.syncSuccess', { percent: pct }), 'success');
+      } else if (progressResult && !progressResult.success && isUnauthorizedError(progressResult.message)) {
+        showSyncToast(t('reader.syncFailed', { error: t('reader.syncNoSession') }), 'error');
       } else if (progressResult?.message) {
         showSyncToast(progressResult.message, progressResult.success ? 'success' : 'info');
       } else {
@@ -656,7 +727,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
     } finally {
       setIsSyncing(false);
     }
-  }, [bookId, isSyncing, showSyncToast, t, updateAnnotations, updateBookmarks]);
+  }, [bookId, isSyncing, showSyncToast, t, updateAnnotations, updateBookmarks, flushPendingLocationSave, jumpToSyncedLocation, keepLocalPositionAfterSync]);
 
   // Automatically sync book when reconnecting online
   useEffect(() => {
@@ -675,24 +746,30 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   useEffect(() => {
     const handleBackgroundSync = () => {
       if (document.visibilityState === 'hidden') {
-        flushPendingLocationSave();
-        if (hasUnsyncedProgressRef.current) {
-          hasUnsyncedProgressRef.current = false;
-          syncBookData(bookId).catch(console.warn);
-        }
+        const positionSaved = flushPendingLocationSave();
+        // The app may be killed in the background: the reading session
+        // collected so far is written now, then everything is pushed.
+        Promise.all([flushSession(), positionSaved])
+          .then(([sessionSaved]) => {
+            if (hasUnsyncedProgressRef.current || sessionSaved) {
+              hasUnsyncedProgressRef.current = false;
+              return syncBookData(bookId);
+            }
+          })
+          .catch(console.warn);
       }
     };
     document.addEventListener('visibilitychange', handleBackgroundSync);
     return () => document.removeEventListener('visibilitychange', handleBackgroundSync);
-  }, [bookId, flushPendingLocationSave]);
+  }, [bookId, flushPendingLocationSave, flushSession]);
 
   // Periodically sync progress every 60 seconds if there were page turns
   useEffect(() => {
     const intervalId = window.setInterval(() => {
       if (hasUnsyncedProgressRef.current) {
-        flushPendingLocationSave();
+        const positionSaved = flushPendingLocationSave();
         hasUnsyncedProgressRef.current = false;
-        syncBookData(bookId).catch(console.warn);
+        positionSaved.then(() => syncBookData(bookId)).catch(console.warn);
       }
     }, 60_000);
     return () => window.clearInterval(intervalId);
@@ -1039,6 +1116,11 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
     }
   }, [settings, customFonts, initDevicePaginator]);
 
+  // The book is opened by a long-running effect whose closure predates fonts
+  // that finish loading meanwhile: it must apply the latest styles, not its own
+  const applyStylesRef = useRef(applyStyles);
+  applyStylesRef.current = applyStyles;
+
   useEffect(() => {
     applyStyles();
   }, [applyStyles]);
@@ -1093,6 +1175,10 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
     async function initBook() {
       if (!viewerContainerRef.current) return;
 
+      isInitialLoadRef.current = true;
+      lastPersistedCfiRef.current = null;
+      cancelPendingLocationSave();
+
       if (objectUrlToRevoke) {
         URL.revokeObjectURL(objectUrlToRevoke);
         objectUrlToRevoke = null;
@@ -1113,6 +1199,47 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
       viewerContainerRef.current.appendChild(view);
       viewRef.current = view;
 
+      // A location change made by the reader: schedule saving it and count it
+      // for the reading statistics.
+      let lastSectionIndex: number | null = null;
+      const handlePositionChange = (reason: string | undefined) => {
+        const location = view.lastLocation;
+        if (!location?.cfi) return;
+        const previousSectionIndex = lastSectionIndex;
+        lastSectionIndex = typeof location.index === 'number' ? location.index : null;
+        // Restoring the stored position and jumping to a synced one are not
+        // the reader's own moves
+        if (isInitialLoadRef.current || isSyncNavigatingRef.current) return;
+        // 'anchor': the engine re-anchored the same place after a layout
+        // change (resize, images or fonts finishing loading, new styles).
+        // The reader did not move, so there is nothing new to save or sync.
+        if (reason === 'anchor') return;
+
+        positionChangeSeqRef.current += 1;
+        scheduleSaveDbProgress(location.cfi, location.fraction ?? 0);
+        if (reason === 'page' || reason === 'scroll') {
+          setQuickReturn(null);
+        }
+        const isScrubberSeek = isScrubberSeekingRef.current;
+        isScrubberSeekingRef.current = false;
+        // Turning the page over the end of a section is reported by the engine
+        // as a navigation into the neighbouring section
+        const isSectionTurn =
+          reason === 'navigation' &&
+          previousSectionIndex !== null &&
+          lastSectionIndex !== null &&
+          Math.abs(lastSectionIndex - previousSectionIndex) === 1;
+        const isPageTurn =
+          (reason === 'page' || reason === 'scroll' || reason === 'snap' || isSectionTurn) &&
+          !isScrubberSeek;
+        if (isPageTurn) {
+          recordPageTurn();
+        } else {
+          // Jumps (contents, links, scrubber) are activity but not pages read
+          recordActivityRef.current();
+        }
+      };
+
       // Register event listeners before opening/navigating to ensure initial page events are captured
       // Listen for relocate events
       view.addEventListener('relocate', (e: any) => {
@@ -1123,19 +1250,8 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         if (detail.cfi) {
           setCurrentCFI(detail.cfi);
           saveLastLocation(bookId, detail.cfi, fraction);
-          if (!isInitialLoadRef.current && !isSyncNavigatingRef.current) {
-            scheduleSaveDbProgress(detail.cfi, fraction);
-            const reason = detail.reason;
-            if (reason === 'page' || reason === 'scroll') {
-              setQuickReturn(null);
-            }
-            const isScrubberSeek = isScrubberSeekingRef.current;
-            isScrubberSeekingRef.current = false;
-            const isNavigation = reason === 'navigation' || reason === 'anchor' || isScrubberSeek;
-            if (!isNavigation) {
-              recordPageTurn();
-            }
-          }
+          // Saving the position for sync happens in `handlePositionChange`
+          // below: this event does not say why the location changed.
         }
 
         if (detail.tocItem) {
@@ -1175,6 +1291,13 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         setCanGoForward(Boolean(view.history?.canGoForward));
       });
 
+      // The engine would open links that leave the book with `window.open`.
+      // They are opened in the system browser by the click handler below
+      // (web and mail links only), never by the WebView itself.
+      view.addEventListener('external-link', (e: any) => {
+        e.preventDefault();
+      });
+
       // Footnote / Endnote interception & external link handling on link events
       view.addEventListener('link', async (e: any) => {
         const { a, href } = e.detail || {};
@@ -1201,11 +1324,29 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
       view.addEventListener('load', (e: any) => {
         const { doc, index } = e.detail;
 
-        // Abort previous section listeners to prevent event listener leaks
-        sectionAbortControllerRef.current?.abort();
+        // Listeners are owned by the iframe the document lives in. A new
+        // document in the same iframe replaces them; listeners of iframes
+        // that are gone are dropped. Other iframes that are still on screen
+        // (the second page of a fixed-layout spread) keep theirs.
+        const frameKey: Element | Document = doc.defaultView?.frameElement || doc;
+        const controllers = sectionControllersRef.current;
+        for (const [key, controller] of Array.from(controllers)) {
+          const isGone = key instanceof Element ? !key.isConnected : !key.defaultView;
+          if (key === frameKey || isGone) {
+            controller.abort();
+            controllers.delete(key);
+          }
+        }
         const sectionController = new AbortController();
-        sectionAbortControllerRef.current = sectionController;
+        controllers.set(frameKey, sectionController);
         const { signal } = sectionController;
+
+        // Input inside the book's iframe never reaches the top window: report
+        // it to the reading-time tracker so reading a long page is not idle
+        const handleFrameActivity = () => recordActivityRef.current();
+        for (const type of ['pointerdown', 'pointermove', 'touchstart', 'keydown', 'wheel'] as const) {
+          doc.addEventListener(type, handleFrameActivity, { passive: true, signal });
+        }
 
         let selectionDismissedOnPointerDown = false;
         let pointerStartX = 0;
@@ -1392,6 +1533,22 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         // Keyboard navigation inside iframe
         doc.addEventListener('keydown', (ev: KeyboardEvent) => {
           resetScreenTimeoutRef.current();
+          if (activeImageRef.current) {
+            // The image viewer is open on top of the book: keys belong to it
+            // (it listens on the top window), not to the page underneath
+            ev.preventDefault();
+            window.dispatchEvent(
+              new KeyboardEvent('keydown', {
+                key: ev.key,
+                code: ev.code,
+                ctrlKey: ev.ctrlKey,
+                shiftKey: ev.shiftKey,
+                altKey: ev.altKey,
+                metaKey: ev.metaKey,
+              })
+            );
+            return;
+          }
           if (ev.key === 'ArrowLeft' || ev.key === 'h') {
             view.goLeft();
             if (showControlsRef.current) scheduleAutoHideRef.current();
@@ -1821,6 +1978,18 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
 
         const { book } = view;
 
+        // Scripts shipped inside a book are never loaded. The CSP is what
+        // really blocks them; this only stops the engine from preparing them.
+        book.transformTarget?.addEventListener?.('load', (e: any) => {
+          if (e.detail?.isScript) e.detail.allow = false;
+        });
+
+        // The renderer reports why the location changed; the view has already
+        // updated `lastLocation` when this listener runs.
+        view.renderer?.addEventListener?.('relocate', (e: any) => {
+          handlePositionChange(e.detail?.reason);
+        });
+
         // Extract metadata
         const title = formatLanguageMap(book.metadata?.title) || 'Untitled Book';
         const author = formatContributor(book.metadata?.author || book.metadata?.creator);
@@ -1911,7 +2080,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         }
 
         // Apply visual styles
-        applyStyles();
+        applyStylesRef.current();
 
         // Load annotations & bookmarks from SQLite
         const [loadedAnns, loadedBms] = await Promise.all([
@@ -1923,14 +2092,32 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
 
         // Restore saved location or text start
         const savedLoc = await loadDbLastLocation(bookId);
+        if (isCancelled) return;
 
+        // `goTo` reports nothing when the target cannot be shown (a position
+        // from another edition of the file, a location this book does not
+        // understand): `lastLocation` stays empty then. Never leave the
+        // reader on a blank page: fall back to the stored percentage, then
+        // to the start of the text.
+        const isShown = () => Boolean(view.lastLocation);
         if (savedLoc?.cfi) {
           await view.goTo(savedLoc.cfi);
-        } else if (savedLoc?.fraction != null && savedLoc.fraction > 0) {
-          await view.goToFraction(savedLoc.fraction);
-        } else {
+        }
+        if (!isShown() && savedLoc?.fraction != null && savedLoc.fraction > 0) {
+          try {
+            await view.goToFraction(Math.min(1, savedLoc.fraction));
+          } catch (e) {
+            console.warn('Could not restore position by fraction:', e);
+          }
+        }
+        if (!isShown()) {
           await view.init({ showTextStart: true });
         }
+        if (isCancelled) return;
+
+        // What is on screen now is what the database holds (or, for a book
+        // that was never read, nothing worth storing): it is not saved again.
+        lastPersistedCfiRef.current = view.lastLocation?.cfi ?? savedLoc?.cfi ?? null;
 
         if (viewRef.current) {
           for (const ann of loadedAnns) {
@@ -1938,28 +2125,30 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           }
         }
 
-        // 1. Pull latest progress from server and navigate if remote is ahead
+        // The stored position is on screen: from here on page turns are the
+        // reader's own and are saved, even while the server is still being
+        // asked for its position (up to 30 s when it cannot be reached).
+        isInitialLoadRef.current = false;
+        const movesBeforePull = positionChangeSeqRef.current;
+
+        // 1. Pull latest progress from server and navigate to it if the sync kept it
         try {
           const remoteProgress = await pullBookProgress(bookId);
           if (!isCancelled && remoteProgress?.success && remoteProgress.location) {
             const remoteLoc = remoteProgress.location;
             const remotePct = Math.round(remoteProgress.progressPercent || 0);
-            const localPct = Math.round((savedLoc?.fraction || 0) * 100);
 
-            if (remoteLoc !== savedLoc?.cfi && (remotePct >= localPct || !savedLoc?.cfi)) {
-              if (viewRef.current) {
-                await viewRef.current.goTo(remoteLoc);
-                showSyncToast(t('reader.syncSuccess', { percent: remotePct }), 'success');
-              }
+            if (positionChangeSeqRef.current !== movesBeforePull) {
+              // Pages were turned while the answer was on its way: a late
+              // answer must not throw the reader back
+              keepLocalPositionAfterSync(remoteLoc);
+            } else if (remoteLoc !== savedLoc?.cfi && viewRef.current) {
+              await jumpToSyncedLocation(remoteLoc);
+              showSyncToast(t('reader.syncSuccess', { percent: remotePct }), 'success');
             }
           }
         } catch (err) {
           console.warn('Auto progress fetch on book open failed:', err);
-        } finally {
-          // Reset initial load flag ONLY after initial position & progress pull navigation is settled
-          if (!isCancelled) {
-            isInitialLoadRef.current = false;
-          }
         }
 
         if (!isCancelled) {
@@ -2006,8 +2195,10 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
 
     return () => {
       isCancelled = true;
-      sectionAbortControllerRef.current?.abort();
-      sectionAbortControllerRef.current = null;
+      for (const controller of sectionControllersRef.current.values()) {
+        controller.abort();
+      }
+      sectionControllersRef.current.clear();
       if (objectUrlToRevoke) {
         URL.revokeObjectURL(objectUrlToRevoke);
         objectUrlToRevoke = null;
@@ -2030,7 +2221,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
           .catch(console.warn);
       }
     };
-  }, [bookId, bookSource, flushSession, showSyncToast, t, updateAnnotations, updateBookmarks]);
+  }, [bookId, bookSource, flushSession, showSyncToast, t, updateAnnotations, updateBookmarks, cancelPendingLocationSave, scheduleSaveDbProgress, jumpToSyncedLocation, keepLocalPositionAfterSync, recordPageTurn]);
 
   // Window resize handler for column adjustments
   useEffect(() => {
@@ -2049,6 +2240,12 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         e.target instanceof HTMLInputElement ||
         e.target instanceof HTMLTextAreaElement
       ) {
+        return;
+      }
+
+      // While the image viewer is open the keys are its own (it has its own
+      // window listener): arrows must not turn the page underneath
+      if (activeImage) {
         return;
       }
 
@@ -2080,10 +2277,6 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         viewRef.current?.goRight();
         if (showControls) scheduleAutoHide();
       } else if (e.key === 'Escape') {
-        if (activeImage) {
-          setActiveImage(null);
-          return;
-        }
         if (selection) {
           setSelection(null);
           clearAllSelections();

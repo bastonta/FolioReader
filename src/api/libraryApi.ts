@@ -1,5 +1,5 @@
 import { apiDelete, apiGet, apiPost, apiPut } from './client';
-import { getAccessToken, getServerUrl } from './tokenManager';
+import { getAccessToken, getFreshAccessToken, getServerUrl } from './tokenManager';
 import type {
   BookKind,
   BrowseListResponse,
@@ -241,7 +241,9 @@ export const libraryApi = {
   downloadBookBuffer: async (id: string): Promise<ArrayBuffer> => {
     const base = getServerUrl();
     if (!base) throw new Error('Server URL not configured');
-    const token = getAccessToken();
+    // This request bypasses `apiFetch` (binary body), so nothing would
+    // refresh an expired token for it
+    const token = await getFreshAccessToken();
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
 

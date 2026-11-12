@@ -9,7 +9,7 @@ import {
   updateRecentBookMetadata,
 } from './storage';
 import { getDbServerBookId } from './readerDb';
-import { getServerUrl, getAccessToken } from '../api/tokenManager';
+import { getServerUrl, getFreshAccessToken } from '../api/tokenManager';
 
 export interface ExtractedMetaResult {
   title: string;
@@ -111,7 +111,7 @@ export async function extractBookCoverAndMeta(
       const serverBookId = await getDbServerBookId(book.id);
       const serverUrl = getServerUrl();
       if (serverBookId && serverUrl) {
-        const token = getAccessToken();
+        const token = await getFreshAccessToken();
         const headers: Record<string, string> = {};
         if (token) headers['Authorization'] = `Bearer ${token}`;
 

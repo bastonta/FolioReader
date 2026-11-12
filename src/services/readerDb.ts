@@ -1,9 +1,10 @@
 import { invoke } from '@tauri-apps/api/core';
 import { Annotation, Bookmark, getAnnotationColorKey, BookReadingStats, ReadingSummary, DailyActivity } from '../types/reader';
-import { getServerUrl, getAccessToken } from '../api/tokenManager';
-import { apiGet, apiPut, apiDelete } from '../api/client';
+import { getServerUrl, withFreshAccessToken } from '../api/tokenManager';
+import { apiGet, apiPut, apiDelete, type ApiError } from '../api/client';
 import { statisticsApi } from '../api/statisticsApi';
 import { removeRecentBook, saveLastLocation } from './storage';
+import { fileManager } from './fileManager';
 import { parseCfiRange, toCfiRange } from '../utils/cfi';
 import type { ChapterCopy } from '../types/browse';
 
@@ -70,23 +71,69 @@ const isTauri = (): boolean => {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 };
 
+function errorText(err: unknown): string {
+  if (typeof err === 'string') return err;
+  if (err && typeof err === 'object' && 'message' in err) {
+    return String((err as { message: unknown }).message);
+  }
+  return String(err);
+}
+
 // ================= BOOK MAPPINGS =================
 
+/** Prefix of the `db_save_book_mapping` error for a local id bound to another server book. */
+const MAPPING_CONFLICT_ERROR = 'MAPPING_CONFLICT';
+
+/**
+ * Records which server book a local file is (an empty `serverBookId` only
+ * records the file). Returns `false` when nothing was recorded; in particular
+ * the core never rebinds a local id that already belongs to another server
+ * book, because its reading state would start syncing into that book.
+ */
 export async function saveDbBookMapping(
   localId: string,
   serverBookId: string,
   filePath?: string
-): Promise<void> {
-  if (!isTauri()) return;
+): Promise<boolean> {
+  if (!isTauri()) return false;
   try {
     await invoke('db_save_book_mapping', {
       localId,
       serverBookId,
       filePath: filePath || null,
     });
+    return true;
   } catch (err) {
-    console.error('Failed to save book mapping:', err);
+    if (errorText(err).startsWith(MAPPING_CONFLICT_ERROR)) {
+      console.warn(
+        `'${localId}' belongs to another server book; not bound to ${serverBookId}`
+      );
+    } else {
+      console.error('Failed to save book mapping:', err);
+    }
+    return false;
   }
+}
+
+/**
+ * Local id of a book file. A file keeps the id it was first recorded under:
+ * the id is derived from the path relative to the download folder, and that
+ * folder may have been changed since, so it is computed from the path only
+ * for a file that was never seen before.
+ */
+export async function getLocalBookIdForFile(
+  filePath: string,
+  baseDir?: string
+): Promise<string> {
+  if (isTauri()) {
+    try {
+      const recorded = await invoke<string | null>('db_get_local_id_for_file', { filePath });
+      if (recorded) return recorded;
+    } catch (err) {
+      console.warn('Failed to look up the local id of a file:', err);
+    }
+  }
+  return fileManager.getLocalBookId(filePath, baseDir);
 }
 
 export async function getDbServerBookId(bookId: string): Promise<string | null> {
@@ -147,23 +194,34 @@ async function getVolumeCopy(bookId: string): Promise<ChapterCopy | null> {
 }
 
 /**
- * Whether the reading position the server keeps for the book is inside a volume copy.
- * The server has one position per book, shared by all of its volumes.
+ * Where the reading position the server keeps for the book is, seen from a volume copy.
+ * The server has one position per book, shared by all of its volumes: `inside` this
+ * copy, `elsewhere` (another volume, or a chapter the copy does not have), `none` (the
+ * server has no position), or `unknown` when the server could not be asked.
  */
-async function isServerPositionInCopy(copy: ChapterCopy): Promise<boolean> {
+async function locateServerPosition(
+  copy: ChapterCopy
+): Promise<'inside' | 'elsewhere' | 'none' | 'unknown'> {
+  let location: string | null | undefined;
   try {
     const remote = await apiGet<{ location?: string | null }>(
       `/books/${copy.serverBookId}/progress`
     );
-    const location = remote?.location;
-    if (!location || !location.startsWith('ch:')) return false;
+    location = remote?.location;
+  } catch (err) {
+    return (err as ApiError | null)?.status === 404 ? 'none' : 'unknown';
+  }
+  // An empty location means "no position"
+  if (!location || !location.trim()) return 'none';
+  if (!location.startsWith('ch:')) return 'elsewhere';
+  try {
     const position = await invoke<number | null>('db_get_chapter_position', {
       bookId: copy.localId,
       chapterId: location.slice(3),
     });
-    return position !== null && position !== undefined;
+    return position !== null && position !== undefined ? 'inside' : 'elsewhere';
   } catch {
-    return false;
+    return 'unknown';
   }
 }
 
@@ -240,7 +298,9 @@ export async function resetBookProgress(bookId: string, resetOnServer: boolean =
       // The server keeps one position per book. Resetting a single volume must not wipe
       // a position that is in another volume.
       const volumeCopy = await getVolumeCopy(bookId);
-      const ownsServerPosition = volumeCopy ? await isServerPositionInCopy(volumeCopy) : true;
+      const ownsServerPosition = volumeCopy
+        ? (await locateServerPosition(volumeCopy)) === 'inside'
+        : true;
 
       if (serverBookId && !serverBookId.startsWith('local-') && ownsServerPosition) {
         await apiDelete(`/books/${serverBookId}/progress`);
@@ -259,50 +319,62 @@ export async function resetBookProgress(bookId: string, resetOnServer: boolean =
 
 /**
  * Sets book read status (marked as read: 100% / isRead: true; unread: 0% / isRead: false).
+ *
+ * The mark is stored by the core and reaches the server through the regular sync, which
+ * knows how to send it for every kind of book (a file, a copy built from chapters, a
+ * single volume). No position is invented for it: a book marked read keeps the position
+ * it has, a book marked unread has none.
  */
 export async function setBookReadStatus(bookId: string, isRead: boolean): Promise<void> {
   const fraction = isRead ? 1.0 : 0.0;
 
-  // A single volume of a book: the state is stored at the end (or the start) of this
-  // file and goes to the server through the regular sync, which translates it into the
-  // scale of the whole book. Finishing a volume does not finish the book, and marking a
-  // volume unread must not clear the book's read flag.
-  const volumeCopy = await getVolumeCopy(bookId);
-  if (volumeCopy) {
-    const lastChapter = Math.max(1, volumeCopy.chaptersCount);
-    const volumeCfi = `epubcfi(/6/${isRead ? lastChapter * 2 : 2}!/4)`;
-    await saveDbLastLocation(bookId, volumeCfi, fraction, isRead);
-    saveLastLocation(bookId, volumeCfi, fraction);
-    await syncBookData(bookId);
+  if (!isTauri()) {
+    // Browser preview: there is no local database, only the server
+    try {
+      if (isUuid(bookId)) {
+        await apiPut(`/books/${bookId}/progress?format=cfi`, {
+          progressPercent: isRead ? 100.0 : 0.0,
+          isRead,
+        });
+      }
+    } catch (err) {
+      console.warn(`Failed to update read status on server for book ${bookId}:`, err);
+    }
     return;
   }
 
-  const cfi = '';
+  // A single volume of a book: the state is stored at the end (or the start) of this
+  // file and the sync translates it into the scale of the whole book. Finishing a volume
+  // does not finish the book, and marking a volume unread must not clear the book's
+  // read flag.
+  let location: string | null = null;
+  let markPending = true;
+  const volumeCopy = await getVolumeCopy(bookId);
+  if (volumeCopy) {
+    const lastChapter = Math.max(1, volumeCopy.chaptersCount);
+    location = `epubcfi(/6/${isRead ? lastChapter * 2 : 2}!/4)`;
+    // The server keeps one position for the whole book. When it is in another volume
+    // (or cannot be asked now), the mark of this volume stays on this device: sending it
+    // would move the position of the book into this volume.
+    const serverPosition = await locateServerPosition(volumeCopy);
+    markPending = serverPosition === 'inside' || serverPosition === 'none';
+  }
 
-  // 1. Save to local SQLite
-  await saveDbLastLocation(bookId, cfi, fraction, isRead);
-
-  // 2. Update localStorage recent books
-  saveLastLocation(bookId, cfi, fraction);
-
-  // 3. Update on server if connected
   try {
-    let serverBookId: string | null = null;
-    if (isUuid(bookId)) {
-      serverBookId = bookId;
-    } else {
-      serverBookId = await getDbServerBookId(bookId);
-    }
-
-    if (serverBookId && !serverBookId.startsWith('local-')) {
-      await apiPut(`/books/${serverBookId}/progress?format=cfi`, {
-        location: cfi || undefined,
-        progressPercent: isRead ? 100.0 : 0.0,
-        isRead,
-      });
-    }
+    const saved = await invoke<DbBookProgress>('db_set_read_status', {
+      bookId,
+      isRead,
+      location,
+      markPending,
+    });
+    saveLastLocation(bookId, saved.location, fraction);
   } catch (err) {
-    console.warn(`Failed to update read status on server for book ${bookId}:`, err);
+    console.error('Failed to save read status to SQLite:', err);
+    return;
+  }
+
+  if (markPending) {
+    await syncBookData(bookId);
   }
 }
 
@@ -408,13 +480,17 @@ export async function saveDbAnnotation(annotation: Annotation): Promise<void> {
 }
 
 export async function deleteDbAnnotation(
-  _bookId: string,
+  bookId: string,
   annotationIdOrValue: string
 ): Promise<void> {
   if (!isTauri()) return;
 
   try {
-    await invoke('db_delete_annotation', { idOrValue: annotationIdOrValue });
+    // The same CFI range exists in many books: the deletion is limited to this one
+    await invoke('db_delete_annotation', {
+      idOrValue: annotationIdOrValue,
+      bookId: bookId || null,
+    });
   } catch (err) {
     console.error('Failed to delete annotation from SQLite:', err);
   }
@@ -422,50 +498,64 @@ export async function deleteDbAnnotation(
 
 // ================= SYNC API =================
 
+/**
+ * Exchanges the reading position of a book with the server.
+ *
+ * Inside the application this is done by the core only: it compares the change
+ * times of the local and the server position, never overwrites a local
+ * position that is newer (or that changed while the server was being asked)
+ * and translates positions of copies built from chapters. `location` is set
+ * only when the server position won and the reader has to move there.
+ * A failed request leaves the local position alone.
+ */
 export async function pullBookProgress(bookId: string): Promise<PullProgressResult | null> {
   const serverUrl = getServerUrl();
   if (!serverUrl) return null;
-  const token = getAccessToken();
 
   if (isTauri()) {
     try {
-      const res = await invoke<PullProgressResult>('pull_book_progress', {
-        bookId,
-        serverUrl,
-        token: token || null,
-      });
-      return res;
+      return await withFreshAccessToken((token) =>
+        invoke<PullProgressResult>('pull_book_progress', {
+          bookId,
+          serverUrl,
+          token,
+        })
+      );
     } catch (err) {
-      console.warn(`Pull progress invoke failed for ${bookId}:`, err);
+      console.warn(`Pull progress failed for ${bookId}:`, err);
+      return {
+        success: false,
+        message: errorText(err) || 'Failed to fetch progress from server',
+      };
     }
   }
 
-  // Fallback for Web/WebView or direct REST
+  // Browser preview (no core, no local database): the server position is all
+  // there is. Nothing is stored here.
   try {
-    const serverBookId = (await getDbServerBookId(bookId)) || bookId;
-    if (!serverBookId || serverBookId.startsWith('local-')) {
+    if (!isUuid(bookId)) {
       return {
         success: false,
         message: 'Book is not mapped to server ID',
       };
     }
 
-    const res = await apiGet<{ location?: string; progressPercent?: number; isRead?: boolean }>(
-      `/books/${serverBookId}/progress?format=cfi`
-    );
+    const res = await apiGet<{
+      location?: string | null;
+      progressPercent?: number;
+      isRead?: boolean;
+      updatedAt?: string;
+    }>(`/books/${bookId}/progress?format=cfi`);
 
-    if (res && res.location) {
-      const percent = res.progressPercent || 0;
-      await saveDbLastLocation(bookId, res.location, percent / 100, res.isRead || false);
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('folio:sync-completed', { detail: { bookId } }));
-      }
+    // An empty location means "no position": there is nowhere to go
+    if (res && res.location && res.location.trim()) {
       return {
         success: true,
         message: 'Progress successfully fetched from server',
         location: res.location,
-        progressPercent: percent,
+        progressPercent: res.progressPercent || 0,
         isRead: res.isRead,
+        updatedAt: res.updatedAt,
       };
     }
 
@@ -488,13 +578,14 @@ export async function syncBookData(bookId: string): Promise<SyncResult | null> {
   try {
     const serverUrl = getServerUrl();
     if (!serverUrl) return null;
-    const token = getAccessToken();
 
-    const result = await invoke<SyncResult>('sync_book_data', {
-      bookId,
-      serverUrl,
-      token: token || null,
-    });
+    const result = await withFreshAccessToken((token) =>
+      invoke<SyncResult>('sync_book_data', {
+        bookId,
+        serverUrl,
+        token,
+      })
+    );
     if (result && typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('folio:sync-completed', { detail: { bookId, result } }));
     }
@@ -511,12 +602,13 @@ export async function syncAllPending(): Promise<SyncResult[]> {
   try {
     const serverUrl = getServerUrl();
     if (!serverUrl) return [];
-    const token = getAccessToken();
 
-    const results = await invoke<SyncResult[]>('sync_all_pending', {
-      serverUrl,
-      token: token || null,
-    });
+    const results = await withFreshAccessToken((token) =>
+      invoke<SyncResult[]>('sync_all_pending', {
+        serverUrl,
+        token,
+      })
+    );
     if (results && results.length > 0 && typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('folio:sync-completed', { detail: { results } }));
     }

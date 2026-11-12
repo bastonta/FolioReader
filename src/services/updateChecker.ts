@@ -244,26 +244,25 @@ export function getPlatformDownloadAsset(release: GitHubRelease): GitHubAsset | 
       return apkAssets[0];
     }
   } else {
+    // On desktop a release carries several installers per system (AppImage,
+    // deb and rpm; exe and msi; one per CPU architecture) and the app cannot
+    // tell which one it was installed from. Taking "the first that matches"
+    // hands e.g. a .deb to an AppImage user, so a direct download is offered
+    // only when exactly one installer fits; otherwise the caller falls back
+    // to the release page, where the user picks.
     const ua = typeof navigator !== 'undefined' ? navigator.userAgent.toLowerCase() : '';
+    const matching = (suffixes: string[]) =>
+      release.assets.filter((a) => suffixes.some((sfx) => a.name.toLowerCase().endsWith(sfx)));
+
+    let candidates: GitHubAsset[] = [];
     if (ua.includes('win')) {
-      const exe = release.assets.find(
-        (a) =>
-          a.name.toLowerCase().endsWith('.exe') ||
-          a.name.toLowerCase().endsWith('.msi') ||
-          a.name.toLowerCase().includes('setup')
-      );
-      if (exe) return exe;
+      candidates = matching(['.exe', '.msi']);
     } else if (ua.includes('linux')) {
-      const linuxAsset = release.assets.find(
-        (a) => a.name.toLowerCase().endsWith('.appimage') || a.name.toLowerCase().endsWith('.deb')
-      );
-      if (linuxAsset) return linuxAsset;
+      candidates = matching(['.appimage', '.deb', '.rpm']);
     } else if (ua.includes('mac')) {
-      const macAsset = release.assets.find(
-        (a) => a.name.toLowerCase().endsWith('.dmg') || a.name.toLowerCase().endsWith('.tar.gz')
-      );
-      if (macAsset) return macAsset;
+      candidates = matching(['.dmg', '.tar.gz']);
     }
+    if (candidates.length === 1) return candidates[0];
   }
 
   return null;

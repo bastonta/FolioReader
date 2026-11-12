@@ -48,15 +48,18 @@ export function useReadingTracker({ bookId, currentFraction }: UseReadingTracker
     refreshStats();
   }, [refreshStats]);
 
-  const isSavingRef = useRef<boolean>(false);
+  const savingPromiseRef = useRef<Promise<boolean> | null>(null);
 
-  // Flush current session chunk with re-entrancy protection
-  const flushSession = useCallback(async () => {
-    if (isSavingRef.current) return;
+  // Flush current session chunk. A flush that is already running is shared,
+  // so every caller can wait until the chunk is really in the database.
+  // Resolves to true when a chunk was written.
+  const flushSession = useCallback((): Promise<boolean> => {
+    if (savingPromiseRef.current) return savingPromiseRef.current;
     const duration = activeSecondsRef.current;
     const currentBookId = bookIdRef.current;
-    if (duration >= 10 && currentBookId) {
-      isSavingRef.current = true;
+    if (duration < 10 || !currentBookId) return Promise.resolve(false);
+
+    const run = (async () => {
       try {
         const now = Date.now();
         const startIso = new Date(startTimeRef.current).toISOString();
@@ -64,6 +67,14 @@ export function useReadingTracker({ bookId, currentFraction }: UseReadingTracker
         const startProg = startFractionRef.current;
         const endProg = currentFractionRef.current;
         const pages = pagesReadRef.current;
+
+        // Start the next chunk before the (asynchronous) write, so that
+        // seconds counted while it is in flight belong to the next chunk
+        activeSecondsRef.current = 0;
+        setActiveSeconds(0);
+        startTimeRef.current = now;
+        startFractionRef.current = endProg;
+        pagesReadRef.current = 0;
 
         await saveDbReadingSession(
           currentBookId,
@@ -76,25 +87,22 @@ export function useReadingTracker({ bookId, currentFraction }: UseReadingTracker
           'FolioReader'
         );
 
-        // Reset chunk trackers
-        activeSecondsRef.current = 0;
-        setActiveSeconds(0);
-        startTimeRef.current = now;
-        startFractionRef.current = currentFractionRef.current;
-        pagesReadRef.current = 0;
-
         // Silently refresh stats
         refreshStats();
+        return true;
       } catch (e) {
         console.warn('Failed to save reading session chunk:', e);
+        return false;
       } finally {
-        isSavingRef.current = false;
+        savingPromiseRef.current = null;
       }
-    }
+    })();
+    savingPromiseRef.current = run;
+    return run;
   }, [refreshStats]);
 
   // Stable save function that reads current values from refs
-  const saveCurrentChunkRef = useRef<(() => Promise<void>) | undefined>(undefined);
+  const saveCurrentChunkRef = useRef<(() => Promise<boolean>) | undefined>(undefined);
   saveCurrentChunkRef.current = flushSession;
 
   // Record a page turn
@@ -102,6 +110,13 @@ export function useReadingTracker({ bookId, currentFraction }: UseReadingTracker
     lastActiveTimestampRef.current = Date.now();
     isIdleRef.current = false;
     pagesReadRef.current += 1;
+  }, []);
+
+  // Record user activity that the window-level listeners below cannot see:
+  // input inside the book's iframes does not reach the top window.
+  const recordActivity = useCallback(() => {
+    lastActiveTimestampRef.current = Date.now();
+    isIdleRef.current = false;
   }, []);
 
   // Main active reading timer loop & idle detector
@@ -125,6 +140,28 @@ export function useReadingTracker({ bookId, currentFraction }: UseReadingTracker
     window.addEventListener('touchstart', handleUserActivity, { passive: true });
     window.addEventListener('keydown', handleUserActivity, { passive: true });
     window.addEventListener('scroll', handleUserActivity, { passive: true });
+
+    // Going to the background (Android minimise / screen off, desktop window
+    // hidden): the app may be killed there, so the chunk collected so far is
+    // written now instead of waiting for the next checkpoint. Coming back
+    // starts the next chunk at the moment of return.
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        saveCurrentChunkRef.current?.();
+      } else {
+        const now = Date.now();
+        lastActiveTimestampRef.current = now;
+        isIdleRef.current = false;
+        if (activeSecondsRef.current === 0) {
+          startTimeRef.current = now;
+        }
+      }
+    };
+    const handlePageHide = () => {
+      saveCurrentChunkRef.current?.();
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pagehide', handlePageHide);
 
     const timer = setInterval(() => {
       const now = Date.now();
@@ -154,6 +191,8 @@ export function useReadingTracker({ bookId, currentFraction }: UseReadingTracker
       window.removeEventListener('touchstart', handleUserActivity);
       window.removeEventListener('keydown', handleUserActivity);
       window.removeEventListener('scroll', handleUserActivity);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pagehide', handlePageHide);
 
       // Save on unmount — uses ref to always call the latest version
       saveCurrentChunkRef.current?.();
@@ -164,6 +203,7 @@ export function useReadingTracker({ bookId, currentFraction }: UseReadingTracker
     stats,
     activeSeconds,
     recordPageTurn,
+    recordActivity,
     refreshStats,
     flushSession,
   };

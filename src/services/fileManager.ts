@@ -19,6 +19,9 @@ const BOOK_HAS_NO_CHAPTERS_ERROR = 'BOOK_HAS_NO_CHAPTERS';
 /** Error string returned by `download_chapters_book` when the server cannot list volumes. */
 const VOLUMES_NOT_SUPPORTED_ERROR = 'VOLUMES_NOT_SUPPORTED';
 
+/** Size of the pieces a book file is read in (the core returns at most 16 MiB per call). */
+const BOOK_READ_CHUNK_BYTES = 8 * 1024 * 1024;
+
 export interface DownloadBookOptions {
   serverUrl: string;
   token?: string;
@@ -139,12 +142,41 @@ export const fileManager = {
   },
 
   /**
-   * Reads raw bytes of a local book file from disk and returns a File.
+   * Reads a local book file from disk and returns a File.
+   *
+   * The reading engine needs a real `File`, so the whole book still ends up in
+   * the WebView, but it gets there in pieces: neither the core nor the IPC
+   * bridge ever holds a book of several hundred megabytes in one buffer, and
+   * every piece becomes a part of the resulting file as soon as it arrives.
    */
   readBookFile: async (filePath: string): Promise<File> => {
+    const fileName = filePath.split(/[\\/]/).pop() || 'book.epub';
+    try {
+      const size = await invoke<number>('get_book_file_size', { filePath });
+      const parts: Blob[] = [];
+      let offset = 0;
+      while (offset < size) {
+        const chunk = await invoke<ArrayBuffer>('read_book_file_range', {
+          filePath,
+          offset,
+          length: Math.min(BOOK_READ_CHUNK_BYTES, size - offset),
+        });
+        const bytes = new Uint8Array(chunk);
+        // The file became shorter while it was being read
+        if (bytes.byteLength === 0) break;
+        parts.push(new Blob([bytes]));
+        offset += bytes.byteLength;
+      }
+      if (offset === size) {
+        return new File(parts, fileName, { type: 'application/epub+zip' });
+      }
+      console.warn(`'${filePath}' changed while it was being read, reading it again in one piece`);
+    } catch (err) {
+      console.warn(`Failed to read '${filePath}' in pieces, reading it in one piece:`, err);
+    }
+
     try {
       const arrayBuffer = await invoke<ArrayBuffer>('read_book_file', { filePath });
-      const fileName = filePath.split(/[\\/]/).pop() || 'book.epub';
       return new File([arrayBuffer], fileName, { type: 'application/epub+zip' });
     } catch (err) {
       console.error(`Failed to read book file '${filePath}':`, err);
@@ -232,7 +264,33 @@ export const fileManager = {
   },
 
   /**
+   * Finds the file of a server book that was downloaded before the application recorded
+   * what it downloads. The core accepts a file only if the server recognises its content
+   * as this very book (a file that merely has the expected name belongs to some other
+   * book) and then records the binding itself. `null`: no such file.
+   */
+  findDownloadedBook: async (options: {
+    serverUrl: string;
+    token: string;
+    bookId: string;
+    fileName: string;
+    seriesName?: string;
+    baseDir: string;
+  }): Promise<string | null> => {
+    if (!options.baseDir) return null;
+    return invoke<string | null>('find_downloaded_book', {
+      serverUrl: options.serverUrl,
+      token: options.token,
+      bookId: options.bookId,
+      fileName: options.fileName,
+      seriesName: options.seriesName || null,
+      baseDir: options.baseDir,
+    });
+  },
+
+  /**
    * Checks if book already exists in download folder / series folder (including nested series path and recursive search).
+   * A file found this way only has the name of the book: use `findDownloadedBook` to decide whether it is the book.
    */
   checkBookDownloaded: async (options: {
     baseDir: string;

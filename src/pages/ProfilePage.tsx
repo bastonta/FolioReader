@@ -427,7 +427,7 @@ export const ProfilePage: React.FC = () => {
             </div>
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
               <button className="auth-btn-secondary" style={{ flex: 1 }} onClick={() => { clearServer(); navigate('/server', { replace: true }); }}>{t('profile.changeServer')}</button>
-              <button className="auth-btn-secondary" style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }} onClick={() => { logout(); navigate('/login', { replace: true }); }}>
+              <button className="auth-btn-secondary" style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }} disabled={isLoading} onClick={async () => { setIsLoading(true); try { await logout(); } finally { setIsLoading(false); } navigate('/login', { replace: true }); }}>
                 <LogOut size={16} /> {t('profile.signOut')}
               </button>
             </div>

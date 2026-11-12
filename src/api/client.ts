@@ -5,7 +5,9 @@
  *   - Resolves the base URL from the token manager's `getServerUrl()`
  *   - Attaches the `Authorization: Bearer` header
  *   - On 401 (non-identity endpoints): triggers a single token refresh then
- *     retries the original request
+ *     retries the original request once. The session ends only when the
+ *     refresh endpoint itself rejects the session, never because of the
+ *     status of the retried request
  *   - Sends `credentials: 'include'` so the WebView passes cookies
  */
 
@@ -13,9 +15,8 @@ import { fetch } from '@tauri-apps/plugin-http';
 import {
   getAccessToken,
   getServerUrl,
-  setAccessToken,
   refreshAccessToken,
-  clearTokens,
+  SessionRejectedError,
 } from './tokenManager';
 
 // ─── Types ───────────────────────────────────────────────────────────────
@@ -134,76 +135,30 @@ export async function apiFetch<T = unknown>(
 
   // ── Handle 401 with automatic token refresh ────────────────────────
   if (res.status === 401 && !_retry && !isAuthPath(path)) {
+    // Only the refresh itself is guarded here. The session ends solely when
+    // the refresh endpoint rejects it (`SessionRejectedError`; the token
+    // manager has then already cleared the tokens and announced it). The
+    // retried request below is an ordinary request: whatever it answers
+    // (404, 409, 5xx, even 401) is reported to the caller and nothing else.
+    let newToken: string;
     try {
-      const newToken = await refreshAccessToken();
-      // Retry with fresh token
-      headers.set('Authorization', `Bearer ${newToken}`);
-      let retryRes: Response;
-      const retryController = !init.signal ? new AbortController() : null;
-      const retryTimeoutId = retryController ? setTimeout(() => retryController.abort(), 10000) : null;
-      try {
-        retryRes = await fetch(url, {
-          ...init,
-          headers,
-          credentials: 'include',
-          signal: init.signal || retryController?.signal,
-        });
-        notifyConnectionRestored();
-      } catch (netErr: any) {
-        notifyConnectionLost();
-        throw {
-          status: 0,
-          message: netErr?.message || 'Network error: server unreachable on retry',
-          data: netErr,
-        } as ApiError;
-      } finally {
-        if (retryTimeoutId) clearTimeout(retryTimeoutId);
-      }
-
-      if (!retryRes.ok) {
-        if (retryRes.status === 401) {
-          clearTokens();
-          window.dispatchEvent(new CustomEvent('folio:session-expired'));
-        }
-        throw await parseErrorBody(retryRes);
-      }
-
-      // Handle empty body (204, etc.)
-      const ct = retryRes.headers.get('content-type');
-      if (retryRes.status === 204 || !ct?.includes('application/json')) {
-        return undefined as T;
-      }
-      return retryRes.json() as Promise<T>;
-    } catch (refreshErr: any) {
-      const isNetErr =
-        refreshErr?.status === 0 ||
-        (typeof refreshErr === 'string' &&
-          (refreshErr.includes('Network error') ||
-            refreshErr.includes('Failed to fetch'))) ||
-        refreshErr?.message?.includes('Network error') ||
-        refreshErr?.message?.includes('Failed to fetch') ||
-        (typeof navigator !== 'undefined' && !navigator.onLine);
-
-      if (!isNetErr) {
-        // Refresh genuinely failed due to invalid/expired session — force logout
-        clearTokens();
-        window.dispatchEvent(new CustomEvent('folio:session-expired'));
+      newToken = await refreshAccessToken();
+    } catch (refreshErr: unknown) {
+      if (refreshErr instanceof SessionRejectedError) {
         throw { status: 401, message: 'Session expired' } as ApiError;
       }
-
       throw {
         status: 0,
-        message: 'Network error: session refresh deferred while offline',
+        message: 'Network error: session refresh failed, will retry later',
         data: refreshErr,
       } as ApiError;
     }
+
+    headers.set('Authorization', `Bearer ${newToken}`);
+    return apiFetch<T>(path, { ...init, headers }, true);
   }
 
   if (!res.ok) {
-    if (res.status === 401 && !isAuthPath(path)) {
-      clearTokens();
-      window.dispatchEvent(new CustomEvent('folio:session-expired'));
-    }
     throw await parseErrorBody(res);
   }
 
@@ -213,21 +168,11 @@ export async function apiFetch<T = unknown>(
     return undefined as T;
   }
 
-  // If this is a login/email-confirm response, extract the token
+  // Tokens are never stored implicitly here: sign-in goes through the Rust
+  // auth proxy (which also keeps the refresh cookie), and other identity
+  // responses carry tokens that are not access tokens (e.g. the password
+  // reset token), which must not replace the session token.
   const data = await res.json();
-
-  // Auto-store access token from auth responses
-  if (
-    data &&
-    typeof data === 'object' &&
-    'token' in data &&
-    typeof data.token === 'string' &&
-    isAuthPath(path) &&
-    // Don't store intermediate 2FA token
-    !('need2fa' in data && data.need2fa === true)
-  ) {
-    setAccessToken(data.token);
-  }
 
   return data as T;
 }

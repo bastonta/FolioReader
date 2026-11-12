@@ -203,6 +203,7 @@ export const en = {
   "browse.downloadFailedAlert": "Failed to download book: {error}",
   "browse.downloadNoFileError": "This book is assembled from chapters and has no EPUB file to download",
   "browse.downloadNoChaptersError": "This book has no chapters yet",
+  "browse.downloadNoSession": "the session could not be renewed. Check the connection or sign in again",
   "browse.chaptersBadge": "Chapters",
   "browse.chaptersBadgeHint":
     "The server stores this book as separate chapters. It is downloaded chapter by chapter and can be updated when new ones appear.",
@@ -329,6 +330,7 @@ export const en = {
   "reader.syncSuccess": "Progress downloaded from server: {percent}%",
   "reader.syncUpToDate": "Book progress is up to date",
   "reader.syncFailed": "Sync failed: {error}",
+  "reader.syncNoSession": "the session could not be renewed. Check the connection or sign in again",
   "reader.theme": "Theme",
   "reader.themeLight": "Light",
   "reader.themeSepia": "Sepia",

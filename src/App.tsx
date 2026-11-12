@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { FoliateReader } from './components/reader/FoliateReader';
 import { LibraryView } from './components/library/LibraryView';
@@ -18,7 +18,7 @@ import {
   saveRecentBook,
   initStorage,
 } from './services/storage';
-import { saveDbBookMapping, loadDbLastLocation } from './services/readerDb';
+import { saveDbBookMapping, loadDbLastLocation, getLocalBookIdForFile } from './services/readerDb';
 import { fileManager } from './services/fileManager';
 import { setStatusBarVisible, setStatusBarTheme, isMobileDevice } from './services/systemUi';
 import { useBackHandler } from './services/backHandler';
@@ -44,6 +44,8 @@ import './App.css';
 // ─── Active book state ───────────────────────────────────────────────────
 
 interface ActiveBookState {
+  /** Distinguishes one opening of a book from the next (reader remount key). */
+  openSeq: number;
   id: string;
   source: File | Blob | string;
   title?: string;
@@ -98,6 +100,10 @@ function AppRoutes() {
   const { alert } = useDialog();
   const [settings, setSettings] = useState<ReaderSettings>(() => loadSettings());
   const [activeBook, setActiveBook] = useState<ActiveBookState | null>(null);
+  // Opening a book is asynchronous (the file is read first). Only the most
+  // recent request may show its book: a slow, older one must not replace the
+  // book that was opened after it, nor reopen a book that was already closed.
+  const openRequestRef = useRef(0);
   const [currentView, setCurrentView] = useState<'library' | 'browse'>('library');
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [autoUpdateInfo, setAutoUpdateInfo] = useState<UpdateInfo | null>(null);
@@ -148,6 +154,7 @@ function AppRoutes() {
   // Reset active book and reload settings when auth state changes (e.g. login/logout)
   useEffect(() => {
     if (!isAuthenticated) {
+      openRequestRef.current += 1;
       setActiveBook(null);
       setSettings(loadSettings());
     }
@@ -228,9 +235,11 @@ function AppRoutes() {
       if (!settings.sidebarPinned || isMobileDevice()) {
         handleUpdateSettings({ sidebarOpen: false });
       }
+      const requestId = ++openRequestRef.current;
       const filePath = book.filePath;
       const fileName = book.fileName;
       const file = await fileManager.readBookFile(filePath);
+      if (requestId !== openRequestRef.current) return;
 
       let title = cachedMeta?.title || fileName.replace(/\.[^/.]+$/, '');
       let author = cachedMeta?.author || t('common.unknownAuthor');
@@ -261,10 +270,12 @@ function AppRoutes() {
           console.warn('Metadata extraction skipped or failed:', e);
         }
       }
+      if (requestId !== openRequestRef.current) return;
 
       saveDbBookMapping(book.id, '', filePath).catch(console.warn);
 
       const lastLoc = await loadDbLastLocation(book.id);
+      if (requestId !== openRequestRef.current) return;
       saveRecentBook({
         id: book.id,
         title,
@@ -278,6 +289,7 @@ function AppRoutes() {
       });
 
       setActiveBook({
+        openSeq: requestId,
         id: book.id,
         source: file,
         title,
@@ -304,15 +316,22 @@ function AppRoutes() {
       if (!settings.sidebarPinned || isMobileDevice()) {
         handleUpdateSettings({ sidebarOpen: false });
       }
+      const requestId = ++openRequestRef.current;
       const file = await fileManager.readBookFile(filePath);
+      if (requestId !== openRequestRef.current) return;
       const fileName = filePath.split(/[\\/]/).pop() || 'book.epub';
-      const bookId = fileManager.getLocalBookId(filePath, settings.downloadPath);
+      // The id the file is recorded under, not one computed from its path: a
+      // copy built from chapters (and any book downloaded before the download
+      // folder was changed) keeps its reading state under the recorded id.
+      const bookId = await getLocalBookIdForFile(filePath, settings.downloadPath);
+      if (requestId !== openRequestRef.current) return;
 
       if (serverBookId) {
         saveDbBookMapping(bookId, serverBookId, filePath).catch(console.warn);
       }
 
       const lastLoc = await loadDbLastLocation(bookId);
+      if (requestId !== openRequestRef.current) return;
       saveRecentBook({
         id: bookId,
         title: title || fileName.replace(/\.[^/.]+$/, ''),
@@ -324,6 +343,7 @@ function AppRoutes() {
       });
 
       setActiveBook({
+        openSeq: requestId,
         id: bookId,
         source: file,
         title: title || fileName.replace(/\.[^/.]+$/, ''),
@@ -346,6 +366,7 @@ function AppRoutes() {
     if (!settings.sidebarPinned || isMobileDevice()) {
       handleUpdateSettings({ sidebarOpen: false });
     }
+    openRequestRef.current += 1;
     setActiveBook(null);
     document.title = `${t('common.appName')} — ${t('common.appSubtitle')}`;
   };
@@ -372,6 +393,7 @@ function AppRoutes() {
           onReset={handleBackToLibrary}
         >
           <FoliateReader
+            key={`${activeBook.id}:${activeBook.openSeq}`}
             bookId={activeBook.id}
             bookSource={activeBook.source}
             settings={settings}

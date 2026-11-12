@@ -9,10 +9,11 @@ import {
   setServerUrl as persistServerUrl,
   getCachedUser,
   setCachedUser,
+  clearTokens,
   isNetworkError,
 } from '../api/tokenManager';
 import { syncAllPending } from '../services/readerDb';
-import { clearAllUserData } from '../services/storage';
+import { claimLocalDataForUser } from '../services/storage';
 
 // ─── Context shape ───────────────────────────────────────────────────────
 
@@ -66,6 +67,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     try {
       const data = await profileApi.getProfile();
       if (opId !== authOpIdRef.current) return null;
+      // Sign-in already claimed the local data for this account; this covers
+      // sessions that started before ownership was recorded.
+      await claimLocalDataForUser(data.userId).catch(console.error);
+      if (opId !== authOpIdRef.current) return null;
       setUser(data);
       setCachedUser(data);
       setIsOffline(false);
@@ -90,12 +95,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
           setUser(fallbackUser);
           setCachedUser(fallbackUser);
         }
-      } else if (err?.status === 401) {
-        // Genuine 401: session is permanently expired or invalidated
+      } else if (err?.status === 401 && !getAccessToken()) {
+        // The refresh endpoint rejected the session (the HTTP client has
+        // already dropped the tokens). Local data is kept for the next
+        // sign-in of the same account.
         setUser(null);
-        clearAllUserData({ preserveServerUrl: true }).catch(console.error);
       } else {
-        // Other errors (e.g. 500), keep cached session
+        // Other errors (e.g. 500, or a 401 for a request retried with a
+        // freshly refreshed token), keep cached session
         const cached = getCachedUser();
         if (cached) {
           setUser(cached);
@@ -119,6 +126,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       const data = await profileApi.getProfile();
       if (opId !== authOpIdRef.current) return false;
       if (data) {
+        await claimLocalDataForUser(data.userId).catch(console.error);
+        if (opId !== authOpIdRef.current) return false;
         setUser(data);
         setCachedUser(data);
         setIsOffline(false);
@@ -131,9 +140,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       return false;
     } catch (err: any) {
       if (opId !== authOpIdRef.current) return false;
-      if (err?.status === 401) {
+      if (err?.status === 401 && !getAccessToken()) {
+        // Session rejected by the refresh endpoint; local data is kept.
         setUser(null);
-        clearAllUserData({ preserveServerUrl: true }).catch(console.error);
         return false;
       }
       if (isNetworkError(err) || err?.status === 0) {
@@ -255,10 +264,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   // ── Listen for session-expired events from the HTTP client ───────────
 
   useEffect(() => {
+    // Fired only when the refresh endpoint definitively rejected the session.
+    // The credentials are already gone; local data (including changes that
+    // were not synced yet) is kept and pushed after the next sign-in.
     const handleExpired = () => {
       ++authOpIdRef.current;
       setUser(null);
-      clearAllUserData({ preserveServerUrl: true }).catch(console.error);
     };
     window.addEventListener('folio:session-expired', handleExpired);
     return () =>
@@ -267,19 +278,40 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
 
   // ── Auth methods ─────────────────────────────────────────────────────
 
+  // Makes a sign-in that the server accepted the current session. Before the
+  // token becomes usable, local data left by another account is removed
+  // (data of the same account is kept). If that fails the sign-in is undone:
+  // the new account must never read or sync another account's data.
+  const startSession = useCallback(
+    async (userId: string, token: string): Promise<void> => {
+      try {
+        await claimLocalDataForUser(userId);
+      } catch (err) {
+        clearTokens();
+        throw err;
+      }
+      setAccessToken(token);
+      await fetchProfile();
+      // Changes made before the previous session ended are still waiting in
+      // the local database
+      syncAllPending().catch((e) =>
+        console.warn('Sync after sign-in failed:', e),
+      );
+    },
+    [fetchProfile],
+  );
+
   const login = useCallback(
     async (email: string, password: string): Promise<LoginResponse> => {
       const opId = ++authOpIdRef.current;
-      await clearAllUserData({ preserveServerUrl: true });
       const res = await authApi.login(email, password);
       if (opId !== authOpIdRef.current) return res;
       if (!res.need2fa) {
-        setAccessToken(res.token);
-        await fetchProfile();
+        await startSession(res.userId, res.token);
       }
       return res;
     },
-    [fetchProfile],
+    [startSession],
   );
 
   const login2fa = useCallback(
@@ -290,13 +322,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       type: Login2faType = 'code',
     ): Promise<void> => {
       const opId = ++authOpIdRef.current;
-      await clearAllUserData({ preserveServerUrl: true });
       const res = await authApi.login2fa(userId, token, code, type);
       if (opId !== authOpIdRef.current) return;
-      setAccessToken(res.token);
-      await fetchProfile();
+      await startSession(res.userId || userId, res.token);
     },
-    [fetchProfile],
+    [startSession],
   );
 
   const register = useCallback(
@@ -309,23 +339,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const emailConfirm = useCallback(
     async (userId: string, code: string): Promise<void> => {
       const opId = ++authOpIdRef.current;
-      await clearAllUserData({ preserveServerUrl: true });
       const res = await authApi.emailConfirm(userId, code);
       if (opId !== authOpIdRef.current) return;
-      setAccessToken(res.token);
-      await fetchProfile();
+      await startSession(userId, res.token);
     },
-    [fetchProfile],
+    [startSession],
   );
 
   const logout = useCallback(async () => {
     ++authOpIdRef.current;
+    // Last chance to push unsynced changes while the token still works.
+    // Whatever does not make it stays in the local database and is pushed
+    // after the next sign-in of the same account.
+    try {
+      await Promise.race([
+        syncAllPending(),
+        new Promise((resolve) => setTimeout(resolve, 5000)),
+      ]);
+    } catch {
+      // ignore
+    }
     try {
       await authApi.logout();
     } catch {
       // ignore
     }
-    await clearAllUserData({ preserveServerUrl: true });
     setUser(null);
   }, []);
 
@@ -343,7 +381,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const clearServer = useCallback(() => {
     ++authOpIdRef.current;
     persistServerUrl(null);
-    clearAllUserData({ preserveServerUrl: false }).catch(console.error);
+    clearTokens();
     setServerUrlState(null);
     setUser(null);
   }, []);

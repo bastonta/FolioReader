@@ -1,7 +1,5 @@
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
 import { ReaderSettings, RecentBook } from '../types/reader';
-import { clearDbAllData } from './readerDb';
-import { clearTokens, getServerUrl } from '../api/tokenManager';
 import { fileManager } from './fileManager';
 
 const SETTINGS_KEY = 'foliate_reader_settings';
@@ -93,63 +91,72 @@ export async function clearIndexedDb(): Promise<void> {
   });
 }
 
-// ─── All User Data Reset ───────────────────────────────────────────────────
+// ─── Local Data Ownership ──────────────────────────────────────────────────
+//
+// Ending a session (expiry, sign-out, server change) never deletes local data:
+// reading positions, annotations, bookmarks and reading sessions that have not
+// reached the server yet must survive it and are pushed after the next
+// sign-in. The database remembers which account it belongs to; it is cleared
+// only when a DIFFERENT account signs in on this device.
 
-export async function clearAllUserData(
-  options: { preserveServerUrl?: boolean } = {}
-): Promise<void> {
-  const { preserveServerUrl = true } = options;
-  const currentServerUrl = preserveServerUrl
-    ? (typeof localStorage !== 'undefined' ? localStorage.getItem('folio_server_url') : null) || getServerUrl()
-    : null;
+const DATA_OWNER_KV_KEY = 'local_data_owner';
 
-  // 1. Clear SQLite database
-  try {
-    await clearDbAllData();
-  } catch (err) {
-    console.error('Failed to clear SQLite DB:', err);
+/** Account the local database is known to belong to (memoised per run). */
+let knownDataOwner: string | null = null;
+
+/**
+ * Deletes everything that belongs to the previous account: the SQLite tables
+ * (books bookkeeping, progress, bookmarks, annotations, reading sessions),
+ * cached covers and in-memory caches. Device settings and book files stay.
+ * Throws if the database could not be cleared.
+ */
+async function clearLocalUserData(): Promise<void> {
+  // Drop debounced writes first so nothing lands in the database after it
+  // has been cleared.
+  for (const timer of saveRecentBookDebounceTimers.values()) {
+    clearTimeout(timer);
   }
+  saveRecentBookDebounceTimers.clear();
+  pendingRecentBooks.clear();
 
-  // 2. Clear covers folder cache
+  await invoke('db_clear_all_data');
+
   try {
     await fileManager.clearCoversCache();
   } catch (err) {
     console.error('Failed to clear covers cache:', err);
   }
 
-  // 3. Reset settings.json to defaults
-  try {
-    await fileManager.saveAppSettings(JSON.stringify(DEFAULT_SETTINGS, null, 2));
-  } catch (err) {
-    console.error('Failed to reset settings.json:', err);
-  }
-
-  // 4. Clear legacy IndexedDB if exists
   try {
     await clearIndexedDb();
   } catch (err) {
     console.error('Failed to clear IndexedDB:', err);
   }
 
-  // 5. Clear localStorage (preserving server URL if requested)
-  try {
-    if (typeof localStorage !== 'undefined') {
-      localStorage.clear();
-      if (preserveServerUrl && currentServerUrl) {
-        localStorage.setItem('folio_server_url', currentServerUrl);
-      }
-    }
-  } catch (err) {
-    console.error('Failed to clear localStorage:', err);
-  }
-
-  // 6. Reset in-memory caches
-  cachedSettings = { ...DEFAULT_SETTINGS };
   cachedRecentBooks = [];
   cachedLocalMeta = {};
+}
 
-  // 7. Clear memory tokens & cookies
-  clearTokens();
+/**
+ * Makes sure the local database belongs to `userId` before that account is
+ * allowed to use (and sync) it. Same account or no recorded owner: the data
+ * is kept. Another account: the data is cleared first.
+ *
+ * Throws when the previous account's data could not be removed, so the
+ * caller can refuse to sign in on top of it.
+ */
+export async function claimLocalDataForUser(userId: string): Promise<void> {
+  if (!userId || !isTauri()) return;
+  if (knownDataOwner === userId) return;
+
+  const owner = await invoke<string | null>('db_get_app_kv', { key: DATA_OWNER_KV_KEY });
+  if (owner && owner !== userId) {
+    await clearLocalUserData();
+  }
+  if (owner !== userId) {
+    await invoke('db_set_app_kv', { key: DATA_OWNER_KV_KEY, value: userId });
+  }
+  knownDataOwner = userId;
 }
 
 // ─── Book Covers Management (File System) ──────────────────────────────────
