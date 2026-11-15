@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Enabling two-factor authentication asks for the account password before the QR code is shown, as the Folio server now requires (`POST /profile/2fa-enable` with `password`). Older versions of the app cannot start the 2FA setup against an updated server.
+
 ## [0.9.0] - 2026-11-13
 
 ### Added

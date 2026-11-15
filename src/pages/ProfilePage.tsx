@@ -56,6 +56,7 @@ export const ProfilePage: React.FC = () => {
   // 2FA Modals
   const [showEnable2FA, setShowEnable2FA] = useState(false);
   const [twoFaSetupData, setTwoFaSetupData] = useState<{ secret: string, qrCodeUrl: string } | null>(null);
+  const [enable2FAPassword, setEnable2FAPassword] = useState('');
   const [twoFaCode, setTwoFaCode] = useState('');
   const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
   
@@ -182,14 +183,29 @@ export const ProfilePage: React.FC = () => {
     }
   };
 
-  const handleStartEnable2FA = async () => {
+  // The account password is asked first; the QR code follows once the server accepted it.
+  const handleStartEnable2FA = () => {
+    clearMessages();
+    setTwoFaSetupData(null);
+    setEnable2FAPassword('');
+    setTwoFaCode('');
+    setShowEnable2FA(true);
+  };
+
+  const closeEnable2FA = () => {
+    setShowEnable2FA(false);
+    setEnable2FAPassword('');
+  };
+
+  const handleVerifyEnable2FA = async (e: React.FormEvent) => {
+    e.preventDefault();
     clearMessages();
     setIsLoading(true);
     try {
-      const { secret, url } = await profileApi.enable2fa();
+      const { secret, url } = await profileApi.enable2fa(enable2FAPassword);
       const qrCodeUrl = await QRCode.toDataURL(url);
       setTwoFaSetupData({ secret, qrCodeUrl });
-      setShowEnable2FA(true);
+      setEnable2FAPassword('');
       setTwoFaCode('');
     } catch (err) {
       setError((err as any)?.message || 'Failed to initialize 2FA');
@@ -729,6 +745,51 @@ export const ProfilePage: React.FC = () => {
                 </div>
               </form>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Enable 2FA Modal (password confirmation) */}
+      {showEnable2FA && !twoFaSetupData && !recoveryCodes && (
+        <div className="modal-backdrop" onClick={closeEnable2FA}>
+          <div className="modal-container" style={{ maxWidth: 440 }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <span className="modal-title">{t('profile.setUpTwoFactor')}</span>
+              <button className="modal-close-btn" onClick={closeEnable2FA}><X size={16} /></button>
+            </div>
+            <form onSubmit={handleVerifyEnable2FA} autoComplete="off">
+              <div className="modal-body">
+                {error && (
+                  <div className="auth-error" style={{ marginBottom: 16 }}>
+                    <AlertCircle size={16} style={{ flexShrink: 0 }} />
+                    <span>{error}</span>
+                  </div>
+                )}
+                <p style={{ fontSize: 14, color: 'var(--text-primary)', marginBottom: 16, lineHeight: 1.4 }}>
+                  {t('profile.enableTwoFactorPasswordDesc')}
+                </p>
+                <div style={{ marginBottom: 8 }}>
+                  <label className="auth-label" style={{ display: 'block', marginBottom: 6 }}>{t('profile.enterPasswordToConfirm')}</label>
+                  <input
+                    id="enable2FAPassword"
+                    name="password"
+                    type="password"
+                    required
+                    className="auth-input"
+                    style={{ paddingLeft: 12 }}
+                    value={enable2FAPassword}
+                    onChange={e => setEnable2FAPassword(e.target.value)}
+                    disabled={isLoading}
+                    autoComplete="current-password"
+                    autoFocus
+                  />
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="auth-btn-text" onClick={closeEnable2FA}>{t('common.cancel')}</button>
+                <button type="submit" className="auth-btn-primary" disabled={isLoading || !enable2FAPassword}>{t('profile.continue')}</button>
+              </div>
+            </form>
           </div>
         </div>
       )}

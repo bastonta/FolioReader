@@ -551,6 +551,9 @@ export const en = {
   "profile.savedThem": "I have saved them",
   "profile.viewRecoveryCodesDesc":
     "To view or generate new recovery codes, please enter a code from your authenticator app. Note: Generating new codes will invalidate any old ones.",
+  "profile.enableTwoFactorPasswordDesc":
+    "To set up two-factor authentication, please confirm your account password first.",
+  "profile.continue": "Continue",
   "profile.authenticatorCodeLabel": "Authenticator Code",
   "profile.verify": "Verify",
   "profile.disableTwoFactorDesc":

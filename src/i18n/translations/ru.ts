@@ -559,6 +559,9 @@ export const ru: Partial<Record<TranslationKey, string>> = {
   "profile.savedThem": "Я сохранил(а) коды",
   "profile.viewRecoveryCodesDesc":
     "Для просмотра или генерации новых кодов введите код из приложения-аутентификатора. Внимание: генерация новых кодов аннулирует старые.",
+  "profile.enableTwoFactorPasswordDesc":
+    "Чтобы настроить двухфакторную аутентификацию, сначала подтвердите пароль от аккаунта.",
+  "profile.continue": "Продолжить",
   "profile.authenticatorCodeLabel": "Код из аутентификатора",
   "profile.verify": "Проверить",
   "profile.disableTwoFactorDesc":

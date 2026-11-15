@@ -43,8 +43,9 @@ export const profileApi = {
     await apiPost('/profile/email-change-confirm', { newEmail, code });
   },
 
-  enable2fa: async (): Promise<TfaEnableResponse> => {
-    return apiPost<TfaEnableResponse>('/profile/2fa-enable');
+  // The server issues a 2FA secret only after it has checked the account password.
+  enable2fa: async (password: string): Promise<TfaEnableResponse> => {
+    return apiPost<TfaEnableResponse>('/profile/2fa-enable', { password });
   },
 
   confirm2fa: async (code: string): Promise<TfaConfirmResponse> => {
