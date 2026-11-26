@@ -21,6 +21,7 @@
 - **Flexible Layouts**: Paginated (single page or two-column spread) and continuous vertical scroll modes.
 - **Interactive Navigation**: Interactive Table of Contents (TOC), progress bar scrubber, footnote popups, and reading percentage indicators.
 - **Touch & Gesture Support**: Configurable page turning via taps, swipe gestures, or keyboard shortcuts.
+- **Read Aloud**: Offline text-to-speech with downloadable Russian and English Piper voices ([sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx)); highlights the sentence being read and turns pages and chapters on its own. Cyrillic text is read by the Russian voice, Latin text by the English one.
 
 ### 🖍️ Annotations & Bookmarks
 
@@ -145,6 +146,7 @@ FolioReader/
 - **Database**: [SQLx](https://github.com/launchbadge/sqlx) with SQLite
 - **Networking**: [Reqwest](https://github.com/seanmonstar/reqwest) (with cookie jar)
 - **Serialization**: [Serde](https://serde.rs/) & [serde_json](https://github.com/serde-rs/json)
+- **Text-to-Speech**: [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) 1.13 (ONNX Runtime + espeak-ng) running [Piper](https://github.com/rhasspy/piper) voices
 
 ---
 
@@ -227,3 +229,5 @@ Folio Reader is part of the Folio e-book ecosystem:
 ## 📄 License
 
 This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
+
+**Third-party components:** application builds link [sherpa-onnx](https://github.com/k2-fsa/sherpa-onnx) 1.13 (Apache-2.0), which includes [espeak-ng](https://github.com/espeak-ng/espeak-ng) (**GPL-3.0-or-later**) for turning text into phonemes. Distributed binaries are therefore subject to the GPL-3.0 as a whole; the source code of this repository stays under the MIT License. sherpa-onnx 2.x no longer contains espeak-ng, but cannot run Piper voices without it yet. Downloaded Piper voices carry their own licenses (see the `MODEL_CARD` of each voice); several are for non-commercial use only.

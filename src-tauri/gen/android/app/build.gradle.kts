@@ -29,6 +29,9 @@ configure<ApplicationExtension> {
     packaging {
         jniLibs {
             useLegacyPackaging = false
+            // The sherpa-onnx build script copies its whole Android archive into jniLibs;
+            // the app calls the C API only (libsherpa-onnx-c-api.so + libonnxruntime.so).
+            excludes += setOf("**/libsherpa-onnx-jni.so", "**/libsherpa-onnx-cxx-api.so")
         }
     }
     signingConfigs {

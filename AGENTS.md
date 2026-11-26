@@ -39,7 +39,8 @@ FolioReader/
 │       ├── db.rs                 # Embedded SQLite (sqlx) schema, migrations, and local CRUD
 │       ├── fs_manager.rs         # Local book scanning, streaming downloads, custom font management
 │       ├── reader_commands.rs    # Tauri IPC invoke commands bridging frontend to SQLite & Sync
-│       └── sync_manager.rs       # Bi-directional cloud sync engine, conflict resolution & offline queue
+│       ├── sync_manager.rs       # Bi-directional cloud sync engine, conflict resolution & offline queue
+│       └── tts.rs                # Offline text-to-speech: Piper voice downloads and synthesis with sherpa-onnx
 ├── package.json                  # Node dependencies & frontend scripts
 ├── vite.config.ts                # Vite bundler configuration
 └── tsconfig.json                 # TypeScript compiler configuration
@@ -75,7 +76,15 @@ FolioReader/
 - **Bookkeeping** (`db.rs`): `chapter_copies` records which part of which server book a local file holds, `chapter_copy_chapters` its chapter order. Reading state of a copy (progress, recent entry, bookmarks, annotations, sessions) is stored under its **local id only** — never under the server id, which several copies share (`related_row_ids`). Books downloaded as files keep the "local id or server id" lookup.
 - **Sync** (`sync_manager.rs`): the position goes to the server as `ch:<chapterId>`. A volume copy translates between its own scale and the whole book: percentages (`chaptersBefore`, chapters in the copy, `bookChapters`), the read flag (finishing a volume finishes the book only if it is the last one, and never clears the flag), and the spine index of bookmarks and annotations (shifted by `chaptersBefore`; server items outside the copy are ignored, never deleted).
 
-### E. Platform-Native Integrations
+### E. Read Aloud (`tts.rs`, `services/ttsPlayer.ts`)
+
+- **Engine**: `sherpa-onnx` pinned to `=1.13.8`, the last release that contains espeak-ng. 2.x removed espeak-ng and Piper voices (Russian included) synthesize nothing without it — do not upgrade until upstream ships lexicons or a G2P that covers Russian. espeak-ng is GPL-3: binaries carry it (see README, License).
+- **Voices**: a fixed catalog of Piper voices (`VOICES` in `tts.rs`) downloaded from the sherpa-onnx `tts-models` release into `{base}/tts/voices/{id}/`. One shared `{base}/tts/espeak-ng-data` serves all voices: espeak-ng is initialised once per process with the first directory it gets, so that directory must never be deleted with a voice.
+- **Synthesis**: `tts_synthesize` returns raw PCM (`u32` LE sample rate + mono `f32` LE samples) that the frontend plays with the Web Audio API. At most two engines stay loaded (one per language).
+- **Playback**: `TtsPlayer` drives foliate-js `TTS` (`view.initTTS('sentence')`): one utterance per sentence mark, two sentences synthesized ahead, sentence highlight via the CSS Custom Highlight API. foliate-js TTS knows the marks of one block at a time, so the next block is read only after `setMark` of the last sentence of the current one.
+- **Android**: the crate's build script downloads the sherpa-onnx Android libraries and copies them into `gen/android/app/src/main/jniLibs/<abi>/` (ignored by git).
+
+### F. Platform-Native Integrations
 
 - **Android Navigation**: Uses hardware back button handlers (`useBackButton`) to dismiss modals, drawers, and reader views before allowing the app to background.
 - **Dynamic Status Bar**: Updates system UI colors on mobile to match the active reader theme (`Light`, `Sepia`, `Gray`, `Dark`, `Solarized`).

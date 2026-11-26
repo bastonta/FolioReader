@@ -21,6 +21,9 @@ import { FootnoteModal } from './FootnoteModal';
 import { QuickReturnChip } from './QuickReturnChip';
 import { AnnotationPopover, SelectionInfo } from './AnnotationPopover';
 import { SettingsPopover } from './SettingsPopover';
+import { TtsMiniPlayer, TtsPanel } from './TtsPanel';
+import { TtsNoVoiceError, TtsPlayer, type TtsView } from '../../services/ttsPlayer';
+import type { TtsPlaybackState } from '../../types/tts';
 import { BookInfoModal } from './BookInfoModal';
 import { ImageViewerModal, ImageViewerData, ViewerImageItem } from './ImageViewerModal';
 import { setStatusBarVisible, setStatusBarTheme, setDisableSystemActionMode, dismissOriginalContextMenu, isMobileDevice, setVolumeKeyNavigation, setKeepScreenOn } from '../../services/systemUi';
@@ -420,6 +423,12 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   selectionRef.current = selection;
 
   const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
+  const [isTtsOpen, setIsTtsOpen] = useState<boolean>(false);
+  const isTtsOpenRef = useRef(isTtsOpen);
+  isTtsOpenRef.current = isTtsOpen;
+  const [ttsState, setTtsState] = useState<TtsPlaybackState>('idle');
+  const ttsPlayerRef = useRef<TtsPlayer | null>(null);
+  const ttsBtnRef = useRef<HTMLButtonElement>(null);
   const [isBookInfoOpen, setIsBookInfoOpen] = useState<boolean>(false);
   const [bookOpenError, setBookOpenError] = useState<string | null>(null);
   const [customFonts, setCustomFonts] = useState<LoadedCustomFont[]>(() => fontManager.getCachedFonts());
@@ -662,6 +671,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
   useBackHandler(() => { setIsBookInfoOpen(false); return true; }, isBookInfoOpen, 110);
   useBackHandler(() => { setSelection(null); return true; }, Boolean(selection), 100);
   useBackHandler(() => { setIsSettingsOpen(false); return true; }, isSettingsOpen, 90);
+  useBackHandler(() => { setIsTtsOpen(false); return true; }, isTtsOpen, 89);
   useBackHandler(() => { onUpdateSettings({ sidebarOpen: false }); return true; }, Boolean(settings.sidebarOpen), 80);
   useBackHandler(
     () => {
@@ -686,6 +696,52 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
     },
     []
   );
+
+  // ─── Read aloud ───────────────────────────────────────────────────────────
+  // The player outlives renders: it reports errors through this ref, so that the
+  // message is translated into the language chosen at the time.
+  const handleTtsErrorRef = useRef<(err: unknown) => void>(() => {});
+  handleTtsErrorRef.current = (err: unknown) => {
+    if (err instanceof TtsNoVoiceError) {
+      setIsTtsOpen(true);
+      showSyncToast(t('tts.noVoice'), 'info');
+    } else {
+      console.error('Read aloud failed:', err);
+      showSyncToast(t('tts.failed', { error: String(err) }), 'error');
+    }
+  };
+  const getTtsPlayer = useCallback((): TtsPlayer => {
+    if (!ttsPlayerRef.current) {
+      ttsPlayerRef.current = new TtsPlayer({
+        getView: () => (viewRef.current as TtsView | null) ?? null,
+        getVoices: () => ({
+          ru: settingsRef.current.ttsVoiceRu,
+          en: settingsRef.current.ttsVoiceEn,
+        }),
+        getSpeed: () => settingsRef.current.ttsSpeed ?? 1,
+        onStateChange: setTtsState,
+        onError: (err) => handleTtsErrorRef.current(err),
+      });
+    }
+    return ttsPlayerRef.current;
+  }, []);
+
+  const handleTtsPlay = useCallback(() => {
+    void getTtsPlayer().start();
+  }, [getTtsPlayer]);
+  const handleTtsPause = useCallback(() => ttsPlayerRef.current?.pause(), []);
+  const handleTtsResume = useCallback(() => ttsPlayerRef.current?.resume(), []);
+  const handleTtsStop = useCallback(() => ttsPlayerRef.current?.stop(), []);
+
+  // A new speed or voice applies from the next sentence on
+  useEffect(() => {
+    ttsPlayerRef.current?.refresh();
+  }, [settings.ttsSpeed, settings.ttsVoiceRu, settings.ttsVoiceEn]);
+
+  useEffect(() => () => {
+    ttsPlayerRef.current?.dispose();
+    ttsPlayerRef.current = null;
+  }, []);
 
   // Message handed over by the previous opening of the book (e.g. after new chapters)
   useEffect(() => {
@@ -933,6 +989,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
       if (
         !isHoveringControlsRef.current &&
         !isSettingsOpenRef.current &&
+        !isTtsOpenRef.current &&
         !isBookInfoOpenRef.current &&
         !footnoteRef.current &&
         !selectionRef.current &&
@@ -1306,6 +1363,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
       }
 
       // Clean up previous view
+      ttsPlayerRef.current?.stop();
       if (viewRef.current) {
         viewRef.current.close?.();
         viewRef.current.remove();
@@ -1981,6 +2039,10 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
             setIsSettingsOpen(false);
             return;
           }
+          if (isTtsOpenRef.current) {
+            setIsTtsOpen(false);
+            return;
+          }
 
           // 6. Clean click without text selection
           const sel = doc.defaultView?.getSelection();
@@ -2326,6 +2388,7 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
       }
       paginatorRef.current?.destroy();
       paginatorRef.current = null;
+      ttsPlayerRef.current?.stop();
       if (viewRef.current) {
         try {
           viewRef.current.close?.();
@@ -2595,10 +2658,18 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         canGoForward={canGoForward}
         onToggleSettings={() => {
           setIsSettingsOpen((prev) => !prev);
+          setIsTtsOpen(false);
           if (showControls) cancelAutoHide();
         }}
         isSettingsOpen={isSettingsOpen}
         settingsBtnRef={settingsBtnRef}
+        onToggleTts={() => {
+          setIsTtsOpen((prev) => !prev);
+          setIsSettingsOpen(false);
+          if (showControls) cancelAutoHide();
+        }}
+        isTtsActive={isTtsOpen || ttsState !== 'idle'}
+        ttsBtnRef={ttsBtnRef}
         chapterTitle={chapterTitle}
         onUpdateChapters={chapterCopy ? handleUpdateChapters : undefined}
         isUpdatingChapters={isUpdatingChapters}
@@ -2744,6 +2815,17 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
             onDismiss={() => setQuickReturn(null)}
           />
 
+          {/* Read-aloud controls while the panel is closed */}
+          {!isTtsOpen && (
+            <TtsMiniPlayer
+              playbackState={ttsState}
+              onPause={handleTtsPause}
+              onResume={handleTtsResume}
+              onStop={handleTtsStop}
+              onOpenPanel={() => setIsTtsOpen(true)}
+            />
+          )}
+
           {/* Bottom Progress Scrubber */}
           <ProgressScrubber
             fraction={progressFraction}
@@ -2786,6 +2868,20 @@ export const FoliateReader: React.FC<FoliateReaderProps> = ({
         settings={settings}
         onUpdateSettings={onUpdateSettings}
         triggerRef={settingsBtnRef}
+      />
+
+      {/* Read-aloud Panel */}
+      <TtsPanel
+        isOpen={isTtsOpen}
+        onClose={() => setIsTtsOpen(false)}
+        triggerRef={ttsBtnRef}
+        playbackState={ttsState}
+        onPlay={handleTtsPlay}
+        onPause={handleTtsPause}
+        onResume={handleTtsResume}
+        onStop={handleTtsStop}
+        settings={settings}
+        onUpdateSettings={onUpdateSettings}
       />
 
       {/* Selection / Annotation Popover */}

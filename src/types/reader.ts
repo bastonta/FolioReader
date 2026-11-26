@@ -137,6 +137,12 @@ export interface ReaderSettings {
   autoCheckUpdates?: boolean;
   includePrereleases?: boolean;
   footerDisplayMode?: FooterDisplayMode;
+  /** Text-to-speech voice (`TtsVoice.id`) for Russian text */
+  ttsVoiceRu?: string;
+  /** Text-to-speech voice (`TtsVoice.id`) for English text */
+  ttsVoiceEn?: string;
+  /** Text-to-speech speed, 1 = normal */
+  ttsSpeed?: number;
 }
 
 export interface FootnoteData {

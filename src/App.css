@@ -5035,3 +5035,186 @@ foliate-view::part(foot) {
 
 
 
+
+/* ==========================================================================
+   Read Aloud (TTS) Panel & Mini Player
+   ========================================================================== */
+.tts-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tts-primary-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 36px;
+  border: none;
+  border-radius: var(--radius-md);
+  background-color: var(--accent-color);
+  color: var(--accent-text);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.tts-primary-btn:hover:not(:disabled) {
+  background-color: var(--accent-hover);
+}
+
+.tts-primary-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.tts-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.tts-icon-btn:hover:not(:disabled) {
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.tts-controls .tts-icon-btn {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border-color);
+}
+
+.tts-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+.tts-error {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--danger-color);
+  word-break: break-word;
+}
+
+.tts-voice-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.tts-voice-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 44px;
+  padding: 4px 6px 4px 10px;
+}
+
+.tts-voice-item + .tts-voice-item {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.tts-voice-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.tts-voice-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.tts-voice-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.tts-voice-progress {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.tts-download-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.tts-download-btn:hover {
+  background-color: var(--bg-tertiary);
+}
+
+.tts-mini-player {
+  position: absolute;
+  right: calc(16px + var(--sar, 0px));
+  bottom: calc(58px + var(--sab, 0px));
+  z-index: 46;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: bottom 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.controls-hidden .tts-mini-player {
+  bottom: calc(16px + var(--sab, 0px));
+}
+
+.tts-mini-player .tts-icon-btn {
+  border-radius: var(--radius-full);
+}
+
+.tts-mini-label {
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 0 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}

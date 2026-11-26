@@ -30,6 +30,7 @@ export const DEFAULT_SETTINGS: ReaderSettings = {
   autoCheckUpdates: true,
   includePrereleases: false,
   footerDisplayMode: 'pages',
+  ttsSpeed: 1,
 };
 
 const isTauri = (): boolean => {

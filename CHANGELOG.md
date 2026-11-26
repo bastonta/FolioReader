@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Read aloud: offline text-to-speech in the reader (headphones button in the header). Russian and English Piper voices (about 64 MB each) are downloaded on demand and run on the device by sherpa-onnx; reading starts at the visible page, highlights the sentence being read, turns pages and chapters, and can be paused, resumed and stopped from the panel or the mini player. Cyrillic sentences go to the Russian voice and Latin ones to the English voice; the speed is adjustable (0.5×–2×).
+
 ## [0.9.1] - 2026-11-15
 
 ### Changed

@@ -2,6 +2,7 @@ import {
   ArrowLeft,
   ArrowRight,
   CloudDownload,
+  Headphones,
   Library,
   Loader2,
   PanelLeft,
@@ -21,6 +22,11 @@ interface HeaderBarProps {
   onToggleSettings?: () => void;
   isSettingsOpen?: boolean;
   settingsBtnRef?: React.RefObject<HTMLButtonElement | null>;
+  /** Opens the read-aloud panel */
+  onToggleTts?: () => void;
+  /** The panel is open or the book is being read aloud */
+  isTtsActive?: boolean;
+  ttsBtnRef?: React.RefObject<HTMLButtonElement | null>;
   chapterTitle?: string;
   /** Fetches new chapters; only given for a book built from chapters, not for a ready EPUB */
   onUpdateChapters?: () => void;
@@ -40,6 +46,9 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   onToggleSettings,
   isSettingsOpen = false,
   settingsBtnRef,
+  onToggleTts,
+  isTtsActive = false,
+  ttsBtnRef,
   chapterTitle,
   onUpdateChapters,
   isUpdatingChapters = false,
@@ -143,6 +152,18 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             ) : (
               <CloudDownload size={16} />
             )}
+          </button>
+        )}
+        {onToggleTts && (
+          <button
+            type="button"
+            ref={ttsBtnRef}
+            className={`header-icon-btn ${isTtsActive ? "active" : ""}`}
+            onClick={onToggleTts}
+            title={t('tts.readAloud')}
+            aria-label={t('tts.readAloud')}
+          >
+            <Headphones size={16} />
           </button>
         )}
         {onToggleSettings && (

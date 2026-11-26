@@ -5,6 +5,7 @@ mod db;
 mod fs_manager;
 mod reader_commands;
 mod sync_manager;
+mod tts;
 
 use auth_proxy::{AuthHttpClient, AuthHttpClientState};
 use std::path::PathBuf;
@@ -65,6 +66,7 @@ pub fn run() {
         })
         .manage(Mutex::new(AuthHttpClient::new()) as AuthHttpClientState)
         .manage(sync_manager::SyncLock::new())
+        .manage(tts::TtsState::default())
         .invoke_handler(tauri::generate_handler![
             auth_proxy::auth_login_proxy,
             auth_proxy::auth_login_2fa_proxy,
@@ -130,6 +132,10 @@ pub fn run() {
             fs_manager::clear_covers_cache,
             fs_manager::load_app_settings,
             fs_manager::save_app_settings,
+            tts::tts_list_voices,
+            tts::tts_download_voice,
+            tts::tts_delete_voice,
+            tts::tts_synthesize,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
